@@ -1,0 +1,13 @@
+[[permission]]
+identifier = "allow-settings-commands"
+description = "Enables settings read/write commands."
+commands.allow = [
+  "get_app_settings",
+  "set_app_settings",
+  "list_skills",
+  "install_skill",
+  "uninstall_skill",
+  "get_skills_dir",
+  "open_skills_dir",
+  "get_mcp_runtime_support",
+]

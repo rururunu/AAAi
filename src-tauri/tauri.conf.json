@@ -1,0 +1,64 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AltAltAi",
+  "version": "0.1.0",
+  "identifier": "ai.altaltai.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:13330",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "overlay",
+        "title": "AltAltAi",
+        "url": "/#/overlay",
+        "width": 440,
+        "height": 82,
+        "minWidth": 320,
+        "minHeight": 82,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "visible": false,
+        "skipTaskbar": true,
+        "center": true,
+        "focus": true,
+        "resizable": false,
+        "maximizable": false
+      },
+      {
+        "label": "settings",
+        "title": "AltAltAi 设置",
+        "url": "/#/settings",
+        "width": 700,
+        "height": 520,
+        "decorations": false,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "visible": false,
+        "skipTaskbar": false,
+        "center": true,
+        "focus": true,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

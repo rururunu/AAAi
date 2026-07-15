@@ -1,0 +1,193 @@
+
+@import "./fonts.css";
+@import "./scrollbars.css";
+
+@import "tailwindcss";
+@import "../services/theme/themes.css";
+@import "tw-animate-css";
+@import "shadcn-vue/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+html,
+body,
+#app {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+html.peek-window,
+html.peek-window body,
+html.peek-window #app,
+html.peek-window #app > * {
+  background: transparent !important;
+  color: var(--peek-text);
+}
+
+html.peek-window.frosted-glass .peek-surface.glass {
+  backdrop-filter: blur(20px) saturate(1.15);
+  -webkit-backdrop-filter: blur(20px) saturate(1.15);
+}
+
+html.peek-window.frosted-glass .thread-panel.glass {
+  background: color-mix(in srgb, var(--peek-list-bg) calc(var(--peek-opacity) * 100%), transparent);
+}
+
+html.peek-window.frosted-glass .thread-panel.has-messages.glass {
+  background: color-mix(in srgb, var(--peek-list-bg) calc(var(--peek-opacity) * 100%), transparent);
+}
+
+html.peek-window.frosted-glass .composer-dock.glass {
+  background: color-mix(in srgb, var(--peek-surface) calc(var(--peek-opacity) * 100%), transparent);
+}
+
+@theme inline {
+  --font-sans: var(--peek-font-sans);
+  --font-heading: var(--peek-font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+}
+
+.dark {
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    @apply font-sans;
+    font-family: var(--peek-font-sans);
+  }
+  html.peek-window .overlay-shell,
+  html.peek-window .peek-panel,
+  html.peek-window .composer-dock,
+  html.peek-window .thread-panel,
+  html.peek-window .chat-input-shell,
+  html.peek-window .input-bar {
+    border-color: transparent !important;
+    outline-color: transparent !important;
+    --tw-ring-color: transparent !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-inset-ring-color: transparent !important;
+    --tw-inset-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-color: transparent !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+  }
+  html.peek-window body {
+    background: transparent;
+    color: var(--peek-text);
+  }
+}
+
+html.peek-window #app,
+html.peek-window #app > *,
+html.peek-window .overlay-shell,
+html.peek-window .peek-panel,
+html.peek-window .composer-dock,
+html.peek-window .thread-panel,
+html.peek-window .chat-input-shell {
+  border: none !important;
+  outline: none !important;
+}
+
+.setting-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--border);
+  height: 6px;
+  border-radius: 9999px;
+  outline: none;
+  transition: background 0.15s ease;
+}
+
+.setting-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid var(--background);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+.setting-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.setting-slider::-webkit-slider-thumb:active {
+  transform: scale(0.9);
+}
+
+.setting-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid var(--background);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+.setting-slider::-moz-range-thumb:hover {
+  transform: scale(1.2);
+}
+
+.setting-slider::-moz-range-thumb:active {
+  transform: scale(0.9);
+}
+

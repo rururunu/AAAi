@@ -1,0 +1,329 @@
+<template>
+  <div class="overlay-shell" data-tauri-drag-region>
+    <PeekPanel
+      :mode="mode"
+      :session-id="sessionId"
+      :captured-context="capturedContext"
+      @layout-change="handleLayoutChange"
+      @enter-chat="enterChatMode"
+      @context-consumed="capturedContext = null"
+      @selection-removed="removeCapturedSelection"
+      @close="close"
+      @collapse="collapseToCapSule"
+      @expand="expandFromCapsule"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onMounted, ref, watch } from "vue";
+import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
+import { currentMonitor } from "@tauri-apps/api/window";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import PeekPanel from "@/components/chat/PeekPanel.vue";
+import { closeOverlay, setOverlayChatMode, takeOverlayContext } from "@/services/ipc";
+import { useChatStore } from "@/stores/chat";
+import { useSettingStore } from "@/stores/setting";
+import type { CapturedContext } from "@/types/chat";
+import { IPC_EVENTS } from "@/types/ipc";
+
+const chatStore = useChatStore();
+const settingStore = useSettingStore();
+
+const capturedContext = ref<CapturedContext | null>(null);
+
+function removeCapturedSelection() {
+  if (!capturedContext.value) return;
+  capturedContext.value = {
+    ...capturedContext.value,
+    selection: undefined,
+  };
+}
+
+const OVERLAY_WIDTH = 440;
+const OVERLAY_MIN_WIDTH = 320;
+const INPUT_HEIGHT = 82;
+const OVERLAY_MIN_HEIGHT_INPUT = INPUT_HEIGHT;
+const CHAT_HEIGHT = 420;
+const OVERLAY_MIN_HEIGHT_CHAT = 240;
+const CAPSULE_WIDTH = 260;
+const CAPSULE_HEIGHT = 44;
+const SUGGESTION_ROW_HEIGHT = 30;
+const SUGGESTION_PADDING = 9;
+const PICKER_META_ROWS = 2;
+const PICKER_META_ROW_HEIGHT = 28;
+const PICKER_VISIBLE_ROWS = 8;
+const CONTEXT_PREVIEW_HEIGHT = 30;
+const INPUT_BAR_HEIGHT = INPUT_HEIGHT;
+
+const mode = ref<"input" | "chat">("input");
+const sessionId = ref("");
+const isCollapsed = ref(false);
+const lastComposerExtraHeight = ref(0);
+const chatWindowInitialized = ref(false);
+let layoutResizeQueue = Promise.resolve();
+
+// 获取当前窗口的 label，用于所有 IPC 调用
+const windowLabel = getCurrentWebviewWindow().label;
+
+function computePickerHeight(rowCount: number) {
+  if (rowCount <= 0) {
+    return 0;
+  }
+  const metaHeight = PICKER_META_ROWS * PICKER_META_ROW_HEIGHT;
+  const optionRows = Math.max(rowCount - PICKER_META_ROWS, 0);
+  const visibleRows = Math.min(optionRows, PICKER_VISIBLE_ROWS);
+  return SUGGESTION_PADDING + metaHeight + visibleRows * SUGGESTION_ROW_HEIGHT;
+}
+
+async function applyMinSize(minWidth: number, minHeight: number) {
+  const window = getCurrentWebviewWindow();
+  const zoom = (settingStore.zoom || 100) / 100;
+  await window.setMinSize(
+    new LogicalSize(minWidth * zoom, minHeight * zoom),
+  );
+}
+
+async function adjustWindowHeightBy(deltaDesignHeight: number, resizable: boolean) {
+  if (Math.abs(deltaDesignHeight) < 0.5) {
+    return;
+  }
+
+  const window = getCurrentWebviewWindow();
+  const scaleFactor = await window.scaleFactor();
+  const physicalPosition = await window.outerPosition();
+  const physicalSize = await window.outerSize();
+
+  const logicalPos = physicalPosition.toLogical(scaleFactor);
+  const logicalSize = physicalSize.toLogical(scaleFactor);
+  const zoom = (settingStore.zoom || 100) / 100;
+  const scaledDelta = deltaDesignHeight * zoom;
+
+  await window.setResizable(resizable);
+  await window.setMaximizable(false);
+  await window.setSize(
+    new LogicalSize(logicalSize.width, logicalSize.height + scaledDelta),
+  );
+  await window.setPosition(
+    new LogicalPosition(logicalPos.x, logicalPos.y - scaledDelta),
+  );
+}
+
+async function resizeWindow(
+  width: number,
+  height: number,
+  resizable: boolean,
+  skipPositionCorrection = false,
+  verticalAnchor: "top" | "bottom" = "top",
+) {
+  const window = getCurrentWebviewWindow();
+  const scaleFactor = await window.scaleFactor();
+  const physicalPosition = await window.outerPosition();
+  const physicalSize = await window.outerSize();
+
+  const logicalPos = physicalPosition.toLogical(scaleFactor);
+  const logicalSize = physicalSize.toLogical(scaleFactor);
+
+  const zoom = (settingStore.zoom || 100) / 100;
+  const scaledWidth = width * zoom;
+  const scaledHeight = height * zoom;
+
+  const currentHeight = logicalSize.height;
+  const currentWidth = logicalSize.width;
+
+  const delta = scaledHeight - currentHeight;
+  const deltaWidth = scaledWidth - currentWidth;
+
+  await window.setResizable(resizable);
+  await window.setMaximizable(false);
+  await window.setSize(new LogicalSize(scaledWidth, scaledHeight));
+
+  if (!skipPositionCorrection && (Math.abs(delta) > 0.5 || Math.abs(deltaWidth) > 0.5)) {
+    // 水平：居中扩展，但不超出左边界
+    let newX = logicalPos.x - deltaWidth / 2;
+    newX = Math.max(0, newX);
+
+    // 输入模式以底边为锚点，建议列表只向上展开，输入框保持原位。
+    let newY = verticalAnchor === "bottom"
+      ? logicalPos.y - delta
+      : logicalPos.y;
+
+    if (verticalAnchor === "top") {
+      const monitor = await currentMonitor();
+      if (monitor) {
+        const monitorPosition = monitor.position.toLogical(scaleFactor);
+        const monitorSize = monitor.size.toLogical(scaleFactor);
+        const monitorBottom = monitorPosition.y + monitorSize.height;
+        if (newY + scaledHeight > monitorBottom) {
+          newY = Math.max(monitorPosition.y, monitorBottom - scaledHeight);
+        }
+      }
+    }
+
+    await window.setPosition(new LogicalPosition(newX, newY));
+  }
+
+}
+
+function queueLayoutResize(operation: () => Promise<void>) {
+  layoutResizeQueue = layoutResizeQueue
+    .then(operation)
+    .catch((error) => console.error("Failed to resize overlay:", error));
+}
+
+
+function handleLayoutChange(payload: {
+  showSuggestions: boolean;
+  suggestionCount: number;
+  showModelMenu: boolean;
+  modelMenuHeight: number;
+  askUserRowCount?: number;
+  pickerRowCount?: number;
+  hasContextPreview?: boolean;
+  mode?: "input" | "chat";
+}) {
+  if (isCollapsed.value) {
+    return;
+  }
+
+  const pickerHeight =
+    (payload.pickerRowCount ?? 0) > 0
+      ? computePickerHeight(payload.pickerRowCount ?? 0)
+      : payload.showSuggestions
+        ? SUGGESTION_PADDING + payload.suggestionCount * SUGGESTION_ROW_HEIGHT
+        : 0;
+  const modeValue = payload.mode ?? mode.value;
+  // Floating model/approval menus are position:fixed — only the compact input
+  // window needs extra height so the menu isn't clipped. Chat mode already has
+  // room; resizing there just jumps the message panel.
+  const modelMenuHeight =
+    modeValue === "input" && payload.showModelMenu ? payload.modelMenuHeight : 0;
+  const contextHeight = payload.hasContextPreview ? CONTEXT_PREVIEW_HEIGHT : 0;
+  const extraHeight = pickerHeight + modelMenuHeight + contextHeight;
+
+  if (modeValue === "input") {
+    chatWindowInitialized.value = false;
+    lastComposerExtraHeight.value = 0;
+    queueLayoutResize(() =>
+      resizeWindow(OVERLAY_WIDTH, INPUT_BAR_HEIGHT + extraHeight, false, false, "bottom"),
+    );
+    return;
+  }
+
+  if (modeValue === "chat") {
+    const deltaExtra = extraHeight - lastComposerExtraHeight.value;
+    lastComposerExtraHeight.value = extraHeight;
+
+    if (!chatWindowInitialized.value) {
+      chatWindowInitialized.value = true;
+      queueLayoutResize(() =>
+        resizeWindow(OVERLAY_WIDTH, CHAT_HEIGHT + extraHeight, true),
+      );
+      return;
+    }
+
+    queueLayoutResize(() => adjustWindowHeightBy(deltaExtra, true));
+  }
+}
+
+async function enterChatMode(nextSessionId: string) {
+  sessionId.value = nextSessionId;
+  chatStore.setOverlayDraftSession(nextSessionId);
+  mode.value = "chat";
+  chatWindowInitialized.value = false;
+  lastComposerExtraHeight.value = 0;
+  await setOverlayChatMode(windowLabel, true);
+  // 先切换 UI，再展开窗口，让聊天区从消息框「长出来」
+  await new Promise((resolve) => window.setTimeout(resolve, 40));
+  await applyMinSize(OVERLAY_MIN_WIDTH, OVERLAY_MIN_HEIGHT_CHAT);
+  await resizeWindow(OVERLAY_WIDTH, CHAT_HEIGHT, true);
+  chatWindowInitialized.value = true;
+}
+
+async function collapseToCapSule(skipPositionCorrection = false) {
+  isCollapsed.value = true;
+  await applyMinSize(CAPSULE_WIDTH, CAPSULE_HEIGHT);
+  await resizeWindow(CAPSULE_WIDTH, CAPSULE_HEIGHT, false, skipPositionCorrection);
+}
+
+async function expandFromCapsule() {
+  isCollapsed.value = false;
+  chatWindowInitialized.value = false;
+  lastComposerExtraHeight.value = 0;
+  await applyMinSize(OVERLAY_MIN_WIDTH, OVERLAY_MIN_HEIGHT_CHAT);
+  await resizeWindow(OVERLAY_WIDTH, CHAT_HEIGHT, true);
+  chatWindowInitialized.value = true;
+}
+
+async function resetToInputMode() {
+  mode.value = "input";
+  sessionId.value = "";
+  chatWindowInitialized.value = false;
+  lastComposerExtraHeight.value = 0;
+  chatStore.setOverlayDraftSession("");
+  await setOverlayChatMode(windowLabel, false);
+  await applyMinSize(OVERLAY_MIN_WIDTH, OVERLAY_MIN_HEIGHT_INPUT);
+  await resizeWindow(OVERLAY_WIDTH, INPUT_HEIGHT, false, false, "bottom");
+}
+
+async function close() {
+  // 直接通知 Rust 关闭/销毁，由 Rust 侧负责清理状态
+  // 不能先 resetToInputMode()，否则会提前清除 chat mode 导致竞态
+  await closeOverlay(windowLabel);
+}
+
+onMounted(async () => {
+  const window = getCurrentWebviewWindow();
+  void window.setMaximizable(false);
+  void window.listen<CapturedContext>(IPC_EVENTS.contextCaptured, (event) => {
+    if (mode.value === "chat") {
+      return;
+    }
+    capturedContext.value = event.payload;
+  });
+  const pendingContext = await takeOverlayContext(windowLabel);
+  if (pendingContext && mode.value === "input") {
+    capturedContext.value = pendingContext;
+  }
+  // 基础 overlay 窗口：监听 overlay-hidden 重置 UI
+  // 动态窗口（overlay-N）即将被销毁，不需要 reset UI/resize
+  const isBaseOverlay = windowLabel === "overlay";
+  if (isBaseOverlay) {
+    void applyMinSize(OVERLAY_MIN_WIDTH, OVERLAY_MIN_HEIGHT_INPUT);
+    void window.listen("overlay-hidden", () => {
+      capturedContext.value = null;
+      void resetToInputMode();
+    });
+  }
+});
+
+watch(
+  () => settingStore.zoom,
+  async () => {
+    if (isCollapsed.value) {
+      await applyMinSize(CAPSULE_WIDTH, CAPSULE_HEIGHT);
+      await resizeWindow(CAPSULE_WIDTH, CAPSULE_HEIGHT, false);
+    } else if (mode.value === "chat") {
+      await applyMinSize(OVERLAY_MIN_WIDTH, OVERLAY_MIN_HEIGHT_CHAT);
+      const window = getCurrentWebviewWindow();
+      const scaleFactor = await window.scaleFactor();
+      const logicalSize = (await window.outerSize()).toLogical(scaleFactor);
+      const zoom = (settingStore.zoom || 100) / 100;
+      await resizeWindow(logicalSize.width / zoom, logicalSize.height / zoom, true);
+    } else {
+      await applyMinSize(OVERLAY_MIN_WIDTH, OVERLAY_MIN_HEIGHT_INPUT);
+      await resizeWindow(OVERLAY_WIDTH, INPUT_HEIGHT, false, false, "bottom");
+    }
+  }
+);
+</script>
+
+<style scoped>
+.overlay-shell {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+</style>

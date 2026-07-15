@@ -1,0 +1,13 @@
+[[permission]]
+identifier = "allow-window-commands"
+description = "Enables window control commands."
+commands.allow = [
+    "open_settings",
+    "open_session_in_overlay",
+    "hide_overlay_window",
+    "close_overlay_window",
+    "exit_app",
+    "set_overlay_chat_mode_command",
+    "set_overlay_popup_open_command",
+    "take_overlay_context",
+]

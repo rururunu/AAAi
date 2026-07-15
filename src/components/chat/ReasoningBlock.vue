@@ -1,0 +1,150 @@
+<template>
+  <details
+    class="reasoning-block"
+    :class="{ embedded }"
+    :open="isOpen"
+    @toggle="handleToggle"
+  >
+    <summary class="reasoning-summary">
+      <ChevronRight class="reasoning-chevron" :class="{ open: isOpen }" :size="12" />
+      <span>{{ summaryLabel }}</span>
+      <span v-if="!isOpen" class="reasoning-meta">{{ collapsedHint }}</span>
+    </summary>
+    <div v-if="isOpen" ref="bodyRef" class="reasoning-body peek-scrollbar">{{ displayText }}</div>
+  </details>
+</template>
+
+<script setup lang="ts">
+import { computed, nextTick, ref, watch } from "vue";
+import { ChevronRight } from "@lucide/vue";
+import { displayReasoningText } from "@/services/chat/reasoningDisplay";
+import type { AppLanguage } from "@/types/setting";
+import { tr } from "@/services/i18n";
+
+const props = defineProps<{
+  reasoning: string;
+  streaming?: boolean;
+  language?: AppLanguage;
+  /** 嵌套在执行过程面板内时，不单独折叠 */
+  embedded?: boolean;
+}>();
+
+const isOpen = ref(false);
+
+const summaryLabel = computed(() => tr(props.language, "thinkingProcess"));
+
+const collapsedHint = computed(() => {
+  const chars = props.reasoning.length;
+  return tr(props.language, "chars", { count: chars.toLocaleString() });
+});
+
+const displayText = computed(() =>
+  displayReasoningText(props.reasoning, {
+    streaming: props.streaming ?? false,
+  }),
+);
+
+watch(
+  () => props.streaming,
+  (streaming, wasStreaming) => {
+    if (streaming) {
+      isOpen.value = true;
+      return;
+    }
+    if (wasStreaming) {
+      isOpen.value = false;
+    }
+  },
+  { immediate: true },
+);
+
+function handleToggle(event: Event) {
+  const target = event.currentTarget as HTMLDetailsElement | null;
+  if (!target) {
+    return;
+  }
+  isOpen.value = target.open;
+}
+
+const bodyRef = ref<HTMLElement | null>(null);
+
+watch(
+  () => props.reasoning,
+  () => {
+    if (props.streaming) {
+      nextTick(() => {
+        const el = bodyRef.value;
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
+    }
+  }
+);
+</script>
+
+<style scoped>
+.reasoning-block {
+  width: 100%;
+  margin-bottom: 8px;
+  border: 1px solid color-mix(in srgb, var(--peek-border) 88%, var(--peek-muted));
+  border-radius: 8px;
+  background: var(--peek-surface);
+  isolation: isolate;
+  box-sizing: border-box;
+}
+
+.reasoning-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 6px 10px;
+  font-family: var(--peek-font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--peek-muted);
+  list-style: none;
+  user-select: none;
+}
+
+.reasoning-summary::-webkit-details-marker {
+  display: none;
+}
+
+.reasoning-chevron {
+  flex: none;
+  color: var(--peek-faint);
+  transition: transform 160ms ease;
+}
+
+.reasoning-chevron.open {
+  transform: rotate(90deg);
+}
+
+.reasoning-meta {
+  margin-left: auto;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--peek-faint);
+}
+
+.reasoning-body {
+  margin: 0;
+  padding: 4px 12px 10px;
+  max-height: min(40vh, 280px);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--peek-font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.65;
+  letter-spacing: 0.01em;
+  color: var(--peek-text);
+  -webkit-font-smoothing: subpixel-antialiased;
+  transform: translateZ(0);
+}
+
+.reasoning-block.embedded { margin-bottom: 8px; }
+</style>

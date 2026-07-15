@@ -1,0 +1,38 @@
+/* 拉丁与 CJK 分栈：中文界面优先 Noto Sans SC，英文界面保留 Geist */
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap");
+
+:root {
+  --font-sans-latin: "Geist", "Segoe UI Variable", "Segoe UI", sans-serif;
+  --font-sans-cjk: "Noto Sans SC", "PingFang SC", "Microsoft YaHei UI", "微软雅黑",
+    sans-serif;
+  --peek-font-sans: var(--font-sans-cjk);
+  --font-mono: "Cascadia Mono", "Cascadia Code", "Consolas", "Noto Sans Mono CJK SC",
+    monospace;
+}
+
+html[lang="en-US"] {
+  --peek-font-sans: var(--font-sans-latin);
+}
+
+html[lang="zh-CN"] {
+  --peek-font-sans: var(--font-sans-cjk);
+}
+
+html {
+  text-rendering: optimizeLegibility;
+}
+
+html[lang="zh-CN"] {
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
+}
+
+html[lang="en-US"] {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html[lang="zh-CN"] body {
+  letter-spacing: 0.01em;
+  font-feature-settings: "kern" 1;
+}
