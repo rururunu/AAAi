@@ -85,6 +85,10 @@
               v-else-if="activeCategory === 'skills'"
               :query="searchQuery"
             />
+            <ProviderSettings
+              v-else-if="activeCategory === 'provider'"
+              :query="searchQuery"
+            />
             <HistorySettings
               v-else-if="activeCategory === 'history'"
               :query="searchQuery"
@@ -111,6 +115,7 @@
               @tool-approval-mode-change="onToolApprovalModeChange"
               @web-search-provider-change="onWebSearchProviderChange"
               @default-model-change="onDefaultModelChange"
+              @multimodal-model-change="onMultimodalModelChange"
               @custom-accent-change="onCustomAccentChange"
               @reset-custom-accent="resetCustomAccent"
               @save-api-key="saveApiKey"
@@ -130,11 +135,12 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { Bot, BrainCircuit, Plug, Shield, Folders, Globe2, History, Info, Minus, Palette, Search, Settings2, Sparkles, X } from "@lucide/vue";
+import { Bot, BrainCircuit, Plug, Shield, Folders, Globe2, History, Info, Minus, Palette, Search, Server, Settings2, Sparkles, X } from "@lucide/vue";
 import WorkspaceSettings from "@/components/workspace/WorkspaceSettings.vue";
 import McpSettings from "@/components/settings/McpSettings.vue";
 import SkillsSettings from "@/components/settings/SkillsSettings.vue";
 import HistorySettings from "@/components/settings/HistorySettings.vue";
+import ProviderSettings from "@/components/settings/ProviderSettings.vue";
 import SettingFieldList from "@/components/settings/SettingFieldList.vue";
 import { onWindowDragMouseDown } from "@/services/overlay/windowDrag";
 import {
@@ -233,12 +239,14 @@ const t = computed(() => {
       workspace: tr(language, "settings.categories.workspace"),
       history: tr(language, "settings.categories.history"),
       about: tr(language, "settings.categories.about"),
+      provider: tr(language, "settings.categories.provider"),
     },
   };
 });
 
 const categories = computed(() => [
   { id: "ai" as const, label: t.value.categories.ai, icon: Bot },
+  { id: "provider" as const, label: t.value.categories.provider, icon: Server },
   { id: "workspace" as const, label: t.value.categories.workspace, icon: Folders },
   { id: "agent" as const, label: t.value.categories.agent, icon: Shield },
   { id: "history" as const, label: t.value.categories.history, icon: History },
@@ -361,6 +369,11 @@ function onDefaultModelChange(value: unknown) {
   void settingStore.update({ chatModel: value });
 }
 
+function onMultimodalModelChange(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return;
+  void settingStore.update({ multimodalModel: value });
+}
+
 function onToggle(id: string) {
   if (id === "memoryEnabled") {
     void settingStore.update({ memoryEnabled: !settingStore.memoryEnabled });
@@ -377,6 +390,12 @@ function onToggle(id: string) {
   }
   if (id === "passToolReasoning") {
     void settingStore.update({ passToolReasoning: !settingStore.passToolReasoning });
+  }
+  if (id === "multimodalSplitAnalysis") {
+    void settingStore.update({ multimodalSplitAnalysis: !settingStore.multimodalSplitAnalysis });
+  }
+  if (id === "largeContextEnabled") {
+    void settingStore.update({ largeContextEnabled: !settingStore.largeContextEnabled });
   }
 }
 

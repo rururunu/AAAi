@@ -40,7 +40,9 @@ marked.setOptions({
 
 const html = computed(() => {
   const raw = marked.parse(normalizeLegacyMath(props.content || ""), { async: false }) as string;
-  return DOMPurify.sanitize(raw);
+  return DOMPurify.sanitize(raw, {
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|file|sms):|[^&#]*?:|data:image\/)/i
+  });
 });
 
 async function onLinkClick(event: MouseEvent) {
@@ -109,6 +111,13 @@ function isLikelyTex(value: string) {
   line-height: 1.65;
   color: var(--peek-text);
   overflow-wrap: anywhere;
+}.markdown-body :deep(img) {
+  max-width: 100%;
+  max-height: 280px;
+  border-radius: 6px;
+  object-fit: contain;
+  margin: 8px 0;
+  border: 1px solid color-mix(in srgb, var(--peek-border) 40%, transparent);
 }
 
 .markdown-body :deep(p) {

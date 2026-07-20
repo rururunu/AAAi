@@ -15,8 +15,19 @@ use crate::core::runtime::{
     ChatMessage, ChatRequest, MessageStatus, RequestContext, Role, StreamEvent,
 };
 
-/// DeepSeek chat 默认上下文窗口（token 粗算基准）。
+/// 标准上下文窗口（token 粗算基准）。
 pub const DEFAULT_CONTEXT_WINDOW: usize = 64_000;
+/// 1M 大上下文窗口（设置开启时使用）。
+pub const LARGE_CONTEXT_WINDOW: usize = 1_000_000;
+
+/// Resolve the active context window from the large-context toggle.
+pub fn context_window_tokens(large_context_enabled: bool) -> usize {
+    if large_context_enabled {
+        LARGE_CONTEXT_WINDOW
+    } else {
+        DEFAULT_CONTEXT_WINDOW
+    }
+}
 /// 达到该比例时仅提示，不压缩。
 pub const SOFT_WARN_RATIO: f32 = 0.7;
 /// 达到该比例时尝试压缩较早消息。
@@ -192,6 +203,48 @@ pub async fn prepare_history_for_prompt(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ContextUsageMeasure {
+    pub estimated_tokens: usize,
+    pub usage_ratio: f32,
+}
+
+/// Estimate prompt token usage for the current session plus optional unsent draft.
+pub fn measure_context_usage(
+    history: &[ChatMessage],
+    context: &RequestContext,
+    draft_message: Option<&str>,
+    context_window: usize,
+) -> ContextUsageMeasure {
+    let mut estimated = estimate_tokens(SYSTEM_PROMPT);
+    estimated += estimate_context_tokens(context);
+
+    for message in history {
+        if !message_has_estimable_tokens(message) {
+            continue;
+        }
+        estimated += message_token_overhead(message);
+    }
+
+    if let Some(draft) = draft_message.map(str::trim).filter(|text| !text.is_empty()) {
+        let last_user = history
+            .iter()
+            .rev()
+            .find(|message| message.role == Role::User);
+        let already_counted =
+            last_user.is_some_and(|message| message.content.trim() == draft);
+        if !already_counted {
+            estimated += estimate_tokens(draft);
+        }
+    }
+
+    let usage_ratio = estimated as f32 / context_window.max(1) as f32;
+    ContextUsageMeasure {
+        estimated_tokens: estimated,
+        usage_ratio,
+    }
+}
+
 pub fn estimate_history_tokens(
     prior: &[ChatMessage],
     context: &RequestContext,
@@ -214,10 +267,46 @@ pub fn estimate_history_tokens(
     total
 }
 
+fn message_has_estimable_tokens(message: &ChatMessage) -> bool {
+    !message.content.trim().is_empty()
+        || message
+            .reasoning
+            .as_ref()
+            .is_some_and(|text| !text.trim().is_empty())
+        || message
+            .tool_activities
+            .as_ref()
+            .is_some_and(|activities| !activities.is_empty())
+        || message
+            .tool_calls
+            .as_ref()
+            .is_some_and(|calls| !calls.is_empty())
+}
+
 fn message_token_overhead(message: &ChatMessage) -> usize {
-    estimate_tokens(&message.content)
-        + estimate_tokens(message.reasoning.as_deref().unwrap_or(""))
-        + 4
+    let mut total = estimate_tokens(&message.content)
+        + estimate_tokens(message.reasoning.as_deref().unwrap_or(""));
+
+    if let Some(activities) = &message.tool_activities {
+        for activity in activities {
+            total += estimate_tokens(&activity.tool_name);
+            total += estimate_tokens(&activity.title);
+            total += estimate_tokens(activity.detail.as_deref().unwrap_or(""));
+            total += estimate_tokens(activity.result.as_deref().unwrap_or(""));
+            if let Some(arguments) = &activity.arguments {
+                total += estimate_tokens(&arguments.to_string());
+            }
+        }
+    }
+
+    if let Some(calls) = &message.tool_calls {
+        for call in calls {
+            total += estimate_tokens(&call.name);
+            total += estimate_tokens(&call.arguments);
+        }
+    }
+
+    total + 4
 }
 
 fn estimate_context_tokens(context: &RequestContext) -> usize {
@@ -238,12 +327,13 @@ fn estimate_context_tokens(context: &RequestContext) -> usize {
     total
 }
 
-struct CompactPriorResult {
-    messages: Vec<ChatMessage>,
-    folded_count: usize,
+#[derive(Debug, Clone)]
+pub struct CompactPriorResult {
+    pub messages: Vec<ChatMessage>,
+    pub folded_count: usize,
 }
 
-async fn compact_prior(
+pub async fn compact_prior(
     prior: &[ChatMessage],
     session_id: &str,
     summarizer: Option<&dyn ConversationSummarizer>,

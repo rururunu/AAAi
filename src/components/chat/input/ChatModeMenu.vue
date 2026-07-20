@@ -22,9 +22,9 @@
       >
         <span class="model-option-leading">
           <component
-            :is="getIcon(option.value)"
+            :is="option.icon"
             :size="12"
-            class="approval-option-icon"
+            class="mode-option-icon"
           />
         </span>
         <div class="model-option-text">
@@ -42,34 +42,29 @@
 </template>
 
 <script setup lang="ts">
+import type { Component } from "vue";
 import { ref } from "vue";
-import { Check, HelpCircle, Zap, CircleCheck } from "@lucide/vue";
-import type { ToolApprovalMode } from "@/types/setting";
+import { Check } from "@lucide/vue";
+import type { ChatMode } from "@/types/setting";
 
 defineProps<{
   open: boolean;
   style: Record<string, string>;
   ariaLabel: string;
-  options: Array<{ value: ToolApprovalMode; label: string }>;
-  selectedValue: ToolApprovalMode;
+  options: Array<{
+    value: ChatMode;
+    label: string;
+    description?: string;
+    icon: Component;
+  }>;
+  selectedValue: ChatMode;
 }>();
 
 defineEmits<{
-  select: [value: ToolApprovalMode];
+  select: [value: ChatMode];
 }>();
 
 const menuRef = ref<HTMLUListElement | null>(null);
-
-function getIcon(mode: ToolApprovalMode) {
-  switch (mode) {
-    case "ask":
-      return HelpCircle;
-    case "auto":
-      return Zap;
-    case "alwaysAllow":
-      return CircleCheck;
-  }
-}
 
 defineExpose({ menuEl: menuRef });
 </script>
@@ -84,14 +79,14 @@ defineExpose({ menuEl: menuRef });
   justify-content: center;
 }
 
-.approval-option-icon {
+.mode-option-icon {
   color: var(--peek-muted);
   opacity: 0.85;
   transition: color 140ms ease, opacity 140ms ease;
 }
 
-.model-menu-item:hover .approval-option-icon,
-.model-menu-item.active .approval-option-icon {
+.model-menu-item:hover .mode-option-icon,
+.model-menu-item.active .mode-option-icon {
   color: var(--peek-text);
   opacity: 1;
 }

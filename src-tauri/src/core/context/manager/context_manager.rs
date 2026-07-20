@@ -41,12 +41,14 @@ impl ContextManager {
             CaptureResult::Success(partial) => ContextCaptureOutcome::Success(ChatContext {
                 selected_text: partial.selected_text,
                 selected_files: partial.selected_files,
+                selected_images: partial.selected_images,
                 source: Some(partial.source),
                 window: Some(window),
             }),
             CaptureResult::Empty => ContextCaptureOutcome::Success(ChatContext {
                 selected_text: None,
                 selected_files: Vec::new(),
+                selected_images: Vec::new(),
                 source: None,
                 window: Some(window),
             }),

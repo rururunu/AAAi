@@ -13,6 +13,7 @@ impl WindowInfo {
     }
 
     /// Terminal / console hosts where Ctrl+C means SIGINT, not “copy”.
+    #[allow(dead_code)]
     pub fn is_terminal(&self) -> bool {
         let name = self.process_name.to_ascii_lowercase();
         matches!(

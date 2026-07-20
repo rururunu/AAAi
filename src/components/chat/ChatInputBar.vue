@@ -121,7 +121,43 @@
       @select="selectApprovalMode"
     />
 
-    <div class="input-bar">
+    <ChatModeMenu
+      ref="chatModeMenuComponentRef"
+      :open="chatModeMenuOpen"
+      :style="chatModeMenuStyle"
+      :ariaLabel="tr(language, 'chooseChatMode')"
+      :options="chatModeOptions"
+      :selected-value="settingStore.chatMode"
+      @select="selectChatMode"
+    />
+
+    <div class="input-bar" :class="{ 'has-images': attachedImages.length > 0 }">
+      <div v-if="attachedImages.length" class="input-images peek-scrollbar" data-tauri-drag-region="false">
+        <div
+          v-for="(img, idx) in attachedImages"
+          :key="idx"
+          class="image-thumb-container"
+          data-tauri-drag-region="false"
+        >
+          <img
+            :src="img"
+            class="image-thumb"
+            draggable="false"
+            data-no-drag
+            @mousedown.stop
+            @click.stop="previewImage(img)"
+          />
+          <button
+            type="button"
+            class="image-remove-btn"
+            title="Remove image"
+            @click="removeAttachedImage(idx)"
+          >
+            <X :size="10" />
+          </button>
+        </div>
+      </div>
+
       <div class="input-content">
       <span
         v-if="prefixText"
@@ -206,10 +242,33 @@
         </button>
       </div>
 
+      <div ref="chatModeTriggerRef" class="model-picker">
+        <button
+          type="button"
+          class="model-badge footer-chip"
+          data-tauri-drag-region="false"
+          :class="{ open: chatModeMenuOpen }"
+          :title="chatModeBadgeTitle"
+          :aria-label="chatModeBadgeTitle"
+          aria-haspopup="listbox"
+          :aria-expanded="chatModeMenuOpen"
+          @mousedown.stop
+          @click.stop="toggleChatModeMenu"
+        >
+          <component
+            :is="chatModeIcon"
+            :size="13"
+            class="footer-chip-icon"
+          />
+          <span class="model-name">{{ chatModeLabel }}</span>
+          <ChevronDown :size="11" class="model-chevron" />
+        </button>
+      </div>
+
       <div ref="modelTriggerRef" class="model-picker">
         <button
           type="button"
-          class="model-badge"
+          class="model-badge footer-chip"
           data-tauri-drag-region="false"
           :class="{ open: modelMenuOpen }"
           :title="modelBadgeTitle"
@@ -219,15 +278,21 @@
           @mousedown.stop
           @click.stop="toggleModelMenu"
         >
-          <span class="model-name">{{ chatModel }}</span>
-          <ChevronDown :size="12" class="model-chevron" />
+          <component
+            :is="currentModelProviderIcon"
+            v-if="currentModelProviderIcon"
+            :size="13"
+            class="footer-chip-icon"
+          />
+          <span class="model-name">{{ currentModelDisplayName }}</span>
+          <ChevronDown :size="11" class="model-chevron" />
         </button>
       </div>
 
-      <div ref="approvalTriggerRef" class="model-picker">
+      <div v-if="settingStore.chatMode !== 'ask'" ref="approvalTriggerRef" class="model-picker">
         <button
           type="button"
-          class="model-badge"
+          class="model-badge footer-chip"
           data-tauri-drag-region="false"
           :class="{ open: approvalMenuOpen }"
           :title="approvalBadgeTitle"
@@ -237,14 +302,25 @@
           @mousedown.stop
           @click.stop="toggleApprovalMenu"
         >
+          <component
+            :is="getApprovalIcon(settingStore.toolApprovalMode)"
+            :size="13"
+            class="footer-chip-icon"
+          />
           <span class="model-name">{{ approvalModeLabel }}</span>
-          <ChevronDown :size="12" class="model-chevron" />
+          <ChevronDown :size="11" class="model-chevron" />
         </button>
       </div>
+
         </div>
 
         <div class="input-footer-actions">
           <slot name="actions" />
+
+      <ContextUsageRing
+        :ratio="contextUsage.usageRatio"
+        :tooltip="contextUsageTooltip"
+      />
 
       <motion.button
         type="button"
@@ -282,11 +358,11 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { onClickOutside, useEventListener } from "@vueuse/core";
+import { onClickOutside, useDebounceFn, useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { motion } from "motion-v";
 import { gsapMenuEnter, gsapMenuLeave, gsapMenuPrepare, gsapPickerEnter, gsapPickerLeave } from "@/services/motion/gsapPresets";
-import { ChevronDown, File, Folder, X } from "@lucide/vue";
+import { ChevronDown, File, Folder, X, HelpCircle, Zap, CircleCheck, Bot, MessageCircle } from "@lucide/vue";
 import HistoryPicker from "./input/HistoryPicker.vue";
 import AskUserPicker from "./input/AskUserPicker.vue";
 import PathPermissionPicker from "./input/PathPermissionPicker.vue";
@@ -296,21 +372,29 @@ import CommandSuggestions from "./input/CommandSuggestions.vue";
 import WorkspacePickerPanel from "./input/WorkspacePickerPanel.vue";
 import ModelMenu from "./input/ModelMenu.vue";
 import ApprovalModeMenu from "./input/ApprovalModeMenu.vue";
+import ChatModeMenu from "./input/ChatModeMenu.vue";
+import ContextUsageRing from "./ContextUsageRing.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { executeSlashCommand, slashCommands } from "@/commands/slash";
-import { setOverlayPopupOpen } from "@/services/ipc";
+import { getContextUsage, setOverlayPopupOpen, openImagePreview } from "@/services/ipc";
 import { tr } from "@/services/i18n";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useChatModelStore } from "@/stores/chatModel";
 import { useSettingStore } from "@/stores/setting";
+import { getProviderIcon, formatModelDisplayName } from "@/lib/providerIcons";
+import { formatTokenCount } from "@/lib/formatTokens";
+import { useChatStore } from "@/stores/chat";
 import {
   localizedOptionLabel,
   toolApprovalModeOptions,
+  type ChatMode,
   type ToolApprovalMode,
 } from "@/types/setting";
 import type {
   AskDisplayOption,
   AskUserQuestion,
+  CapturedContext,
+  ContextUsageSnapshot,
   ChatSessionSummary,
   PathPermissionDecision,
   ToolApprovalDecision,
@@ -326,6 +410,7 @@ import {
   switchWorkspace,
   type Workspace,
 } from "@/commands/workspace";
+import { compressImageDataUrl } from "@/services/chat/compressImage";
 
 export interface AskUserSession {
   requestId: string;
@@ -353,6 +438,8 @@ const props = withDefaults(
     historySessions?: ChatSessionSummary[] | null;
     showWorkspaceButton?: boolean;
     selectionLines?: number;
+    sessionId?: string;
+    capturedContext?: CapturedContext | null;
   }>(),
   {
     sending: false,
@@ -361,6 +448,8 @@ const props = withDefaults(
     closeOnEscape: true,
     showWorkspaceButton: false,
     selectionLines: 0,
+    sessionId: "",
+    capturedContext: null,
   },
 );
 
@@ -384,18 +473,44 @@ const emit = defineEmits<{
       modelMenuHeight: number;
       askUserRowCount: number;
       pickerRowCount: number;
+      hasImages?: boolean;
+      isPreviewOpen?: boolean;
     },
   ];
   modelChange: [modelId: string];
 }>();
 
 const MODEL_MENU_GAP = 6;
-const MODEL_MENU_MIN_WIDTH = 220;
+const MODEL_MENU_MIN_WIDTH = 160;
 
 const message = ref("");
 const prefixText = ref("");
 const pastedText = ref("");
 const mentionedFiles = ref<string[]>([]);
+const attachedImages = ref<string[]>([]);
+
+function previewImage(url: string) {
+  void openImagePreview(url).catch((error) => {
+    console.error("openImagePreview failed:", error);
+  });
+}
+
+function removeAttachedImage(index: number) {
+  attachedImages.value.splice(index, 1);
+  emitLayoutChange();
+}
+
+async function applyCapturedImages(images?: string[]) {
+  if (!images?.length) {
+    return;
+  }
+  const compressed = await Promise.all(
+    images.map((url) => compressImageDataUrl(url)),
+  );
+  attachedImages.value = compressed;
+  emitLayoutChange();
+}
+
 const inputRef = ref<HTMLInputElement | null>(null);
 const modelTriggerRef = ref<HTMLElement | null>(null);
 const modelMenuComponentRef = ref<InstanceType<typeof ModelMenu> | null>(null);
@@ -411,6 +526,13 @@ const approvalMenuStyle = ref<Record<string, string>>({
   pointerEvents: "none",
 });
 const approvalMenuHeight = ref(0);
+const chatModeTriggerRef = ref<HTMLElement | null>(null);
+const chatModeMenuComponentRef = ref<InstanceType<typeof ChatModeMenu> | null>(null);
+const chatModeMenuStyle = ref<Record<string, string>>({
+  visibility: "hidden",
+  pointerEvents: "none",
+});
+const chatModeMenuHeight = ref(0);
 
 function getModelMenuEl(): HTMLElement | null {
   return modelMenuComponentRef.value?.menuEl ?? null;
@@ -418,6 +540,10 @@ function getModelMenuEl(): HTMLElement | null {
 
 function getApprovalMenuEl(): HTMLElement | null {
   return approvalMenuComponentRef.value?.menuEl ?? null;
+}
+
+function getChatModeMenuEl(): HTMLElement | null {
+  return chatModeMenuComponentRef.value?.menuEl ?? null;
 }
 const selectedIndex = ref(0);
 
@@ -436,13 +562,88 @@ const modelMenuOpen = ref(false);
 const modelMenuRevealed = ref(false);
 const approvalMenuOpen = ref(false);
 const approvalMenuRevealed = ref(false);
+const chatModeMenuOpen = ref(false);
+const chatModeMenuRevealed = ref(false);
 const askQuestionIndex = ref(0);
 const askAnswers = ref<Record<number, string[]>>({});
 const askUserFinishing = ref(false);
 
 const settingStore = useSettingStore();
+const chatStore = useChatStore();
 const chatModelStore = useChatModelStore();
 const { language } = storeToRefs(settingStore);
+const { sessions } = storeToRefs(chatStore);
+
+const contextUsage = ref<ContextUsageSnapshot>({
+  usageRatio: 0,
+  estimatedTokens: 0,
+  contextWindowTokens: settingStore.largeContextEnabled ? 1_000_000 : 64_000,
+});
+
+function buildDraftMessage() {
+  const parts = [prefixText.value, message.value].filter(Boolean);
+  return parts.join(" ").trim();
+}
+
+const refreshContextUsage = useDebounceFn(async () => {
+  try {
+    const response = await getContextUsage({
+      sessionId: props.sessionId || undefined,
+      draftMessage: buildDraftMessage() || undefined,
+      context: props.capturedContext ?? undefined,
+    });
+    contextUsage.value = {
+      usageRatio: response.usageRatio,
+      estimatedTokens: response.estimatedTokens,
+      contextWindowTokens: response.contextWindowTokens,
+    };
+    if (props.sessionId) {
+      chatStore.setContextUsage(props.sessionId, contextUsage.value);
+    }
+  } catch (error) {
+    console.error("Failed to load context usage:", error);
+  }
+}, 180);
+
+const contextUsageTooltip = computed(() =>
+  tr(language.value, "contextUsageHint", {
+    used: formatTokenCount(contextUsage.value.estimatedTokens),
+    total: formatTokenCount(contextUsage.value.contextWindowTokens),
+  }),
+);
+
+function sessionMessagesFingerprint(sessionId: string) {
+  const messages = sessions.value[sessionId] ?? [];
+  let chars = 0;
+  for (const item of messages) {
+    chars += item.content.length + (item.reasoning?.length ?? 0);
+  }
+  return `${messages.length}:${chars}`;
+}
+
+watch(
+  () => [
+    props.sessionId,
+    props.capturedContext,
+    settingStore.largeContextEnabled,
+    props.sessionId ? sessionMessagesFingerprint(props.sessionId) : "",
+  ] as const,
+  () => {
+    void refreshContextUsage();
+  },
+);
+
+watch([message, prefixText], () => {
+  void refreshContextUsage();
+});
+
+watch(
+  () => props.capturedContext?.selectedImages,
+  (images) => {
+    void applyCapturedImages(images);
+  },
+  { immediate: true, deep: true },
+);
 
 function formatTime(timestamp: number) {
   const date = new Date(timestamp);
@@ -476,13 +677,50 @@ const availableModels = computed(() => {
   const current = chatModel.value.trim();
 
   if (current && !models.some((model) => model.id === current)) {
-    models.unshift({ id: current, ownedBy: "" });
+    models.unshift({ id: current, ownedBy: "", provider: "" });
   }
 
   return models;
 });
 
+const currentModelProviderIcon = computed(() => {
+  const match = availableModels.value.find((model) => model.id === chatModel.value);
+  return getProviderIcon(match?.provider);
+});
+
+const currentModelDisplayName = computed(() => {
+  const match = availableModels.value.find((model) => model.id === chatModel.value);
+  return formatModelDisplayName(chatModel.value, match?.provider);
+});
+
 const modelBadgeTitle = computed(() => tr(language.value, "currentModel", { model: chatModel.value }));
+const chatModeLabel = computed(() =>
+  settingStore.chatMode === "ask"
+    ? tr(language.value, "chatModeAsk")
+    : tr(language.value, "chatModeAgent"),
+);
+const chatModeBadgeTitle = computed(() =>
+  settingStore.chatMode === "ask"
+    ? tr(language.value, "currentChatModeAsk")
+    : tr(language.value, "currentChatModeAgent"),
+);
+const chatModeIcon = computed(() =>
+  settingStore.chatMode === "ask" ? MessageCircle : Bot,
+);
+const chatModeOptions = computed(() => [
+  {
+    value: "ask" as const,
+    label: tr(language.value, "chatModeAsk"),
+    description: tr(language.value, "chatModeAskDesc"),
+    icon: MessageCircle,
+  },
+  {
+    value: "agent" as const,
+    label: tr(language.value, "chatModeAgent"),
+    description: tr(language.value, "chatModeAgentDesc"),
+    icon: Bot,
+  },
+]);
 const approvalModeOptions = computed(() =>
   toolApprovalModeOptions.map((option) => ({
     value: option.value,
@@ -498,6 +736,17 @@ const approvalModeLabel = computed(() => {
 const approvalBadgeTitle = computed(() =>
   tr(language.value, "currentApprovalMode", { mode: approvalModeLabel.value }),
 );
+
+function getApprovalIcon(mode: ToolApprovalMode) {
+  switch (mode) {
+    case "ask":
+      return HelpCircle;
+    case "auto":
+      return Zap;
+    case "alwaysAllow":
+      return CircleCheck;
+  }
+}
 
 const showHistoryPicker = computed(() => props.historySessions !== null);
 
@@ -633,15 +882,19 @@ const askPickerRowCount = computed(() => {
 const pastedLineCount = computed(() =>
   pastedText.value ? pastedText.value.split(/\r\n|\r|\n/).length : 0,
 );
-const hasAttachmentTags = computed(
+const hasInlineAttachmentTags = computed(
   () =>
     Boolean(props.selectionLines) ||
     Boolean(pastedText.value) ||
     mentionedFiles.value.length > 0,
 );
+const hasAttachmentTags = computed(
+  () => hasInlineAttachmentTags.value || attachedImages.value.length > 0,
+);
 
 const inputPlaceholder = computed(() => {
-  if (prefixText.value || hasAttachmentTags.value) {
+  // Images sit above the text field — keep the hint when only images are attached.
+  if (prefixText.value || hasInlineAttachmentTags.value) {
     return "";
   }
   if (props.sending && !interactivePickerOpen.value) {
@@ -663,7 +916,8 @@ const canSend = computed(() =>
   prefixText.value.trim().length > 0 ||
   message.value.trim().length > 0 ||
   pastedText.value.length > 0 ||
-  mentionedFiles.value.length > 0,
+  mentionedFiles.value.length > 0 ||
+  attachedImages.value.length > 0,
 );
 
 function composeVisibleText() {
@@ -693,6 +947,11 @@ function collapsePrefixIfNeeded() {
 }
 
 function removeTrailingAttachment(): boolean {
+  if (attachedImages.value.length > 0) {
+    attachedImages.value.pop();
+    collapsePrefixIfNeeded();
+    return true;
+  }
   if (mentionedFiles.value.length > 0) {
     mentionedFiles.value.pop();
     collapsePrefixIfNeeded();
@@ -730,15 +989,18 @@ function emitLayoutChange() {
   emit("layoutChange", {
     showSuggestions: showSuggestions.value,
     suggestionCount: suggestionCount.value,
-    showModelMenu: modelMenuOpen.value || approvalMenuOpen.value,
+    showModelMenu: modelMenuOpen.value || approvalMenuOpen.value || chatModeMenuOpen.value,
     modelMenuHeight:
       modelMenuOpen.value
         ? modelMenuHeight.value + MODEL_MENU_GAP
         : approvalMenuOpen.value
           ? approvalMenuHeight.value + MODEL_MENU_GAP
-          : 0,
+          : chatModeMenuOpen.value
+            ? chatModeMenuHeight.value + MODEL_MENU_GAP
+            : 0,
     askUserRowCount: showAskUserPicker.value ? askPickerRowCount.value : 0,
     pickerRowCount: pickerRows,
+    hasImages: attachedImages.value.length > 0,
   });
 }
 
@@ -804,7 +1066,7 @@ function closeModelMenu(immediate = false) {
       visibility: "hidden",
       pointerEvents: "none",
     };
-    if (!approvalMenuOpen.value) {
+    if (!approvalMenuOpen.value && !chatModeMenuOpen.value) {
       void syncPopupState(false);
     }
     emitLayoutChange();
@@ -868,7 +1130,71 @@ function closeApprovalMenu(immediate = false) {
       visibility: "hidden",
       pointerEvents: "none",
     };
-    if (!modelMenuOpen.value) {
+    if (!modelMenuOpen.value && !chatModeMenuOpen.value) {
+      void syncPopupState(false);
+    }
+    emitLayoutChange();
+  };
+
+  if (immediate || !menu) {
+    finish();
+    return;
+  }
+
+  gsapMenuLeave(menu, finish);
+}
+
+async function updateChatModeMenuPosition() {
+  await nextTick();
+
+  const trigger = chatModeTriggerRef.value;
+  const menu = getChatModeMenuEl();
+  if (!trigger || !menu) {
+    return;
+  }
+
+  const zoom = (settingStore.zoom || 100) / 100;
+  const triggerRect = trigger.getBoundingClientRect();
+  const unzoomedTriggerRect = {
+    top: triggerRect.top / zoom,
+    right: triggerRect.right / zoom,
+    width: triggerRect.width / zoom,
+  };
+
+  const menuWidth = Math.max(unzoomedTriggerRect.width, 120);
+  const measuredHeight = menu.offsetHeight;
+  chatModeMenuHeight.value = measuredHeight;
+
+  let left = unzoomedTriggerRect.right - menuWidth;
+  left = Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8));
+  const top = Math.max(8, unzoomedTriggerRect.top - measuredHeight - MODEL_MENU_GAP);
+
+  chatModeMenuStyle.value = {
+    top: `${top}px`,
+    left: `${left}px`,
+    width: `${menuWidth}px`,
+    visibility: chatModeMenuRevealed.value ? "visible" : "hidden",
+    pointerEvents: chatModeMenuRevealed.value ? "auto" : "none",
+  };
+
+  emitLayoutChange();
+}
+
+function closeChatModeMenu(immediate = false) {
+  if (!chatModeMenuOpen.value) {
+    return;
+  }
+
+  const menu = getChatModeMenuEl();
+  const finish = () => {
+    chatModeMenuOpen.value = false;
+    chatModeMenuRevealed.value = false;
+    chatModeMenuHeight.value = 0;
+    chatModeMenuStyle.value = {
+      visibility: "hidden",
+      pointerEvents: "none",
+    };
+    if (!modelMenuOpen.value && !approvalMenuOpen.value) {
       void syncPopupState(false);
     }
     emitLayoutChange();
@@ -884,6 +1210,7 @@ function closeApprovalMenu(immediate = false) {
 
 async function openModelMenu() {
   closeApprovalMenu(true);
+  closeChatModeMenu(true);
   modelMenuRevealed.value = false;
   modelMenuOpen.value = true;
   modelMenuStyle.value = {
@@ -929,6 +1256,7 @@ async function openModelMenu() {
 
 async function openApprovalMenu() {
   closeModelMenu(true);
+  closeChatModeMenu(true);
   approvalMenuRevealed.value = false;
   approvalMenuOpen.value = true;
   approvalMenuStyle.value = {
@@ -992,6 +1320,54 @@ function selectApprovalMode(mode: ToolApprovalMode) {
   void settingStore.update({ toolApprovalMode: mode });
 }
 
+async function openChatModeMenu() {
+  closeModelMenu(true);
+  closeApprovalMenu(true);
+  chatModeMenuRevealed.value = false;
+  chatModeMenuOpen.value = true;
+  chatModeMenuStyle.value = {
+    visibility: "hidden",
+    pointerEvents: "none",
+  };
+  await syncPopupState(true);
+  await updateChatModeMenuPosition();
+  const menu = getChatModeMenuEl();
+  if (menu) {
+    gsapMenuPrepare(menu);
+    chatModeMenuRevealed.value = true;
+    chatModeMenuStyle.value = {
+      ...chatModeMenuStyle.value,
+      visibility: "visible",
+      pointerEvents: "none",
+    };
+    gsapMenuEnter(menu, () => {
+      chatModeMenuStyle.value = {
+        ...chatModeMenuStyle.value,
+        pointerEvents: "auto",
+      };
+    });
+  }
+}
+
+function toggleChatModeMenu() {
+  if (chatModeMenuOpen.value) {
+    closeChatModeMenu();
+    return;
+  }
+  void openChatModeMenu();
+}
+
+function selectChatMode(mode: ChatMode) {
+  closeChatModeMenu();
+  if (mode === settingStore.chatMode) {
+    return;
+  }
+  if (mode === "ask") {
+    closeApprovalMenu();
+  }
+  void settingStore.update({ chatMode: mode });
+}
+
 onClickOutside(
   getModelMenuEl,
   () => {
@@ -1008,12 +1384,23 @@ onClickOutside(
   { ignore: [approvalTriggerRef] },
 );
 
+onClickOutside(
+  getChatModeMenuEl,
+  () => {
+    closeChatModeMenu();
+  },
+  { ignore: [chatModeTriggerRef] },
+);
+
 useEventListener(window, "resize", () => {
   if (modelMenuOpen.value) {
     void updateModelMenuPosition();
   }
   if (approvalMenuOpen.value) {
     void updateApprovalMenuPosition();
+  }
+  if (chatModeMenuOpen.value) {
+    void updateChatModeMenuPosition();
   }
 });
 
@@ -1024,13 +1411,23 @@ useEventListener(window, "scroll", () => {
   if (approvalMenuOpen.value) {
     void updateApprovalMenuPosition();
   }
+  if (chatModeMenuOpen.value) {
+    void updateChatModeMenuPosition();
+  }
 }, { capture: true });
 
 onMounted(async () => {
   void chatModelStore.fetch();
+  void refreshContextUsage();
   await loadWorkspaceState();
   unlistenWorkspaces = await listen("workspaces-changed", () => {
     void loadWorkspaceState();
+  });
+  unlistenChatFinished = await listen("chat-finished", () => {
+    void refreshContextUsage();
+  });
+  unlistenChatStarted = await listen("chat-started", () => {
+    void refreshContextUsage();
   });
   try {
     unlistenFocus = await getCurrentWebviewWindow().onFocusChanged(({ payload: focused }) => {
@@ -1045,6 +1442,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unlistenWorkspaces?.();
+  unlistenChatFinished?.();
+  unlistenChatStarted?.();
   unlistenFocus?.();
   void syncPopupState(false);
 });
@@ -1159,7 +1558,7 @@ async function focusInput() {
 
 /** Keyboard navigation for pickers must work even if the input lost focus (e.g. after Alt-Tab). */
 function handleGlobalKeydown(event: KeyboardEvent) {
-  if (!interactivePickerOpen.value && !modelMenuOpen.value && !approvalMenuOpen.value) {
+  if (!interactivePickerOpen.value && !modelMenuOpen.value && !approvalMenuOpen.value && !chatModeMenuOpen.value) {
     return;
   }
   if (event.target === inputRef.value) {
@@ -1169,7 +1568,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 }
 
 function restorePickerFocus() {
-  if (interactivePickerOpen.value || modelMenuOpen.value || approvalMenuOpen.value) {
+  if (interactivePickerOpen.value || modelMenuOpen.value || approvalMenuOpen.value || chatModeMenuOpen.value) {
     void focusInput();
   }
 }
@@ -1209,6 +1608,8 @@ const workspaceQuickSelectOnly = ref(false);
 const workspaceSaving = ref(false);
 const workspaceError = ref("");
 let unlistenWorkspaces: UnlistenFn | null = null;
+let unlistenChatFinished: UnlistenFn | null = null;
+let unlistenChatStarted: UnlistenFn | null = null;
 let unlistenFocus: UnlistenFn | null = null;
 
 const workspaceTooltip = computed(() =>
@@ -1251,6 +1652,7 @@ async function toggleWorkspacePicker() {
   selectedIndex.value = 0;
   closeModelMenu();
   closeApprovalMenu();
+  closeChatModeMenu();
   await loadWorkspaceState();
   if (workspaces.value.length === 0) {
     await addWorkspaceFromFolder();
@@ -1267,6 +1669,7 @@ async function openWorkspaceQuickPicker() {
   selectedIndex.value = 0;
   closeModelMenu();
   closeApprovalMenu();
+  closeChatModeMenu();
   await loadWorkspaceState();
   workspacePickerOpen.value = true;
   await syncPopupState(true);
@@ -1385,7 +1788,7 @@ async function submit() {
   }
 
   const text = composeVisibleText().trim();
-  if (!text && !pastedText.value && mentionedFiles.value.length === 0) {
+  if (!text && !pastedText.value && mentionedFiles.value.length === 0 && attachedImages.value.length === 0) {
     return;
   }
 
@@ -1411,7 +1814,8 @@ async function submit() {
   const fileMentions = mentionedFiles.value
     .map((path) => (/\s/.test(path) ? `@"${path}"` : `@${path}`))
     .join(" ");
-  const submittedText = [text, fileMentions, pastedText.value]
+  const imageTags = attachedImages.value.map(img => `![image](${img})`).join("\n");
+  const submittedText = [text, fileMentions, pastedText.value, imageTags]
     .filter((part) => part.length > 0)
     .join("\n\n");
   emit("submit", submittedText);
@@ -1419,10 +1823,34 @@ async function submit() {
   prefixText.value = "";
   pastedText.value = "";
   mentionedFiles.value = [];
+  attachedImages.value = [];
   emitLayoutChange();
 }
 
 function handlePaste(event: ClipboardEvent) {
+  const items = event.clipboardData?.items;
+  if (items) {
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          event.preventDefault();
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const base64 = e.target?.result as string;
+            if (!base64) return;
+            void compressImageDataUrl(base64).then((compressed) => {
+              attachedImages.value.push(compressed);
+              emitLayoutChange();
+            });
+          };
+          reader.readAsDataURL(file);
+          return;
+        }
+      }
+    }
+  }
+
   const text = event.clipboardData?.getData("text/plain") ?? "";
   if (!/[\r\n]/.test(text)) return;
 
@@ -1644,6 +2072,14 @@ function handleKeydown(event: KeyboardEvent) {
     }
   }
 
+  if (chatModeMenuOpen.value) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeChatModeMenu();
+      return;
+    }
+  }
+
   if (showFileSuggestions.value) {
     const count = fileSuggestions.value.length;
     if (event.key === "ArrowDown" && count > 0) {
@@ -1718,9 +2154,11 @@ function reset() {
   prefixText.value = "";
   pastedText.value = "";
   mentionedFiles.value = [];
+  attachedImages.value = [];
   selectedIndex.value = 0;
   closeModelMenu();
   closeApprovalMenu();
+  closeChatModeMenu();
   workspacePickerOpen.value = false;
   workspaceQuickSelectOnly.value = false;
   emitLayoutChange();
@@ -1730,6 +2168,7 @@ function setMessage(text: string) {
   prefixText.value = "";
   pastedText.value = "";
   mentionedFiles.value = [];
+  attachedImages.value = [];
   message.value = text;
   emitLayoutChange();
   void focusInput();
@@ -1889,6 +2328,9 @@ watch(showSuggestions, () => {
   if (showSuggestions.value && approvalMenuOpen.value) {
     closeApprovalMenu();
   }
+  if (showSuggestions.value && chatModeMenuOpen.value) {
+    closeChatModeMenu();
+  }
   emitLayoutChange();
 }, { immediate: true });
 
@@ -1898,6 +2340,9 @@ watch(showAskUserPicker, () => {
   }
   if (showAskUserPicker.value && approvalMenuOpen.value) {
     closeApprovalMenu();
+  }
+  if (showAskUserPicker.value && chatModeMenuOpen.value) {
+    closeChatModeMenu();
   }
   emitLayoutChange();
 });
@@ -1912,6 +2357,9 @@ watch(
       }
       if (approvalMenuOpen.value) {
         closeApprovalMenu();
+      }
+      if (chatModeMenuOpen.value) {
+        closeChatModeMenu();
       }
       await syncPopupState(true);
       void focusInput();
@@ -1931,6 +2379,9 @@ watch(
       if (approvalMenuOpen.value) {
         closeApprovalMenu();
       }
+      if (chatModeMenuOpen.value) {
+        closeChatModeMenu();
+      }
       await syncPopupState(true);
       void focusInput();
     }
@@ -1948,6 +2399,9 @@ watch(
       }
       if (approvalMenuOpen.value) {
         closeApprovalMenu();
+      }
+      if (chatModeMenuOpen.value) {
+        closeChatModeMenu();
       }
       await syncPopupState(true);
       void focusInput();
@@ -2006,15 +2460,23 @@ defineExpose({ focusInput, reset, setMessage });
 
 .input-footer {
   width: 100%;
-  min-height: 26px;
+  min-height: 28px;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
+  padding-top: 1px;
 }
 
-.input-footer-primary,
+.input-footer-primary {
+  min-width: 0;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
 .input-footer-actions {
   min-width: 0;
   gap: 6px;
+  flex-wrap: nowrap;
+  align-items: center;
 }
 
 .chat-input {
@@ -2041,11 +2503,43 @@ defineExpose({ focusInput, reset, setMessage });
   min-width: 0;
 }
 
+/* Shared ghost-chip language for footer controls */
+.footer-chip {
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--peek-muted);
+  font-family: var(--peek-font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 16px;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.footer-chip-icon {
+  flex: none;
+  opacity: 0.78;
+  transition: opacity 140ms ease, color 140ms ease;
+}
+
+.footer-chip:hover .footer-chip-icon,
+.footer-chip.open .footer-chip-icon,
+.footer-chip.active .footer-chip-icon {
+  opacity: 1;
+}
+
 .workspace-control {
   position: relative;
   flex: none;
   height: 26px;
-  max-width: 140px;
+  max-width: 108px;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   border-radius: 6px;
@@ -2092,7 +2586,6 @@ defineExpose({ focusInput, reset, setMessage });
   white-space: nowrap;
 }
 
-
 .workspace-control:hover {
   background: color-mix(in srgb, var(--peek-accent) 12%, transparent);
   color: var(--peek-text);
@@ -2104,8 +2597,8 @@ defineExpose({ focusInput, reset, setMessage });
 }
 
 .workspace-btn {
-  min-width: 26px;
-  max-width: 140px;
+  min-width: 0;
+  max-width: 100%;
   height: 26px;
   border: 0;
   border-radius: inherit;
@@ -2116,13 +2609,17 @@ defineExpose({ focusInput, reset, setMessage });
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  overflow: hidden;
 }
 
 .workspace-name {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
+  font-weight: 500;
   line-height: 16px;
 }
 
@@ -2141,12 +2638,16 @@ defineExpose({ focusInput, reset, setMessage });
   border-radius: 50%;
   background: var(--peek-surface);
   color: var(--peek-muted);
-  box-shadow: 0 2px 6px rgb(0 0 0 / 18%);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
   transform: scale(0.72);
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease, transform 120ms ease;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease,
+    transform 120ms ease;
 }
 
 .workspace-control:hover .workspace-exit-btn,
@@ -2166,24 +2667,17 @@ defineExpose({ focusInput, reset, setMessage });
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  max-width: 190px;
-  height: 26px;
+  max-width: 148px;
+  min-width: 0;
   margin: 0;
   padding: 0 7px;
-  border-radius: 6px;
-  border: 1px solid var(--peek-border);
-  background: color-mix(in srgb, var(--peek-accent) 8%, transparent);
-  color: var(--peek-muted);
-  font-family: var(--peek-font-sans);
-  font-size: 11px;
-  line-height: 1;
   user-select: none;
   cursor: pointer;
   appearance: none;
-  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
 }
 
-.model-badge > svg {
+.model-badge > svg,
+.model-badge .footer-chip-icon {
   flex: none;
 }
 
@@ -2192,11 +2686,18 @@ defineExpose({ focusInput, reset, setMessage });
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 16px;
 }
 
 .model-chevron {
   flex: none;
-  transition: transform 120ms ease;
+  opacity: 0.45;
+  transition: transform 160ms ease, opacity 140ms ease;
+}
+
+.model-badge:hover .model-chevron,
+.model-badge.open .model-chevron {
+  opacity: 0.8;
 }
 
 .model-badge.open .model-chevron {
@@ -2205,9 +2706,32 @@ defineExpose({ focusInput, reset, setMessage });
 
 .model-badge:hover,
 .model-badge.open {
-  border-color: color-mix(in srgb, var(--peek-accent) 35%, var(--peek-border));
+  border-color: color-mix(in srgb, var(--peek-border) 80%, transparent);
   color: var(--peek-text);
-  background: color-mix(in srgb, var(--peek-accent) 14%, transparent);
+  background: color-mix(in srgb, var(--peek-text) 5%, transparent);
+}
+
+.model-badge.open {
+  border-color: color-mix(in srgb, var(--peek-accent) 28%, transparent);
+  background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--peek-accent) 12%, transparent);
+}
+
+.context-label {
+  flex: none;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--peek-text) 4%, transparent);
+  color: var(--peek-muted);
+  font-family: var(--peek-font-sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 16px;
+  user-select: none;
 }
 
 .send-btn {
@@ -2250,51 +2774,160 @@ defineExpose({ focusInput, reset, setMessage });
   z-index: 10000;
   list-style: none;
   margin: 0;
-  padding: 4px;
+  padding: 3px;
   border-radius: 10px;
-  border: 1px solid var(--peek-border);
-  background: var(--peek-list-bg);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  border: 1px solid color-mix(in srgb, var(--peek-border) 88%, transparent);
+  background: color-mix(in srgb, var(--peek-list-bg) 94%, transparent);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  box-shadow:
+    0 0 0 0.5px color-mix(in srgb, #fff 6%, transparent),
+    0 10px 28px rgba(0, 0, 0, 0.22),
+    0 2px 8px rgba(0, 0, 0, 0.12);
   max-height: 220px;
+  overflow-x: hidden;
   overflow-y: auto;
+  /* Floating menus are short — don't reserve permanent scrollbar gutter. */
+  scrollbar-gutter: auto;
   transform-origin: bottom right;
   will-change: opacity, transform;
 }
 
 .model-menu-floating .model-menu-item {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 7px 10px;
-  min-height: 34px;
-  justify-content: center;
-  border-radius: 7px;
-  cursor: default;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  min-height: 26px;
+  justify-content: flex-start;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
 }
 
-.model-menu-floating .model-menu-item:hover,
+.model-menu-floating .model-menu-item:hover {
+  background: color-mix(in srgb, var(--peek-text) 6%, transparent);
+}
+
 .model-menu-floating .model-menu-item.active {
-  background: var(--peek-list-active);
+  background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
+}
+
+.model-menu-floating .model-menu-item:hover.active {
+  background: color-mix(in srgb, var(--peek-accent) 14%, transparent);
 }
 
 .model-menu-floating .model-option-name {
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
   color: var(--peek-text);
+  letter-spacing: 0.01em;
 }
 
 .model-menu-floating .model-option-id {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9px;
+  line-height: 12px;
   color: var(--peek-muted);
+  opacity: 0.9;
+}
+
+.model-menu-floating .model-option-desc {
+  font-family: var(--peek-font-sans);
+  font-size: 9px;
+  line-height: 12px;
+  font-weight: 400;
+  color: var(--peek-muted);
+  opacity: 0.88;
+}
+
+.model-menu-floating .model-option-check {
+  width: 12px;
+  height: 12px;
 }
 
 .model-menu-floating .model-status {
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 14px;
   color: var(--peek-muted);
+  cursor: default;
+}
+
+.model-menu-floating .model-status:hover {
+  background: transparent;
 }
 
 .model-menu-floating .model-status.error {
   color: #e07a7a;
   line-height: 1.4;
+}
+
+/* Image thumbnail area in input bar */
+.input-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  width: 100%;
+  padding: 1px 0 2px;
+  max-height: 84px;
+  overflow-y: auto;
+}
+
+.image-thumb-container {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--peek-border);
+  background: color-mix(in srgb, var(--peek-surface) 70%, transparent);
+  /* WebView2: force content to clip to radius */
+  transform: translateZ(0);
+  transition: border-color 140ms ease;
+}
+
+.image-thumb-container:hover {
+  border-color: color-mix(in srgb, var(--peek-accent) 55%, var(--peek-border));
+}
+
+.image-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  cursor: zoom-in;
+}
+
+.image-remove-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  opacity: 0.8;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.image-thumb-container:hover .image-remove-btn {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.image-remove-btn:hover {
+  background: rgba(239, 68, 68, 0.9) !important; /* soft red on hover */
 }
 </style>

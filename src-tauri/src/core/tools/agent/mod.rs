@@ -23,6 +23,11 @@ pub fn is_async_runtime_tool(name: &str) -> bool {
             | "run_parallel_subagents"
             | "run_skill"
             | "run_readonly_skill"
+            | "explore_codebase"
+            | "research_topic"
+            | "review_code"
+            | "review_security"
+            | "generate_word"
     )
 }
 
@@ -123,10 +128,48 @@ pub async fn execute_async_tool(
             let prompt = format!("{body}\n\n## Task\n{task}");
             run_subagent(ctx, &prompt, true).await
         }
+        "explore_codebase" => {
+            run_builtin_skill(ctx, "explore", args["task"].as_str().unwrap_or(""), true).await
+        }
+        "research_topic" => {
+            run_builtin_skill(ctx, "research", args["task"].as_str().unwrap_or(""), true).await
+        }
+        "review_code" => {
+            run_builtin_skill(ctx, "review", args["task"].as_str().unwrap_or(""), true).await
+        }
+        "review_security" => {
+            run_builtin_skill(
+                ctx,
+                "security_review",
+                args["task"].as_str().unwrap_or(""),
+                true,
+            )
+            .await
+        }
+        "generate_word" => {
+            run_builtin_skill(
+                ctx,
+                "generate_word",
+                args["task"].as_str().unwrap_or(""),
+                false,
+            )
+            .await
+        }
         other => Err(ToolError::new(format!(
             "tool `{other}` is not an async-runtime tool"
         ))),
     }
+}
+
+async fn run_builtin_skill(
+    ctx: &ToolContext,
+    skill: &str,
+    task: &str,
+    read_only: bool,
+) -> Result<String, ToolError> {
+    let body = crate::core::tools::skills::resolve_skill_body(skill)?;
+    let prompt = format!("{body}\n\n## Task\n{task}");
+    run_subagent(ctx, &prompt, read_only).await
 }
 
 fn block_on_tool_future<F>(future: F) -> F::Output

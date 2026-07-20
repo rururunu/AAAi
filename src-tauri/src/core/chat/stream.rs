@@ -45,6 +45,7 @@ impl StreamManager {
         request: ChatRequest,
         assistant_message_id: String,
         session_id: String,
+        max_turn_tokens: usize,
     ) {
         let cancelled = Arc::new(AtomicBool::new(false));
         let content_ref = Arc::new(Mutex::new(String::new()));
@@ -87,7 +88,8 @@ impl StreamManager {
                 app_handle,
             };
 
-            let runner = AgentRunner::new(provider.clone(), tools);
+            let runner = AgentRunner::new(provider.clone(), tools)
+                .with_max_turn_tokens(max_turn_tokens);
             let agent_task = async_runtime::spawn({
                 let request = request.clone();
                 let tx = tx.clone();
@@ -143,6 +145,31 @@ impl StreamManager {
                             session_id: session_id.clone(),
                             message_id: assistant_message_id.clone(),
                             content: chunk,
+                        });
+                    }
+                    StreamEvent::Status { kind } => {
+                        event_bus.emit(BusEvent::ChatStatus {
+                            session_id: session_id.clone(),
+                            message_id: assistant_message_id.clone(),
+                            kind,
+                        });
+                    }
+                    StreamEvent::UserContentPatch { message_id, content } => {
+                        let status = conversation
+                            .find_message(&message_id)
+                            .map(|(_, msg)| msg.status)
+                            .unwrap_or(MessageStatus::Done);
+                        conversation.update_message(
+                            &session_id,
+                            &message_id,
+                            status,
+                            Some(content.clone()),
+                            None,
+                        );
+                        event_bus.emit(BusEvent::ChatUserContent {
+                            session_id: session_id.clone(),
+                            message_id,
+                            content,
                         });
                     }
                     StreamEvent::ToolCall(_) => {}

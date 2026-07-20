@@ -14,6 +14,7 @@ pub enum CaptureSource {
 pub struct ChatContext {
     pub selected_text: Option<String>,
     pub selected_files: Vec<PathBuf>,
+    pub selected_images: Vec<String>,
     pub source: Option<CaptureSource>,
     pub window: Option<WindowInfo>,
 }
@@ -23,6 +24,7 @@ impl ChatContext {
         Self {
             selected_text: None,
             selected_files: Vec::new(),
+            selected_images: Vec::new(),
             source: None,
             window: None,
         }
@@ -33,5 +35,6 @@ impl ChatContext {
             .as_ref()
             .is_some_and(|text| !text.trim().is_empty())
             || !self.selected_files.is_empty()
+            || !self.selected_images.is_empty()
     }
 }

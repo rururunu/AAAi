@@ -11,6 +11,7 @@ use windows::Win32::UI::Shell::{
     IWebBrowserApp, SID_STopLevelBrowser, SVGIO_SELECTION, ShellWindows, SIGDN_FILESYSPATH,
 };
 
+use crate::core::context::image_capture::partition_selected_files;
 use crate::core::context::models::{CaptureError, CaptureSource, WindowInfo};
 use crate::core::context::provider::{CaptureProvider, CaptureResult, PartialCapture};
 
@@ -31,11 +32,19 @@ impl Default for ExplorerProvider {
 impl CaptureProvider for ExplorerProvider {
     fn capture(&self, window: &WindowInfo) -> CaptureResult {
         match capture_selected_files(HWND(window.hwnd as *mut _)) {
-            Ok(files) if !files.is_empty() => CaptureResult::Success(PartialCapture {
-                selected_text: None,
-                selected_files: files,
-                source: CaptureSource::Explorer,
-            }),
+            Ok(files) if !files.is_empty() => {
+                let (selected_files, selected_images) = partition_selected_files(files);
+                if selected_files.is_empty() && selected_images.is_empty() {
+                    CaptureResult::Empty
+                } else {
+                    CaptureResult::Success(PartialCapture {
+                        selected_text: None,
+                        selected_files,
+                        selected_images,
+                        source: CaptureSource::Explorer,
+                    })
+                }
+            }
             Ok(_) => CaptureResult::Empty,
             Err(error) => CaptureResult::Failed(error),
         }

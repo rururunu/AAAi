@@ -5,12 +5,12 @@
       :key="item.activity.id"
       class="tool-activity-card"
       :class="[item.activity.kind, item.activity.status]"
-      open
+      :open="shouldStartOpen(item.activity) ? true : undefined"
     >
       <summary class="tool-activity-header">
-        <ChevronRight class="activity-chevron" :size="13" />
+        <ChevronRight class="activity-chevron" :size="12" />
         <span class="tool-activity-icon" aria-hidden="true">
-          <component :is="icon(item.activity)" :size="13" />
+          <component :is="icon(item.activity)" :size="12" />
         </span>
         <span class="tool-activity-title">{{ item.activity.title }}</span>
         <span v-if="isFuzzy(item.activity)" class="fuzzy-badge">{{ tr(settingStore.language, "fuzzyMatch") }}</span>
@@ -50,7 +50,6 @@
           v-for="(edit, index) in item.edits.length > 1 ? item.edits : []"
           :key="index"
           class="operation-edit"
-          open
         >
           <summary>
             <ChevronRight class="edit-chevron" :size="12" />
@@ -120,7 +119,10 @@ const HIDE_RESULT_TOOLS = new Set([
 
 const enrichedActivities = computed(() =>
   props.activities
-    .filter((activity) => !(activity.toolName === "ask_user" && activity.status !== "running"))
+    .filter((activity) => {
+      if (activity.kind === "read") return false;
+      return !(activity.toolName === "ask_user" && activity.status !== "running");
+    })
     .map((activity) => {
       const edits = operationEdits(activity);
       return {
@@ -226,36 +228,86 @@ function icon(activity: ToolActivity): Component {
 function formatResult(result: string) {
   return result.startsWith("```") ? result : `\`\`\`\n${result}\n\`\`\``;
 }
+
+function shouldStartOpen(activity: ToolActivity) {
+  return activity.status === "running" || activity.status === "error";
+}
 </script>
 
 <style scoped>
-.tool-activity-list { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-bottom: 10px; box-sizing: border-box; }
-.tool-activity-list.operations { gap: 6px; }
-.tool-activity-card { width: 100%; box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--peek-border) 80%, transparent); border-radius: 7px; background: color-mix(in srgb, var(--peek-surface) 88%, transparent); overflow: hidden; }
-.tool-activity-card.running { border-color: color-mix(in srgb, var(--peek-accent) 35%, var(--peek-border)); }
-.tool-activity-card.error { border-color: color-mix(in srgb, #ef4444 40%, var(--peek-border)); }
-.tool-activity-header { display: flex; align-items: center; gap: 7px; padding: 8px 10px; color: var(--peek-text); font-size: 12px; line-height: 1.4; cursor: pointer; list-style: none; user-select: none; }
+.tool-activity-list { display: flex; flex-direction: column; gap: 3px; width: 100%; margin-bottom: 0; box-sizing: border-box; }
+.tool-activity-list.operations { gap: 3px; }
+.tool-activity-card {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  overflow: hidden;
+}
+.tool-activity-card.running {
+  background: color-mix(in srgb, var(--peek-accent) 7%, transparent);
+}
+.tool-activity-card.error {
+  background: color-mix(in srgb, #ef4444 8%, transparent);
+}
+.tool-activity-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  color: var(--peek-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  border-radius: 6px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.tool-activity-header:hover {
+  background: color-mix(in srgb, var(--peek-text) 5%, transparent);
+  color: var(--peek-text);
+}
 .tool-activity-header::-webkit-details-marker, .operation-edit > summary::-webkit-details-marker { display: none; }
 .activity-chevron, .edit-chevron { flex: none; color: var(--peek-faint); transition: transform 150ms ease; }
 .tool-activity-card[open] > .tool-activity-header .activity-chevron, .operation-edit[open] > summary .edit-chevron { transform: rotate(90deg); }
-.tool-activity-card[open] > .tool-activity-header { border-bottom: 1px solid color-mix(in srgb, var(--peek-border) 60%, transparent); }
-.tool-activity-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 20px; height: 20px; border-radius: 4px; background: color-mix(in srgb, var(--peek-accent) 12%, transparent); color: var(--peek-accent); }
-.tool-activity-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.fuzzy-badge { flex: none; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, #eab308 22%, transparent); color: #eab308; font-weight: 650; }
-.change-stats { display: inline-flex; align-items: center; gap: 5px; flex: none; font-family: var(--font-mono); font-size: 11px; font-weight: 650; }
+.tool-activity-card[open] > .tool-activity-header {
+  color: var(--peek-text);
+  border-bottom: 0;
+}
+.tool-activity-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
+  color: var(--peek-accent);
+}
+.tool-activity-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fuzzy-badge { flex: none; font-size: 9px; padding: 0 5px; border-radius: 999px; background: color-mix(in srgb, #eab308 22%, transparent); color: #eab308; font-weight: 650; }
+.change-stats { display: inline-flex; align-items: center; gap: 4px; flex: none; font-family: var(--font-mono); font-size: 10px; font-weight: 650; }
 .change-stats .added { color: #22c55e; }
 .change-stats .removed { color: #ef4444; }
-.tool-activity-status { flex: none; color: var(--peek-muted); font-size: 11px; }
+.tool-activity-status { flex: none; color: var(--peek-muted); font-size: 10px; }
 .tool-activity-status.error { color: #f87171; }
-.tool-activity-detail { padding: 8px 10px 10px; font-size: 12px; }
-.tool-activity-detail :deep(pre) { margin: 0; max-height: 220px; overflow: auto; }
-.operation-edits { display: flex; flex-direction: column; gap: 0; padding: 0; }
-.operation-edits.flat { padding: 0; }
-.operation-edit { overflow: hidden; border-top: 1px solid color-mix(in srgb, var(--peek-border) 70%, transparent); background: transparent; }
-.operation-edit > summary { display: flex; align-items: center; gap: 5px; padding: 6px 10px; color: var(--peek-muted); font-size: 11px; font-weight: 600; cursor: pointer; list-style: none; }
+.tool-activity-detail {
+  padding: 2px 6px 8px 28px;
+  font-size: 11px;
+  color: var(--peek-muted);
+}
+.tool-activity-detail :deep(pre) { margin: 0; max-height: 180px; overflow: auto; border-radius: 6px; }
+.operation-edits { display: flex; flex-direction: column; gap: 0; padding: 0 0 4px; }
+.operation-edits.flat { padding: 0 0 4px; }
+.operation-edit { overflow: hidden; border-top: 0; background: transparent; margin: 0 6px 0 28px; border-radius: 6px; }
+.operation-edit > summary { display: flex; align-items: center; gap: 5px; padding: 4px 6px; color: var(--peek-muted); font-size: 10px; font-weight: 600; cursor: pointer; list-style: none; border-radius: 5px; }
+.operation-edit > summary:hover { background: color-mix(in srgb, var(--peek-text) 4%, transparent); }
 .edit-stats { margin-left: auto; }
-.structured-diff { max-height: 240px; margin: 0; overflow: auto; border-top: 1px solid var(--peek-border); background: color-mix(in srgb, var(--peek-input-bg) 82%, transparent); font-family: var(--font-mono); font-size: 11px; line-height: 1.55; }
-.structured-diff.flat { border-top: 0; }
+.structured-diff { max-height: 200px; margin: 0; overflow: auto; border: 0; border-radius: 6px; background: color-mix(in srgb, var(--peek-input-bg) 82%, transparent); font-family: var(--font-mono); font-size: 11px; line-height: 1.55; }
+.structured-diff.flat { margin: 0 6px 6px 28px; border-radius: 6px; }
 .structured-diff code { display: block; min-width: max-content; }
 .diff-line { display: flex; min-width: 100%; padding: 0 9px 0 0; white-space: pre; }
 .diff-marker { display: inline-block; flex: none; width: 22px; padding-left: 7px; user-select: none; }

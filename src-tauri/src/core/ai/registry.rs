@@ -6,14 +6,28 @@ use super::deepseek::DeepSeekProvider;
 use super::provider::AIProvider;
 use crate::services::settings_store;
 
-/// 根据设置解析当前 AI Provider，后续可扩展为多 Provider 切换。
+/// Resolve the AI provider to use for a request.
+/// If the currently selected model belongs to the custom provider,
+/// a DeepSeekProvider pointed at the custom base URL is returned.
+/// Otherwise the standard DeepSeek provider is returned.
 pub fn resolve_provider(app: AppHandle) -> Arc<dyn AIProvider> {
     let resolve_api_key = {
         let app = app.clone();
         Arc::new(move || {
-            settings_store::get_settings(&app)
-                .map(|settings| settings.deepseek_api_key)
-                .unwrap_or_default()
+            let settings = settings_store::get_settings(&app).unwrap_or_default();
+            let model = settings.chat_model.trim().to_string();
+            for custom in &settings.custom_providers {
+                let custom_ids: Vec<&str> = custom
+                    .models
+                    .split([',', '\n'])
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if custom_ids.contains(&model.as_str()) {
+                    return custom.api_key.clone();
+                }
+            }
+            settings.deepseek_api_key
         })
     };
 
@@ -44,11 +58,34 @@ pub fn resolve_provider(app: AppHandle) -> Arc<dyn AIProvider> {
         })
     };
 
+    // Resolver for a custom base URL (None = use default DeepSeek endpoint).
+    let resolve_base_url = {
+        let app = app.clone();
+        Arc::new(move || -> Option<String> {
+            let settings = settings_store::get_settings(&app).unwrap_or_default();
+            let model = settings.chat_model.trim().to_string();
+            for custom in &settings.custom_providers {
+                let custom_ids: Vec<&str> = custom
+                    .models
+                    .split([',', '\n'])
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if custom_ids.contains(&model.as_str()) && !custom.base_url.trim().is_empty() {
+                    return Some(custom.base_url.trim().to_string());
+                }
+            }
+            None
+        })
+    };
+
     Arc::new(DeepSeekProvider::new(
+        app.clone(),
         resolve_api_key,
         resolve_model,
         resolve_effort,
         resolve_pass_tool_reasoning,
+        Some(resolve_base_url),
     ))
 }
 

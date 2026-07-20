@@ -15,6 +15,10 @@ const router = createRouter({
             path: "/settings",
             component: () => import("@/pages/Settings/index.vue"),
         },
+        {
+            path: "/image-preview",
+            component: () => import("@/pages/ImagePreview.vue"),
+        },
     ],
 });
 

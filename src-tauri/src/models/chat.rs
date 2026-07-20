@@ -50,6 +50,22 @@ pub struct ChatReasoningEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ChatStatusEvent {
+    pub session_id: String,
+    pub message_id: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatUserContentEvent {
+    pub session_id: String,
+    pub message_id: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatFinishedEvent {
     pub session_id: String,
     pub message_id: String,
@@ -76,6 +92,24 @@ pub struct ChatContextNoticeEvent {
     pub usage_ratio: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folded_messages: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextUsageRequest {
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<crate::core::runtime::RequestContext>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextUsageResponse {
+    pub usage_ratio: f32,
+    pub estimated_tokens: usize,
+    pub context_window_tokens: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +147,8 @@ pub struct ListChatSessionsResponse {
 pub struct ChatModelInfo {
     pub id: String,
     pub owned_by: String,
+    /// Stable provider key used by the UI for icons (e.g. `"deepseek"`).
+    pub provider: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

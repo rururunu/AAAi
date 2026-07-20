@@ -16,6 +16,13 @@ pub enum StreamEvent {
     Start,
     Delta(String),
     Reasoning(String),
+    /// Ephemeral UI status (e.g. analyzing_images). Empty kind clears.
+    Status { kind: String },
+    /// Persist updated user message content (e.g. image analysis tags).
+    UserContentPatch {
+        message_id: String,
+        content: String,
+    },
     ToolCall(ToolCallPayload),
     /// 一轮流式结束；若 `tool_calls` 非空则 Agent 应继续执行工具。
     TurnComplete {

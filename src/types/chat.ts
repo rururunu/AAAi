@@ -23,6 +23,8 @@ export interface ChatMessage {
   workTimeline?: WorkTimelineItem[];
   toolActivities?: ToolActivity[];
   askUserAnswer?: AskUserAnswerItem[];
+  /** Ephemeral UI status from backend (not persisted). e.g. "analyzing_images" */
+  activityStatus?: string;
   status: MessageStatus;
   timestamp: number;
 }
@@ -40,6 +42,7 @@ export interface ChatSendRequest {
 export interface CapturedContext {
   selection?: string;
   selectedFiles?: string[];
+  selectedImages?: string[];
   activeWindow?: string;
   workspace?: { name: string; root: string };
   clipboard?: string;
@@ -73,6 +76,18 @@ export interface ChatReasoningEvent {
   content: string;
 }
 
+export interface ChatStatusEvent {
+  sessionId: string;
+  messageId: string;
+  kind: string;
+}
+
+export interface ChatUserContentEvent {
+  sessionId: string;
+  messageId: string;
+  content: string;
+}
+
 export interface ChatFinishedEvent {
   sessionId: string;
   messageId: string;
@@ -93,6 +108,24 @@ export interface ChatContextNoticeEvent {
   message: string;
   usageRatio: number;
   foldedMessages?: number;
+}
+
+export interface ContextUsageSnapshot {
+  usageRatio: number;
+  estimatedTokens: number;
+  contextWindowTokens: number;
+}
+
+export interface ContextUsageRequest {
+  sessionId?: string;
+  draftMessage?: string;
+  context?: CapturedContext;
+}
+
+export interface ContextUsageResponse {
+  usageRatio: number;
+  estimatedTokens: number;
+  contextWindowTokens: number;
 }
 
 export interface ChatHistoryRequest {
@@ -119,6 +152,8 @@ export interface ListChatSessionsResponse {
 export interface ChatModelInfo {
   id: string;
   ownedBy: string;
+  /** Stable provider key for UI icons (e.g. `"deepseek"`). */
+  provider: string;
 }
 
 export interface AskUserOption {

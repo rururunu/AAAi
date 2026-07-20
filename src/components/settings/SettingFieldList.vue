@@ -121,19 +121,38 @@
 
         <div v-else-if="item.type === 'select-model'" class="space-y-1.5">
           <Select
-            :model-value="settingStore.chatModel"
+            :model-value="item.id === 'multimodalModel' ? settingStore.multimodalModel : settingStore.chatModel"
             :disabled="chatModelStore.loading || availableModelOptions.length === 0"
-            @update:model-value="(v) => emit('default-model-change', v)"
+            @update:model-value="(v) => item.id === 'multimodalModel' ? emit('multimodal-model-change', v) : emit('default-model-change', v)"
           >
             <SelectTrigger class="w-full">
-              <SelectValue :placeholder="modelStatusText" />
+              <SelectValue :placeholder="modelStatusText">
+                <span
+                  v-if="selectedModelOption(item.id)"
+                  class="inline-flex min-w-0 items-center gap-1.5"
+                >
+                  <component
+                    :is="selectedModelOption(item.id)?.icon"
+                    v-if="selectedModelOption(item.id)?.icon"
+                    class="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                  <span class="truncate">{{ selectedModelOption(item.id)?.label }}</span>
+                </span>
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem
                 v-for="option in availableModelOptions"
                 :key="option.value"
                 :value="option.value"
+                :text-value="option.label"
               >
+                <template v-if="option.icon" #leading>
+                  <component
+                    :is="option.icon"
+                    class="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                </template>
                 {{ option.label }}
               </SelectItem>
             </SelectContent>
@@ -295,6 +314,7 @@ import {
 } from "@/components/ui/select";
 import { useSettingStore } from "@/stores/setting";
 import { useChatModelStore } from "@/stores/chatModel";
+import { getProviderIcon, formatModelDisplayName, isDeepSeekProvider } from "@/lib/providerIcons";
 import { tr } from "@/services/i18n";
 import type { SettingDefinition } from "@/pages/Settings/settingsDefinitions";
 import {
@@ -331,6 +351,7 @@ const emit = defineEmits<{
   "tool-approval-mode-change": [value: unknown];
   "web-search-provider-change": [value: unknown];
   "default-model-change": [value: unknown];
+  "multimodal-model-change": [value: unknown];
   "custom-accent-change": [event: Event];
   "reset-custom-accent": [];
   "update:apiKeyDraft": [value: string];
@@ -439,13 +460,27 @@ const availableModelOptions = computed(() => {
   const models = [...chatModelStore.models];
   const current = settingStore.chatModel.trim();
   if (current && !models.some((model) => model.id === current)) {
-    models.unshift({ id: current, ownedBy: "" });
+    models.unshift({ id: current, ownedBy: "", provider: "" });
   }
-  return models.map((model) => ({
-    value: model.id,
-    label: model.ownedBy ? `${model.id} · ${model.ownedBy}` : model.id,
-  }));
+  return models.map((model) => {
+    const name = formatModelDisplayName(model.id, model.provider);
+    const showOwner =
+      !!model.ownedBy && !isDeepSeekProvider(model.provider);
+    return {
+      value: model.id,
+      label: showOwner ? `${name} · ${model.ownedBy}` : name,
+      icon: getProviderIcon(model.provider),
+    };
+  });
 });
+
+function selectedModelOption(itemId: string) {
+  const selectedId =
+    itemId === "multimodalModel"
+      ? settingStore.multimodalModel
+      : settingStore.chatModel;
+  return availableModelOptions.value.find((option) => option.value === selectedId) ?? null;
+}
 
 const modelStatusText = computed(() => {
   if (chatModelStore.loading) {
@@ -459,6 +494,8 @@ function toggleActive(id: string) {
   if (id === "webSearchEnabled") return settingStore.webSearchEnabled;
   if (id === "lspEnabled") return settingStore.lspEnabled;
   if (id === "passToolReasoning") return settingStore.passToolReasoning;
+  if (id === "multimodalSplitAnalysis") return settingStore.multimodalSplitAnalysis;
+  if (id === "largeContextEnabled") return settingStore.largeContextEnabled;
   return false;
 }
 

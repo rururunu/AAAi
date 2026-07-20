@@ -132,6 +132,8 @@
         <ChatInputBar
           ref="inputRef"
           :sending="sending"
+          :session-id="activeSessionId"
+          :captured-context="capturedContext"
           :placeholder="tr(settingStore.language, mode === 'chat' ? 'continueQuestion' : 'askAnything')"
           :close-on-escape="mode === 'input'"
           :ask-user="askUserSession"
@@ -232,6 +234,7 @@ const emit = defineEmits<{
       pickerRowCount: number;
       hasContextPreview: boolean;
       mode: "input" | "chat";
+      hasImages?: boolean;
     },
   ];
   close: [];
@@ -309,6 +312,13 @@ const contextPreview = computed(() => {
     return `[Selected Files] ${preview}`;
   }
 
+  if (context.selectedImages?.length) {
+    const count = context.selectedImages.length;
+    return count === 1
+      ? tr(settingStore.language, "selectedImage")
+      : tr(settingStore.language, "selectedImages", { count });
+  }
+
   if (context.activeWindow?.trim()) {
     const firstLine = context.activeWindow.split("\n")[0]?.trim();
     return firstLine ? `[Active Window] ${firstLine}` : "";
@@ -330,6 +340,7 @@ const composerLayout = ref({
   modelMenuHeight: 0,
   askUserRowCount: 0,
   pickerRowCount: 0,
+  hasImages: false,
 });
 
 function emitComposerLayout() {
@@ -347,8 +358,12 @@ function handleLayoutChange(payload: {
   modelMenuHeight: number;
   askUserRowCount: number;
   pickerRowCount: number;
+  hasImages?: boolean;
 }) {
-  composerLayout.value = payload;
+  composerLayout.value = {
+    ...payload,
+    hasImages: payload.hasImages ?? false,
+  };
   emitComposerLayout();
 }
 
@@ -892,6 +907,7 @@ onMounted(async () => {
 .thread-panel {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   width: calc(100% - (2 * var(--thread-side-gap)));
   margin: 0 auto calc(-1 * var(--composer-overlap, 12px));
   display: flex;
@@ -986,6 +1002,11 @@ onMounted(async () => {
     var(--peek-surface) 22%,
     var(--peek-surface) 100%
   );
+}
+
+.peek-panel.chat :deep(.input-footer-primary) {
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .window-controls {

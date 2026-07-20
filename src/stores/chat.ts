@@ -11,6 +11,7 @@ import {
 import type {
   AskUserAnswerItem,
   ChatMessage,
+  ContextUsageSnapshot,
   ToolActivity,
   ToolPreviewPayload,
   WorkTimelineItem,
@@ -30,6 +31,7 @@ export function settleInterruptedMessages(messages: ChatMessage[]): ChatMessage[
     return {
       ...message,
       status: statusStuck ? "cancelled" : message.status,
+      activityStatus: undefined,
       toolActivities: message.toolActivities?.map((activity) =>
         activity.status === "running"
           ? {
@@ -81,6 +83,7 @@ export const useChatStore = defineStore("chat", {
     sending: {} as Record<string, boolean>,
     overlayDraftSessionId: "" as string,
     contextNotices: {} as Record<string, string | undefined>,
+    contextUsage: {} as Record<string, ContextUsageSnapshot | undefined>,
   }),
   getters: {
     overlayMessages(state): ChatMessage[] {
@@ -97,6 +100,13 @@ export const useChatStore = defineStore("chat", {
       }
       return state.contextNotices[sessionId];
     },
+    overlayContextUsage(state): ContextUsageSnapshot | undefined {
+      const sessionId = state.overlayDraftSessionId;
+      if (!sessionId) {
+        return undefined;
+      }
+      return state.contextUsage[sessionId];
+    },
   },
   actions: {
     setOverlayDraftSession(sessionId: string) {
@@ -109,6 +119,15 @@ export const useChatStore = defineStore("chat", {
       this.contextNotices = {
         ...this.contextNotices,
         [sessionId]: message,
+      };
+    },
+    setContextUsage(sessionId: string, usage: ContextUsageSnapshot | undefined) {
+      if (!sessionId) {
+        return;
+      }
+      this.contextUsage = {
+        ...this.contextUsage,
+        [sessionId]: usage,
       };
     },
     setSessionMessages(sessionId: string, messages: ChatMessage[]) {
@@ -387,6 +406,8 @@ export const useChatStore = defineStore("chat", {
         ...next[index],
         content: next[index].content + delta,
         status: "streaming",
+        // Once tokens arrive, drop ephemeral analyzing/status labels.
+        activityStatus: undefined,
       };
       this.setSessionMessages(resolvedSessionId, next);
     },
@@ -416,6 +437,64 @@ export const useChatStore = defineStore("chat", {
         reasoning: (current.reasoning ?? "") + chunk,
         workTimeline: appendReasoningTimeline(current.workTimeline, chunk),
         status: current.status === "pending" ? "streaming" : current.status,
+        activityStatus: undefined,
+      };
+      this.setSessionMessages(resolvedSessionId, next);
+    },
+    setActivityStatus(
+      sessionId: string,
+      messageId: string,
+      kind: string,
+      fallbackSessionId?: string,
+    ) {
+      const resolvedSessionId = this.resolveOverlaySessionId(
+        resolveSessionId(sessionId, fallbackSessionId),
+      );
+      const messages = this.sessions[resolvedSessionId];
+      if (!messages) {
+        return;
+      }
+
+      const index = messages.findIndex((item) => item.id === messageId);
+      if (index === -1) {
+        return;
+      }
+
+      const next = [...messages];
+      const current = next[index];
+      const activityStatus = kind.trim() ? kind : undefined;
+      if (current.activityStatus === activityStatus) {
+        return;
+      }
+      next[index] = {
+        ...current,
+        activityStatus,
+      };
+      this.setSessionMessages(resolvedSessionId, next);
+    },
+    patchMessageContent(
+      sessionId: string,
+      messageId: string,
+      content: string,
+      fallbackSessionId?: string,
+    ) {
+      const resolvedSessionId = this.resolveOverlaySessionId(
+        resolveSessionId(sessionId, fallbackSessionId),
+      );
+      const messages = this.sessions[resolvedSessionId];
+      if (!messages) {
+        return;
+      }
+
+      const index = messages.findIndex((item) => item.id === messageId);
+      if (index === -1) {
+        return;
+      }
+
+      const next = [...messages];
+      next[index] = {
+        ...next[index],
+        content,
       };
       this.setSessionMessages(resolvedSessionId, next);
     },
@@ -545,6 +624,7 @@ export const useChatStore = defineStore("chat", {
         ...next[index],
         content,
         status: "done",
+        activityStatus: undefined,
         ...(reasoning !== undefined ? { reasoning } : {}),
       };
       this.setSessionMessages(resolvedSessionId, next);
@@ -675,6 +755,7 @@ export const useChatStore = defineStore("chat", {
         ...next[index],
         content: error,
         status: "error",
+        activityStatus: undefined,
       };
       this.setSessionMessages(resolvedSessionId, next);
       this.clearSendingMany([

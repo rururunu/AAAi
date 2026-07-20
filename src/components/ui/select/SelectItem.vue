@@ -38,6 +38,10 @@ const forwardedProps = useForwardProps(delegatedProps)
       </SelectItemIndicator>
     </span>
 
+    <!-- Leading content (e.g. brand icons) must stay outside SelectItemText —
+         reka-ui clones ItemText into SelectValue and component VNodes break parentNode. -->
+    <slot name="leading" />
+
     <SelectItemText>
       <slot />
     </SelectItemText>

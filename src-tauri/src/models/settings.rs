@@ -72,6 +72,15 @@ pub enum ToolApprovalMode {
     AlwaysAllow,
 }
 
+/// Chat interaction mode: Agent can mutate; Ask is read-only tools only.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ChatMode {
+    #[default]
+    Agent,
+    Ask,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct LspServerConfig {
@@ -105,6 +114,18 @@ fn default_true() -> bool {
     true
 }
 
+/// A single custom OpenAI-compatible provider configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomProviderConfig {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub api_key: String,
+    /// Comma-separated or newline-separated model IDs (stored as raw text).
+    pub models: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -133,6 +154,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub tool_approval_mode: ToolApprovalMode,
     #[serde(default)]
+    pub chat_mode: ChatMode,
+    #[serde(default)]
     pub lsp_enabled: bool,
     #[serde(default)]
     pub lsp_servers: Vec<LspServerConfig>,
@@ -142,6 +165,8 @@ pub struct AppSettings {
     pub opacity: u32,
     #[serde(default = "default_chat_model")]
     pub chat_model: String,
+    #[serde(default = "default_multimodal_model")]
+    pub multimodal_model: String,
     #[serde(default)]
     pub reasoning_effort: ReasoningEffort,
     #[serde(default)]
@@ -150,15 +175,27 @@ pub struct AppSettings {
     /// in subsequent API history (required by DeepSeek thinking + tools).
     #[serde(default = "default_true")]
     pub pass_tool_reasoning: bool,
+    #[serde(default = "default_true")]
+    pub multimodal_split_analysis: bool,
+    /// When true, use a 1M-token context window for compaction / turn budgets.
+    #[serde(default = "default_true")]
+    pub large_context_enabled: bool,
     #[serde(default = "default_zoom")]
     pub zoom: u32,
     /// Secondary overlay shortcut, e.g. `Ctrl+Alt+Space` (recorded in Settings).
     #[serde(default = "default_secondary_hotkey")]
     pub secondary_hotkey: String,
+    /// List of custom OpenAI-compatible providers.
+    #[serde(default)]
+    pub custom_providers: Vec<CustomProviderConfig>,
 }
 
 fn default_chat_model() -> String {
     "deepseek-chat".to_string()
+}
+
+fn default_multimodal_model() -> String {
+    "gpt-4o".to_string()
 }
 
 fn default_custom_accent_color() -> String {
@@ -203,16 +240,21 @@ pub struct AppSettingsPatch {
     pub serper_api_key: Option<String>,
     pub tavily_api_key: Option<String>,
     pub tool_approval_mode: Option<ToolApprovalMode>,
+    pub chat_mode: Option<ChatMode>,
     pub lsp_enabled: Option<bool>,
     pub lsp_servers: Option<Vec<LspServerConfig>>,
     pub mcp_servers: Option<Vec<McpServerConfig>>,
     pub opacity: Option<u32>,
     pub chat_model: Option<String>,
+    pub multimodal_model: Option<String>,
     pub reasoning_effort: Option<ReasoningEffort>,
     pub reasoning_language: Option<ReasoningLanguage>,
     pub pass_tool_reasoning: Option<bool>,
+    pub multimodal_split_analysis: Option<bool>,
+    pub large_context_enabled: Option<bool>,
     pub zoom: Option<u32>,
     pub secondary_hotkey: Option<String>,
+    pub custom_providers: Option<Vec<CustomProviderConfig>>,
 }
 
 impl Default for AppSettings {
@@ -231,16 +273,21 @@ impl Default for AppSettings {
             serper_api_key: String::new(),
             tavily_api_key: String::new(),
             tool_approval_mode: ToolApprovalMode::default(),
+            chat_mode: ChatMode::default(),
             lsp_enabled: false,
             lsp_servers: default_lsp_servers(),
             mcp_servers: Vec::new(),
             opacity: 100,
             chat_model: default_chat_model(),
+            multimodal_model: default_multimodal_model(),
             reasoning_effort: ReasoningEffort::default(),
             reasoning_language: ReasoningLanguage::default(),
             pass_tool_reasoning: true,
+            multimodal_split_analysis: true,
+            large_context_enabled: true,
             zoom: 100,
             secondary_hotkey: default_secondary_hotkey(),
+            custom_providers: Vec::new(),
         }
     }
 }
@@ -300,6 +347,7 @@ impl AppSettings {
             tool_approval_mode: patch
                 .tool_approval_mode
                 .unwrap_or(self.tool_approval_mode),
+            chat_mode: patch.chat_mode.unwrap_or(self.chat_mode),
             lsp_enabled: patch.lsp_enabled.unwrap_or(self.lsp_enabled),
             lsp_servers: patch
                 .lsp_servers
@@ -309,16 +357,28 @@ impl AppSettings {
                 .unwrap_or_else(|| self.mcp_servers.clone()),
             opacity: patch.opacity.unwrap_or(self.opacity),
             chat_model: patch.chat_model.unwrap_or_else(|| self.chat_model.clone()),
+            multimodal_model: patch
+                .multimodal_model
+                .unwrap_or_else(|| self.multimodal_model.clone()),
             reasoning_effort: patch.reasoning_effort.unwrap_or(self.reasoning_effort),
             reasoning_language: patch.reasoning_language.unwrap_or(self.reasoning_language),
             pass_tool_reasoning: patch
                 .pass_tool_reasoning
                 .unwrap_or(self.pass_tool_reasoning),
+            multimodal_split_analysis: patch
+                .multimodal_split_analysis
+                .unwrap_or(self.multimodal_split_analysis),
+            large_context_enabled: patch
+                .large_context_enabled
+                .unwrap_or(self.large_context_enabled),
             zoom: patch.zoom.unwrap_or(self.zoom),
             secondary_hotkey: patch
                 .secondary_hotkey
                 .map(|value| crate::services::hotkey::normalize_hotkey(&value))
                 .unwrap_or_else(|| self.secondary_hotkey.clone()),
+            custom_providers: patch
+                .custom_providers
+                .unwrap_or_else(|| self.custom_providers.clone()),
         }
     }
 }

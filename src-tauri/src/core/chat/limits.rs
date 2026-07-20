@@ -1,5 +1,7 @@
 //! Shared text/token limits for prompt assembly and tool loops.
 
+use regex::Regex;
+
 /// Characters → estimated tokens (coarse).
 pub const CHARS_PER_TOKEN: usize = 4;
 
@@ -11,8 +13,20 @@ pub const RULES_MAX_CHARS: usize = 8_000;
 pub const MEMORIES_MAX_CHARS: usize = 8_000;
 pub const CONTEXT_BLOCKS_TOTAL_MAX_CHARS: usize = 16_000;
 
-pub const DEFAULT_MAX_STEPS: u32 = 30;
+/// Max agent tool-loop iterations per turn. `0` = unlimited.
+pub const DEFAULT_MAX_STEPS: u32 = 0;
+/// Per-turn token budget when large context is off.
 pub const DEFAULT_MAX_TURN_TOKENS: usize = 200_000;
+/// Per-turn token budget when large context (1M) is on.
+pub const LARGE_MAX_TURN_TOKENS: usize = 1_000_000;
+
+pub fn max_turn_tokens_for(large_context_enabled: bool) -> usize {
+    if large_context_enabled {
+        LARGE_MAX_TURN_TOKENS
+    } else {
+        DEFAULT_MAX_TURN_TOKENS
+    }
+}
 
 pub const LLM_COMPACT_TIMEOUT_SECS: u64 = 8;
 pub const FOLD_PAYLOAD_MSG_MAX_CHARS: usize = 800;
@@ -26,8 +40,26 @@ pub const MCP_MAX_TOTAL_TOOLS: usize = 128;
 pub const MCP_MAX_TOOL_SCHEMA_CHARS: usize = 8_000;
 
 pub fn estimate_tokens(text: &str) -> usize {
-    let chars = text.chars().count();
-    (chars / CHARS_PER_TOKEN).max(if chars > 0 { 1 } else { 0 })
+    if !text.contains("data:image/") {
+        let chars = text.chars().count();
+        return (chars / CHARS_PER_TOKEN).max(if chars > 0 { 1 } else { 0 });
+    }
+
+    // Strip out base64 image contents to avoid huge token estimation
+    let re = match Regex::new(r"data:image/[^)]+") {
+        Ok(re) => re,
+        Err(_) => {
+            let chars = text.chars().count();
+            return (chars / CHARS_PER_TOKEN).max(if chars > 0 { 1 } else { 0 });
+        }
+    };
+
+    let cleaned = re.replace_all(text, "image_placeholder");
+    let chars = cleaned.chars().count();
+    let base_tokens = (chars / CHARS_PER_TOKEN).max(if chars > 0 { 1 } else { 0 });
+
+    let image_count = text.matches("data:image/").count();
+    base_tokens + (image_count * 1000)
 }
 
 pub fn truncate_chars(text: &str, max_chars: usize) -> String {

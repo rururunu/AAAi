@@ -86,7 +86,7 @@ watch(
 <style scoped>
 .reasoning-block {
   width: 100%;
-  margin-bottom: 8px;
+  margin-bottom: 0;
   border: 1px solid color-mix(in srgb, var(--peek-border) 88%, var(--peek-muted));
   border-radius: 8px;
   background: var(--peek-surface);
@@ -146,5 +146,26 @@ watch(
   transform: translateZ(0);
 }
 
-.reasoning-block.embedded { margin-bottom: 8px; }
+/* Nested under process panel: no second card chrome */
+.reasoning-block.embedded {
+  margin-bottom: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  isolation: auto;
+}
+
+.reasoning-block.embedded .reasoning-summary {
+  padding: 3px 2px;
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.reasoning-block.embedded .reasoning-body {
+  padding: 2px 2px 6px;
+  max-height: min(32vh, 220px);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--peek-muted);
+}
 </style>

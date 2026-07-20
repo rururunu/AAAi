@@ -114,7 +114,7 @@ pub fn cleanup_overlay_state(label: &str) {
 }
 
 pub fn is_overlay_label(label: &str) -> bool {
-    label == "overlay" || label.starts_with("overlay-")
+    (label == "overlay" || label.starts_with("overlay-")) && !label.starts_with("overlay-preview-")
 }
 
 /// 隐藏指定 overlay 窗口（不销毁，用于基础 overlay 窗口）
@@ -172,8 +172,8 @@ fn create_new_overlay(app: &AppHandle, context: &RequestContext) {
     pending_contexts().insert(label.clone(), context.clone());
     match WebviewWindowBuilder::new(app, &label, WebviewUrl::App("/#/overlay".into()))
         .title("AltAltAi")
-        .inner_size(440.0, 82.0)
-        .min_inner_size(320.0, 82.0)
+        .inner_size(640.0, 82.0)
+        .min_inner_size(640.0, 82.0)
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -213,6 +213,7 @@ fn has_selected_context(context: &RequestContext) -> bool {
         .as_ref()
         .is_some_and(|selection| !selection.trim().is_empty())
         || !context.selected_files.is_empty()
+        || !context.selected_images.is_empty()
 }
 
 /// 主快捷键逻辑：
@@ -247,7 +248,7 @@ pub fn toggle_overlay(app: &AppHandle, mouse_pos: Option<(i32, i32)>) {
                 let context = capture_now();
                 configure_overlay_window(&window);
                 if let Some((mx, my)) = mouse_pos.filter(|_| has_selected_context(&context)) {
-                    const WIN_W: f64 = 440.0;
+                    const WIN_W: f64 = 640.0;
                     const WIN_H: f64 = 82.0;
                     const OFFSET: i32 = 16;
                     let (x, y) = calc_position_near_mouse(&window, mx, my, WIN_W, WIN_H, OFFSET);
@@ -339,7 +340,7 @@ fn place_and_show_overlay_at_mouse(
     mouse_y: i32,
     context: &RequestContext,
 ) {
-    const WIN_W: f64 = 440.0;
+    const WIN_W: f64 = 640.0;
     const WIN_H: f64 = 82.0;
     const OFFSET: i32 = 16;
 
@@ -375,7 +376,7 @@ fn place_and_show_overlay_at_mouse(
         match WebviewWindowBuilder::new(app, &label, WebviewUrl::App("/#/overlay".into()))
             .title("AltAltAi")
             .inner_size(WIN_W, WIN_H)
-            .min_inner_size(320.0, WIN_H)
+            .min_inner_size(640.0, WIN_H)
             .decorations(false)
             .transparent(true)
             .shadow(false)

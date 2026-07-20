@@ -7,6 +7,15 @@ use super::context::ToolContext;
 use super::error::ToolError;
 use super::Tool;
 
+fn normalize_tool_name(name: &str) -> &str {
+    match name {
+        "write_to_file" | "create_file" => "write_file",
+        "run_command" | "execute_command" | "execute_shell" | "exec_command" => "run_shell",
+        "replace_content" | "replace_file_content" | "edit_file" => "replace_in_file",
+        _ => name,
+    }
+}
+
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
     dynamic: RwLock<HashMap<String, Arc<dyn Tool>>>,
@@ -43,6 +52,7 @@ impl ToolRegistry {
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        let name = normalize_tool_name(name);
         if let Ok(guard) = self.dynamic.read() {
             if let Some(tool) = guard.get(name) {
                 return Some(Arc::clone(tool));
@@ -101,6 +111,7 @@ impl ToolRegistry {
         name: &str,
         args: &Value,
     ) -> Result<Arc<dyn Tool>, ToolError> {
+        let name = normalize_tool_name(name);
         crate::core::rules::RuleEngine::authorize_tool(name, args)?;
         let tool = self
             .get(name)

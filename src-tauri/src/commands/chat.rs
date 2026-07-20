@@ -5,7 +5,7 @@ use crate::core::ai::deepseek;
 use crate::core::chat::SendPreferences;
 use crate::models::chat::{
     ChatCancelRequest, ChatHistoryRequest, ChatHistoryResponse, ChatModelInfo, ChatSendRequest,
-    ChatSendResponse, ListChatSessionsResponse,
+    ChatSendResponse, ContextUsageRequest, ContextUsageResponse, ListChatSessionsResponse,
 };
 use crate::services::settings_store::get_settings;
 
@@ -80,15 +80,69 @@ pub fn list_chat_sessions(state: State<'_, AppState>) -> Result<ListChatSessions
 #[tauri::command]
 pub async fn list_chat_models(app: AppHandle) -> Result<Vec<ChatModelInfo>, String> {
     let settings = get_settings(&app)?;
-    deepseek::list_models(&settings.deepseek_api_key)
-        .await
-        .map_err(|error| error.to_string())
+    let mut all_models: Vec<ChatModelInfo> = Vec::new();
+
+    // Load models from DeepSeek if API key is configured.
+    if !settings.deepseek_api_key.trim().is_empty() {
+        match deepseek::list_models(&settings.deepseek_api_key).await {
+            Ok(models) => all_models.extend(models),
+            Err(e) => {
+                // Partial failure — log but don't abort if custom provider has models.
+                eprintln!("DeepSeek list_models error: {e}");
+            }
+        }
+    }
+
+    // Load models from all custom providers if configured.
+    for custom in &settings.custom_providers {
+        if !custom.base_url.trim().is_empty() && !custom.models.trim().is_empty() {
+            let custom_models: Vec<ChatModelInfo> = custom
+                .models
+                .split([',', '\n'])
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|id| ChatModelInfo {
+                    id: id.to_string(),
+                    owned_by: custom.name.clone(),
+                    provider: custom.id.clone(),
+                })
+                .collect();
+            all_models.extend(custom_models);
+        }
+    }
+
+    if all_models.is_empty() && !settings.deepseek_api_key.trim().is_empty() {
+        // Re-run DeepSeek to surface its error properly.
+        return deepseek::list_models(&settings.deepseek_api_key)
+            .await
+            .map_err(|e| e.to_string());
+    }
+
+    Ok(all_models)
 }
 
 #[tauri::command]
 pub fn delete_chat_session(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     state.core.chat().conversation().delete_session(&session_id);
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_context_usage(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: ContextUsageRequest,
+) -> Result<ContextUsageResponse, String> {
+    state
+        .core
+        .chat()
+        .context_usage(
+            &app,
+            request.session_id,
+            request.draft_message,
+            request.context,
+        )
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

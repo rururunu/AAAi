@@ -13,6 +13,7 @@ pub enum CaptureResult {
 pub struct PartialCapture {
     pub selected_text: Option<String>,
     pub selected_files: Vec<PathBuf>,
+    pub selected_images: Vec<String>,
     pub source: CaptureSource,
 }
 

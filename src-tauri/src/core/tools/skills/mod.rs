@@ -26,6 +26,7 @@ const EXPLORE_SKILL: &str = include_str!("../../../../prompts/skills/explore.md"
 const RESEARCH_SKILL: &str = include_str!("../../../../prompts/skills/research.md");
 const REVIEW_SKILL: &str = include_str!("../../../../prompts/skills/review.md");
 const SECURITY_REVIEW_SKILL: &str = include_str!("../../../../prompts/skills/security_review.md");
+const GENERATE_WORD_SKILL: &str = include_str!("../../../../prompts/skills/generate_word.md");
 
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Arc::new(LoadSkillTool));
@@ -38,6 +39,7 @@ pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Arc::new(ResearchTopicTool));
     registry.register(Arc::new(ReviewCodeTool));
     registry.register(Arc::new(ReviewSecurityTool));
+    registry.register(Arc::new(GenerateWordTool));
 }
 
 fn builtin_skill_body(name: &str) -> Option<&'static str> {
@@ -46,6 +48,7 @@ fn builtin_skill_body(name: &str) -> Option<&'static str> {
         "research" | "research_topic" => Some(RESEARCH_SKILL),
         "review" | "review_code" => Some(REVIEW_SKILL),
         "security_review" | "review_security" => Some(SECURITY_REVIEW_SKILL),
+        "generate_word" | "generate_docx" | "word" => Some(GENERATE_WORD_SKILL),
         _ => None,
     }
 }
@@ -102,7 +105,13 @@ pub(crate) fn resolve_skill_body(name: &str) -> Result<String, ToolError> {
 }
 
 fn list_builtin_names() -> Vec<&'static str> {
-    vec!["explore", "research", "review", "security_review"]
+    vec![
+        "explore",
+        "research",
+        "review",
+        "security_review",
+        "generate_word",
+    ]
 }
 
 /// Parse a short title + first paragraph from skill markdown (or YAML frontmatter).
@@ -557,3 +566,31 @@ shortcut_skill!(
     "security_review",
     "Security review with the security_review skill."
 );
+
+/// Write-capable shortcut: Word generation needs `write_file` / `run_shell`.
+struct GenerateWordTool;
+
+impl Tool for GenerateWordTool {
+    fn name(&self) -> &str {
+        "generate_word"
+    }
+    fn description(&self) -> &str {
+        "Generate a .docx Word document with the generate_word skill (python-docx)."
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": { "task": { "type": "string" } },
+            "required": ["task"]
+        })
+    }
+    fn read_only(&self) -> bool {
+        false
+    }
+    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        let task = args["task"].as_str().unwrap_or("");
+        let body = resolve_skill_body("generate_word")?;
+        let prompt = format!("{body}\n\n## Task\n{task}");
+        run_subagent_sync(ctx, &prompt, false)
+    }
+}

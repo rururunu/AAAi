@@ -69,6 +69,7 @@ Use `web_search` for current, recent, or externally verifiable facts. When the q
 | `research_topic` | ✓ | Built-in subagent: code + web research. |
 | `review_code` | ✓ | Built-in subagent: code review. |
 | `review_security` | ✓ | Built-in subagent: security review. |
+| `generate_word` | ✓ | Built-in subagent: generate `.docx` with python-docx. |
 | `install_tool_source` | ○ | Install MCP server or skill source (queued stub). |
 
 ## Memory & sessions

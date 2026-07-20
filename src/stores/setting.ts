@@ -27,16 +27,21 @@ const defaultSettings: AppSettings = {
     serperApiKey: "",
     tavilyApiKey: "",
     toolApprovalMode: "ask",
+    chatMode: "agent",
     lspEnabled: false,
     lspServers: [],
     mcpServers: [],
     opacity: 100,
     chatModel: DEFAULT_CHAT_MODEL,
+    multimodalModel: "gpt-4o",
+    multimodalSplitAnalysis: true,
+    largeContextEnabled: true,
     reasoningEffort: "high",
     reasoningLanguage: "auto",
     passToolReasoning: true,
     zoom: 100,
     secondaryHotkey: "Ctrl+Alt+Space",
+    customProviders: [],
 };
 
 export function applyTheme(settings: Pick<AppSettings, "colorScheme" | "customAccentColor" | "language">) {
@@ -77,6 +82,9 @@ export const useSettingStore = defineStore("setting", {
             this.opacity = opacityVal ?? 100;
 
             this.chatModel = settings.chatModel ?? DEFAULT_CHAT_MODEL;
+            this.multimodalModel = settings.multimodalModel ?? "gpt-4o";
+            this.multimodalSplitAnalysis = settings.multimodalSplitAnalysis ?? true;
+            this.largeContextEnabled = settings.largeContextEnabled ?? true;
             this.reasoningEffort = settings.reasoningEffort ?? "high";
             this.reasoningLanguage = settings.reasoningLanguage ?? "auto";
             this.passToolReasoning = settings.passToolReasoning ?? true;
@@ -86,6 +94,7 @@ export const useSettingStore = defineStore("setting", {
             this.webSearchEnabled = settings.webSearchEnabled ?? false;
             this.webSearchProvider = settings.webSearchProvider ?? "serper";
             this.toolApprovalMode = settings.toolApprovalMode ?? "ask";
+            this.chatMode = settings.chatMode ?? "agent";
             this.lspEnabled = settings.lspEnabled ?? false;
             this.lspServers = settings.lspServers ?? [];
             this.mcpServers = settings.mcpServers ?? [];
@@ -96,6 +105,7 @@ export const useSettingStore = defineStore("setting", {
             }
             this.zoom = zoomVal ?? 100;
             this.secondaryHotkey = settings.secondaryHotkey ?? "Ctrl+Alt+Space";
+            this.customProviders = settings.customProviders ?? [];
 
             applyTheme(settings);
             applyZoom(this.zoom);
@@ -115,6 +125,7 @@ export const useSettingStore = defineStore("setting", {
             this.serperApiKey = settings.serperApiKey ?? "";
             this.tavilyApiKey = settings.tavilyApiKey ?? "";
             this.toolApprovalMode = settings.toolApprovalMode ?? "ask";
+            this.chatMode = settings.chatMode ?? "agent";
             this.lspEnabled = settings.lspEnabled ?? false;
             this.lspServers = settings.lspServers ?? [];
             this.mcpServers = settings.mcpServers ?? [];
@@ -126,6 +137,9 @@ export const useSettingStore = defineStore("setting", {
             this.opacity = opacityVal ?? 100;
 
             this.chatModel = settings.chatModel ?? DEFAULT_CHAT_MODEL;
+            this.multimodalModel = settings.multimodalModel ?? "gpt-4o";
+            this.multimodalSplitAnalysis = settings.multimodalSplitAnalysis ?? true;
+            this.largeContextEnabled = settings.largeContextEnabled ?? true;
             this.reasoningEffort = settings.reasoningEffort ?? "high";
             this.reasoningLanguage = settings.reasoningLanguage ?? "auto";
             this.passToolReasoning = settings.passToolReasoning ?? true;
@@ -136,6 +150,7 @@ export const useSettingStore = defineStore("setting", {
             }
             this.zoom = zoomVal ?? 100;
             this.secondaryHotkey = settings.secondaryHotkey ?? "Ctrl+Alt+Space";
+            this.customProviders = settings.customProviders ?? [];
 
             applyTheme(settings);
             applyZoom(this.zoom);

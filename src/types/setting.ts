@@ -28,6 +28,9 @@ export type WebSearchProvider = "serper" | "tavily";
 
 export type ToolApprovalMode = "ask" | "auto" | "alwaysAllow";
 
+/** Chat interaction mode: Agent can mutate; Ask exposes read-only tools only. */
+export type ChatMode = "agent" | "ask";
+
 export interface LspServerConfig {
     id: string;
     languages: string[];
@@ -47,6 +50,16 @@ export interface McpServerConfig {
     enabled?: boolean;
 }
 
+/** Configuration for a custom OpenAI-compatible provider. */
+export interface CustomProviderConfig {
+    id: string;
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    /** Newline or comma-separated model IDs. */
+    models: string;
+}
+
 export interface AppSettings {
     colorScheme: ColorScheme;
     customAccentColor: string;
@@ -61,17 +74,23 @@ export interface AppSettings {
     serperApiKey: string;
     tavilyApiKey: string;
     toolApprovalMode: ToolApprovalMode;
+    chatMode: ChatMode;
     lspEnabled: boolean;
     lspServers: LspServerConfig[];
     mcpServers: McpServerConfig[];
     opacity: number;
     chatModel: string;
+    multimodalModel: string;
+    multimodalSplitAnalysis: boolean;
+    /** Use 1M-token context window for compaction / turn budgets. */
+    largeContextEnabled: boolean;
     reasoningEffort: ReasoningEffort;
     reasoningLanguage: ReasoningLanguage;
     /** Pass reasoning_content back on tool-call turns (DeepSeek thinking + tools). */
     passToolReasoning: boolean;
     zoom: number;
     secondaryHotkey: string;
+    customProviders: CustomProviderConfig[];
 }
 
 export interface AppSettingsPatch {
@@ -88,16 +107,21 @@ export interface AppSettingsPatch {
     serperApiKey?: string;
     tavilyApiKey?: string;
     toolApprovalMode?: ToolApprovalMode;
+    chatMode?: ChatMode;
     lspEnabled?: boolean;
     lspServers?: LspServerConfig[];
     mcpServers?: McpServerConfig[];
     opacity?: number;
     chatModel?: string;
+    multimodalModel?: string;
+    multimodalSplitAnalysis?: boolean;
+    largeContextEnabled?: boolean;
     reasoningEffort?: ReasoningEffort;
     reasoningLanguage?: ReasoningLanguage;
     passToolReasoning?: boolean;
     zoom?: number;
     secondaryHotkey?: string;
+    customProviders?: CustomProviderConfig[];
 }
 
 export interface SelectOption<T extends string> {

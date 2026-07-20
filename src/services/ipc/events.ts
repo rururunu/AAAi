@@ -9,6 +9,8 @@ import type {
   ChatFinishedEvent,
   ChatReasoningEvent,
   ChatStartedEvent,
+  ChatStatusEvent,
+  ChatUserContentEvent,
   PathPermissionEvent,
   PlanModeChangedEvent,
   TaskListUpdatedEvent,
@@ -41,6 +43,14 @@ export function listenChatDelta(handler: (payload: ChatDeltaEvent) => void) {
 
 export function listenChatReasoning(handler: (payload: ChatReasoningEvent) => void) {
   return listenIpcEvent<ChatReasoningEvent>(IPC_EVENTS.chatReasoning, handler);
+}
+
+export function listenChatStatus(handler: (payload: ChatStatusEvent) => void) {
+  return listenIpcEvent<ChatStatusEvent>(IPC_EVENTS.chatStatus, handler);
+}
+
+export function listenChatUserContent(handler: (payload: ChatUserContentEvent) => void) {
+  return listenIpcEvent<ChatUserContentEvent>(IPC_EVENTS.chatUserContent, handler);
 }
 
 export function listenChatFinished(handler: (payload: ChatFinishedEvent) => void) {

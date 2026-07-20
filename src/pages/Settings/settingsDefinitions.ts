@@ -8,7 +8,7 @@ import {
 } from "@/services/locales/settings";
 import type { AppLanguage } from "@/types/setting";
 
-export type CategoryId = "appearance" | "ai" | "memory" | "search" | "agent" | "mcp" | "skills" | "workspace" | "history" | "about";
+export type CategoryId = "appearance" | "ai" | "memory" | "search" | "agent" | "mcp" | "skills" | "workspace" | "history" | "about" | "provider";
 
 export type SettingType =
   | "select-color"
@@ -149,16 +149,6 @@ export function buildSettingDefinitions(language: AppLanguage, info: SettingsApp
       keywords: [...m.secondaryHotkey.keywords],
     },
     {
-      id: "deepseekApiKey",
-      category: "ai",
-      group: groups.ai,
-      path: m.deepseekApiKey.path,
-      title: m.deepseekApiKey.title,
-      description: m.deepseekApiKey.description,
-      type: "secret",
-      keywords: [...m.deepseekApiKey.keywords],
-    },
-    {
       id: "defaultModel",
       category: "ai",
       group: groups.ai,
@@ -167,6 +157,36 @@ export function buildSettingDefinitions(language: AppLanguage, info: SettingsApp
       description: m.defaultModel.description,
       type: "select-model",
       keywords: [...m.defaultModel.keywords],
+    },
+    {
+      id: "multimodalModel",
+      category: "ai",
+      group: groups.ai,
+      path: m.multimodalModel.path,
+      title: m.multimodalModel.title,
+      description: m.multimodalModel.description,
+      type: "select-model",
+      keywords: [...m.multimodalModel.keywords],
+    },
+    {
+      id: "multimodalSplitAnalysis",
+      category: "ai",
+      group: groups.ai,
+      path: m.multimodalSplitAnalysis.path,
+      title: m.multimodalSplitAnalysis.title,
+      description: m.multimodalSplitAnalysis.description,
+      type: "toggle",
+      keywords: [...m.multimodalSplitAnalysis.keywords],
+    },
+    {
+      id: "largeContextEnabled",
+      category: "ai",
+      group: groups.ai,
+      path: m.largeContextEnabled.path,
+      title: m.largeContextEnabled.title,
+      description: m.largeContextEnabled.description,
+      type: "toggle",
+      keywords: [...m.largeContextEnabled.keywords],
     },
     {
       id: "reasoningEffort",

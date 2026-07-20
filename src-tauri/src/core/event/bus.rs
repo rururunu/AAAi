@@ -20,6 +20,16 @@ pub enum BusEvent {
         message_id: String,
         content: String,
     },
+    ChatStatus {
+        session_id: String,
+        message_id: String,
+        kind: String,
+    },
+    ChatUserContent {
+        session_id: String,
+        message_id: String,
+        content: String,
+    },
     ChatFinished {
         session_id: String,
         message_id: String,

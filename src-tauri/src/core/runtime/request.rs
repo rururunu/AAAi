@@ -16,6 +16,8 @@ pub struct WorkspaceContext {
 pub struct RequestContext {
     pub selection: Option<String>,
     pub selected_files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_images: Vec<String>,
     pub active_window: Option<String>,
     pub workspace: Option<WorkspaceContext>,
     pub clipboard: Option<String>,

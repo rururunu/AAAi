@@ -10,4 +10,6 @@ commands.allow = [
     "set_overlay_chat_mode_command",
     "set_overlay_popup_open_command",
     "take_overlay_context",
+    "open_image_preview",
+    "get_preview_image",
 ]

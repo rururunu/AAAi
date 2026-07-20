@@ -12,6 +12,10 @@ import type {
   ChatSendRequest,
   ChatSendResponse,
   ChatStartedEvent,
+  ChatStatusEvent,
+  ChatUserContentEvent,
+  ContextUsageRequest,
+  ContextUsageResponse,
   ListChatSessionsResponse,
   RespondAskUserRequest,
   RespondPathPermissionRequest,
@@ -83,6 +87,10 @@ export function listChatModels() {
   return ipcInvoke<ChatModelInfo[]>(IPC_COMMANDS.listChatModels);
 }
 
+export function getContextUsage(request: ContextUsageRequest = {}) {
+  return ipcInvoke<ContextUsageResponse>(IPC_COMMANDS.getContextUsage, { request });
+}
+
 export function deleteChatSession(sessionId: string) {
   return ipcInvoke<void>("delete_chat_session", { sessionId });
 }
@@ -101,6 +109,17 @@ export function setOverlayPopupOpen(label: string, open: boolean) {
 
 export function takeOverlayContext(label: string) {
   return ipcInvoke<CapturedContext | null>(IPC_COMMANDS.takeOverlayContext, { label });
+}
+
+export function openImagePreview(pathOrBase64: string) {
+  return ipcInvoke<void>("open_image_preview", {
+    pathOrBase64,
+    path_or_base64: pathOrBase64,
+  });
+}
+
+export function getPreviewImage() {
+  return ipcInvoke<string>("get_preview_image");
 }
 
 export function respondAskUser(request: RespondAskUserRequest) {
@@ -152,4 +171,6 @@ export type {
   ChatSendRequest,
   ChatSendResponse,
   ChatStartedEvent,
+  ChatStatusEvent,
+  ChatUserContentEvent,
 };

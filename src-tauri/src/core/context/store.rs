@@ -64,6 +64,7 @@ fn map_to_request_context(context: Option<&ChatContext>) -> RequestContext {
     RequestContext {
         selection: context.selected_text.clone(),
         selected_files,
+        selected_images: context.selected_images.clone(),
         active_window: None,
         workspace: None,
         clipboard: None,

@@ -1,9 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use crate::core::ai::provider::AIProvider;
-use crate::core::chat::compact::{self, DEFAULT_CONTEXT_WINDOW};
+use crate::core::chat::compact::{self, context_window_tokens};
 use crate::core::chat::conversation_manager::{create_message, ConversationManager};
 use crate::core::chat::error::ChatError;
+use crate::core::chat::limits::max_turn_tokens_for;
 use crate::core::chat::preferences::SendPreferences;
 use crate::core::chat::prompt::{PromptBuilder, PromptPreferences};
 use crate::core::chat::stream::StreamManager;
@@ -12,6 +13,7 @@ use crate::core::event::{BusEvent, EventBus};
 use crate::core::runtime::{ChatMessage, MessageStatus, Role, DEFAULT_SESSION_ID};
 use crate::core::tools::context::{AskStore, PathPermissionStore, TaskItem};
 use crate::core::workspace::WorkspaceManager;
+use crate::models::settings::ChatMode;
 use crate::runtime::ToolManager;
 
 pub struct ChatSendResult {
@@ -131,13 +133,21 @@ impl ChatService {
         let _memory_decision = task_rules.memory_decision;
 
         let history = self.conversation.messages(&session_id);
+        let large_context = self
+            .app_handle
+            .as_ref()
+            .and_then(|app| crate::services::settings_store::get_settings(app).ok())
+            .map(|settings| settings.large_context_enabled)
+            .unwrap_or(true);
+        let context_window = context_window_tokens(large_context);
+        let max_turn_tokens = max_turn_tokens_for(large_context);
         let summarizer =
             crate::core::chat::compact::ProviderSummarizer::new(Arc::clone(&self.provider));
         let compact = compact::prepare_history_for_prompt(
             &history,
             &context,
             &session_id,
-            DEFAULT_CONTEXT_WINDOW,
+            context_window,
             Some(&summarizer),
         )
         .await;
@@ -183,9 +193,21 @@ impl ChatService {
             Some(user_message.id.clone()),
         );
 
+        let chat_mode = self
+            .app_handle
+            .as_ref()
+            .and_then(|app| crate::services::settings_store::get_settings(app).ok())
+            .map(|settings| settings.chat_mode)
+            .unwrap_or_default();
+        let tools = if chat_mode == ChatMode::Ask {
+            Arc::new(self.tools.read_only())
+        } else {
+            Arc::clone(&self.tools)
+        };
+
         self.stream_manager.spawn(
             self.provider.clone(),
-            Arc::clone(&self.tools),
+            tools,
             self.event_bus.clone(),
             Arc::clone(&self.conversation),
             Arc::clone(&self.ask_store),
@@ -195,6 +217,7 @@ impl ChatService {
             request,
             assistant_message.id.clone(),
             session_id.clone(),
+            max_turn_tokens,
         );
 
         Ok(ChatSendResult {
@@ -215,6 +238,45 @@ impl ChatService {
 
     pub fn list_sessions(&self) -> Vec<crate::models::chat::ChatSessionSummary> {
         self.conversation.list_sessions()
+    }
+
+    pub fn context_usage(
+        &self,
+        app: &tauri::AppHandle,
+        session_id: Option<String>,
+        draft_message: Option<String>,
+        context: Option<crate::core::runtime::RequestContext>,
+    ) -> Result<crate::models::chat::ContextUsageResponse, ChatError> {
+        use crate::core::chat::compact::{context_window_tokens, measure_context_usage};
+        use crate::services::settings_store::get_settings;
+
+        let history = match session_id.as_deref() {
+            Some(id) => self.conversation.messages(id),
+            None => Vec::new(),
+        };
+        let mut ctx = context.unwrap_or_else(|| self.context_resolver.resolve());
+        if ctx.workspace.is_none() {
+            if let Some(workspace) = self.workspace_manager.current() {
+                ctx.set_workspace(workspace.name, &workspace.root);
+            }
+        }
+
+        let large_context = get_settings(app)
+            .map(|settings| settings.large_context_enabled)
+            .unwrap_or(true);
+        let context_window = context_window_tokens(large_context);
+        let measure = measure_context_usage(
+            &history,
+            &ctx,
+            draft_message.as_deref(),
+            context_window,
+        );
+
+        Ok(crate::models::chat::ContextUsageResponse {
+            usage_ratio: measure.usage_ratio,
+            estimated_tokens: measure.estimated_tokens,
+            context_window_tokens: context_window,
+        })
     }
 
     pub fn emit_plan_mode_changed(&self, session_id: &str, active: bool) {

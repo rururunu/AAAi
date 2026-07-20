@@ -38,6 +38,11 @@ impl AgentRunner {
         }
     }
 
+    pub fn with_max_turn_tokens(mut self, max_turn_tokens: usize) -> Self {
+        self.max_turn_tokens = max_turn_tokens;
+        self
+    }
+
     #[cfg(test)]
     pub fn with_limits(
         provider: Arc<dyn AIProvider>,
@@ -64,6 +69,7 @@ impl AgentRunner {
     ) -> Result<(), ProviderError> {
         request.tools = self.tools.schemas_arc();
         let mut steps = 0u32;
+        let mut user_msg_index = request.messages.iter().rposition(|msg| msg.role == Role::User);
         let mut used_tokens = estimate_request_tokens(&request);
 
         loop {
@@ -85,18 +91,38 @@ impl AgentRunner {
                 break;
             }
             if self.max_turn_tokens > 0 && used_tokens >= self.max_turn_tokens {
-                let _ = tx
-                    .send(StreamEvent::TurnComplete {
-                        content: format!(
-                            "已停止：本轮估算 token 用量达到上限（{}）。",
-                            self.max_turn_tokens
-                        ),
-                        reasoning: None,
-                        tool_calls: vec![],
-                        finish_reason: Some("max_turn_tokens".to_string()),
-                    })
-                    .await;
-                break;
+                let mut compacted = false;
+                if let Some(user_idx) = user_msg_index {
+                    if user_idx > 0 {
+                        let prior = &request.messages[..user_idx];
+                        let current_turn = request.messages[user_idx..].to_vec();
+                        let summarizer = crate::core::chat::compact::ProviderSummarizer::new(Arc::clone(&self.provider));
+                        if let Some(outcome) = crate::core::chat::compact::compact_prior(prior, &request.session_id, Some(&summarizer)).await {
+                            let mut new_messages = outcome.messages;
+                            let new_user_idx = new_messages.len();
+                            new_messages.extend(current_turn);
+                            request.messages = new_messages;
+                            user_msg_index = Some(new_user_idx);
+                            used_tokens = estimate_request_tokens(&request);
+                            compacted = true;
+                        }
+                    }
+                }
+
+                if !compacted {
+                    let _ = tx
+                        .send(StreamEvent::TurnComplete {
+                            content: format!(
+                                "已停止：本轮估算 token 用量达到上限（{}）。",
+                                self.max_turn_tokens
+                            ),
+                            reasoning: None,
+                            tool_calls: vec![],
+                            finish_reason: Some("max_turn_tokens".to_string()),
+                        })
+                        .await;
+                    break;
+                }
             }
 
             let (turn_tx, mut turn_rx) = mpsc::channel::<StreamEvent>(64);
@@ -125,6 +151,14 @@ impl AgentRunner {
                     StreamEvent::Reasoning(chunk) => {
                         reasoning.push_str(&chunk);
                         let _ = tx.send(StreamEvent::Reasoning(chunk)).await;
+                    }
+                    StreamEvent::Status { kind } => {
+                        let _ = tx.send(StreamEvent::Status { kind }).await;
+                    }
+                    StreamEvent::UserContentPatch { message_id, content } => {
+                        let _ = tx
+                            .send(StreamEvent::UserContentPatch { message_id, content })
+                            .await;
                     }
                     StreamEvent::ToolCall(call) => {
                         merge_tool_call(&mut tool_calls, call);
@@ -307,8 +341,9 @@ impl AgentRunner {
         let activity_id = format!("tool-{}-{}", call.id, now_millis());
         let preview = build_activity_view(&call.name, &args, None);
         let preview_detail = preview.detail.clone();
+        let display_sid = display_session_id(&tool_ctx.session_id);
         tool_ctx.conversation.upsert_tool_activity(
-            &tool_ctx.session_id,
+            &display_sid,
             &tool_ctx.assistant_message_id,
             ToolActivity {
                 id: activity_id.clone(),
@@ -325,7 +360,7 @@ impl AgentRunner {
         tool_ctx
             .event_bus
             .emit(crate::core::event::BusEvent::ToolStarted {
-                session_id: tool_ctx.session_id.clone(),
+                session_id: display_sid,
                 message_id: tool_ctx.assistant_message_id.clone(),
                 activity_id: activity_id.clone(),
                 tool_name: call.name.clone(),
@@ -358,8 +393,9 @@ impl AgentRunner {
         let result = truncate_tool_output(&raw_result, max_chars);
         let finished = build_activity_view(&started.tool_name, &started.args, Some(&result));
         let detail = finished.detail.or(started.preview_detail);
+        let display_sid = display_session_id(&tool_ctx.session_id);
         tool_ctx.conversation.upsert_tool_activity(
-            &tool_ctx.session_id,
+            &display_sid,
             &tool_ctx.assistant_message_id,
             ToolActivity {
                 id: started.activity_id.clone(),
@@ -376,7 +412,7 @@ impl AgentRunner {
         tool_ctx
             .event_bus
             .emit(crate::core::event::BusEvent::ToolFinished {
-                session_id: tool_ctx.session_id.clone(),
+                session_id: display_sid,
                 message_id: tool_ctx.assistant_message_id.clone(),
                 activity_id: started.activity_id,
                 tool_name: started.tool_name.clone(),
@@ -408,7 +444,7 @@ impl AgentRunner {
             Arc::new(ToolManager::from_registry(registry))
         };
         let runner = AgentRunner::new(provider, active_tools);
-        let (tx, mut rx) = mpsc::channel::<StreamEvent>(8);
+        let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
         let cancelled = Arc::new(AtomicBool::new(false));
         let request = ChatRequest {
             request_id: format!("sub-{}", now_millis()),
@@ -434,19 +470,34 @@ impl AgentRunner {
             max_tokens: None,
         };
 
+        // Spawn a background task to receive from rx concurrently to avoid channel deadlocks.
+        let answer = Arc::new(tokio::sync::Mutex::new(String::new()));
+        let answer_clone = Arc::clone(&answer);
+        let rx_task = tauri::async_runtime::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                match event {
+                    StreamEvent::TurnComplete { content, .. } => {
+                        let mut lock = answer_clone.lock().await;
+                        *lock = content;
+                    }
+                    StreamEvent::Delta(delta) => {
+                        let mut lock = answer_clone.lock().await;
+                        lock.push_str(&delta);
+                    }
+                    _ => {}
+                }
+            }
+        });
+
         Box::pin(runner.run(request, tool_ctx, tx, cancelled))
             .await
             .map_err(|error| ToolError::new(error.to_string()))?;
 
-        let mut answer = String::new();
-        while let Ok(event) = rx.try_recv() {
-            if let StreamEvent::TurnComplete { content, .. } = event {
-                answer = content;
-            } else if let StreamEvent::Delta(delta) = event {
-                answer.push_str(&delta);
-            }
-        }
-        Ok(answer)
+        // Wait for the receiver task to finish draining
+        let _ = rx_task.await;
+
+        let final_answer = answer.lock().await.clone();
+        Ok(final_answer)
     }
 }
 
@@ -509,4 +560,12 @@ fn now_millis() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn display_session_id(session_id: &str) -> String {
+    if let Some(pos) = session_id.find("-sub") {
+        session_id[..pos].to_string()
+    } else {
+        session_id.to_string()
+    }
 }

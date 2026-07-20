@@ -15,9 +15,9 @@
         "label": "overlay",
         "title": "AltAltAi",
         "url": "/#/overlay",
-        "width": 440,
+        "width": 640,
         "height": 82,
-        "minWidth": 320,
+        "minWidth": 640,
         "minHeight": 82,
         "decorations": false,
         "transparent": true,
@@ -34,8 +34,8 @@
         "label": "settings",
         "title": "AltAltAi 设置",
         "url": "/#/settings",
-        "width": 700,
-        "height": 520,
+        "width": 880,
+        "height": 620,
         "decorations": false,
         "transparent": false,
         "alwaysOnTop": false,
@@ -47,7 +47,11 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPCACHE/image-preview/**"]
+      }
     }
   },
   "bundle": {

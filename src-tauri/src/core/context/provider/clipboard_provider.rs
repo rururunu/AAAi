@@ -18,7 +18,7 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
-    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_C, VK_CONTROL, VK_INSERT, VK_LCONTROL,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_CONTROL, VK_INSERT, VK_LCONTROL,
     VK_LMENU, VK_LSHIFT, VK_MENU, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -26,6 +26,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SendMessageW, SetForegroundWindow, GUITHREADINFO, WM_COPY,
 };
 
+use crate::core::context::image_capture::read_clipboard_image_data_url;
 use crate::core::context::models::{CaptureError, CaptureSource, WindowInfo};
 use crate::core::context::provider::{CaptureProvider, CaptureResult, PartialCapture};
 
@@ -58,18 +59,42 @@ impl CaptureProvider for ClipboardProvider {
             return CaptureResult::Success(PartialCapture {
                 selected_text: Some(text),
                 selected_files: Vec::new(),
+                selected_images: Vec::new(),
                 source: CaptureSource::UiAutomation,
             });
         }
 
-        match capture_selected_text(window) {
-            Ok(Some(text)) if !text.trim().is_empty() => CaptureResult::Success(PartialCapture {
-                selected_text: Some(text),
-                selected_files: Vec::new(),
-                source: CaptureSource::Clipboard,
-            }),
+        match capture_selected_content(window) {
+            Ok(content) if content.has_content() => {
+                CaptureResult::Success(content.into_partial())
+            }
             Ok(_) => CaptureResult::Empty,
             Err(error) => CaptureResult::Failed(error),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CapturedClipboardContent {
+    selected_text: Option<String>,
+    selected_images: Vec<String>,
+    source: CaptureSource,
+}
+
+impl CapturedClipboardContent {
+    fn has_content(&self) -> bool {
+        self.selected_text
+            .as_ref()
+            .is_some_and(|text| !text.trim().is_empty())
+            || !self.selected_images.is_empty()
+    }
+
+    fn into_partial(self) -> PartialCapture {
+        PartialCapture {
+            selected_text: self.selected_text,
+            selected_files: Vec::new(),
+            selected_images: self.selected_images,
+            source: self.source,
         }
     }
 }
@@ -129,7 +154,7 @@ unsafe fn read_text_pattern_selection(element: &IUIAutomationElement) -> Option<
     (!selected.trim().is_empty()).then_some(selected)
 }
 
-fn capture_selected_text(window: &WindowInfo) -> Result<Option<String>, CaptureError> {
+fn capture_selected_content(window: &WindowInfo) -> Result<CapturedClipboardContent, CaptureError> {
     let backup = read_clipboard_text()?;
     let start_seq = unsafe { GetClipboardSequenceNumber() };
 
@@ -139,15 +164,8 @@ fn capture_selected_text(window: &WindowInfo) -> Result<Option<String>, CaptureE
         if !clipboard_changed(start_seq) && focus != target {
             copy_via_wm_message(target)?;
         }
-        // Prefer Ctrl+Insert everywhere: copy-compatible, terminal-safe (no SIGINT).
-        // Insert is an extended key — without KEYEVENTF_EXTENDEDKEY many apps ignore it.
         if !clipboard_changed(start_seq) {
             let _ = simulate_copy_ctrl_insert();
-            thread::sleep(KEY_SETTLE);
-        }
-        // Non-terminals: last resort Ctrl+C (browsers/IDE that ignore Ctrl+Insert).
-        if !clipboard_changed(start_seq) && !window.is_terminal() {
-            let _ = simulate_key_combo(VK_CONTROL, VK_C, KEYBD_EVENT_FLAGS(0));
             thread::sleep(KEY_SETTLE);
         }
         Ok(())
@@ -156,15 +174,21 @@ fn capture_selected_text(window: &WindowInfo) -> Result<Option<String>, CaptureE
     wait_for_clipboard_update(start_seq);
 
     let end_seq = unsafe { GetClipboardSequenceNumber() };
+    let captured_image = read_clipboard_image_data_url();
     let captured = read_clipboard_text()?;
     let backup_for_compare = backup.clone();
     restore_clipboard_text(backup)?;
 
-    Ok(select_captured_text(
+    let selected_text = select_captured_text(
         backup_for_compare,
         captured,
         start_seq != end_seq,
-    ))
+    );
+    Ok(CapturedClipboardContent {
+        selected_text,
+        selected_images: captured_image.into_iter().collect(),
+        source: CaptureSource::Clipboard,
+    })
 }
 
 fn select_captured_text(

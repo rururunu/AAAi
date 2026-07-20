@@ -10,6 +10,8 @@ import {
   listenChatFinished,
   listenChatReasoning,
   listenChatStarted,
+  listenChatStatus,
+  listenChatUserContent,
   listenSettingsChanged,
   listenSettingsOpened,
   listenToolFinished,
@@ -24,6 +26,8 @@ import type {
   ChatErrorEvent,
   ChatFinishedEvent,
   ChatReasoningEvent,
+  ChatStatusEvent,
+  ChatUserContentEvent,
 } from "@/types/chat";
 import { useChatStore } from "@/stores/chat";
 import { useSettingStore } from "@/stores/setting";
@@ -79,6 +83,12 @@ async function bootstrap() {
         sId,
         event.message,
       );
+      const prev = chatStore.contextUsage[sId];
+      chatStore.setContextUsage(sId, {
+        usageRatio: event.usageRatio,
+        estimatedTokens: prev?.estimatedTokens ?? 0,
+        contextWindowTokens: prev?.contextWindowTokens ?? 0,
+      });
     }
   });
 
@@ -109,6 +119,39 @@ async function bootstrap() {
         messageId: event.messageId ?? event.message_id ?? "",
         reasoningDelta: event.content,
       });
+    }
+  });
+
+  await listenChatStatus((payload) => {
+    const event = payload as ChatStatusEvent & {
+      session_id?: string;
+      message_id?: string;
+      kind?: string;
+    };
+    const sId = resolveSessionId(event.sessionId, event.session_id);
+    if (sId && (chatStore.sessions[sId] || sId === chatStore.overlayDraftSessionId)) {
+      chatStore.setActivityStatus(
+        sId,
+        event.messageId ?? event.message_id ?? "",
+        event.kind ?? "",
+        chatStore.overlayDraftSessionId,
+      );
+    }
+  });
+
+  await listenChatUserContent((payload) => {
+    const event = payload as ChatUserContentEvent & {
+      session_id?: string;
+      message_id?: string;
+    };
+    const sId = resolveSessionId(event.sessionId, event.session_id);
+    if (sId && (chatStore.sessions[sId] || sId === chatStore.overlayDraftSessionId)) {
+      chatStore.patchMessageContent(
+        sId,
+        event.messageId ?? event.message_id ?? "",
+        event.content,
+        chatStore.overlayDraftSessionId,
+      );
     }
   });
 
@@ -175,7 +218,13 @@ async function bootstrap() {
   const webviewWindow = getCurrentWebviewWindow();
   const windowLabel = webviewWindow.label;
 
-  if (windowLabel === "overlay" || windowLabel.startsWith("overlay-")) {
+  if (windowLabel.startsWith("overlay-preview-")) {
+    document.documentElement.classList.add("peek-window");
+    await router.replace("/image-preview");
+  } else if (
+    (windowLabel === "overlay" || windowLabel.startsWith("overlay-")) &&
+    !windowLabel.startsWith("overlay-preview-")
+  ) {
     markPeekWindow();
     await router.replace("/overlay");
   } else if (windowLabel === "settings") {
