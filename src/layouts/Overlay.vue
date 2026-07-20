@@ -9,8 +9,6 @@
       @context-consumed="capturedContext = null"
       @selection-removed="removeCapturedSelection"
       @close="close"
-      @collapse="collapseToCapSule"
-      @expand="expandFromCapsule"
     />
   </div>
 </template>
@@ -46,8 +44,6 @@ const INPUT_HEIGHT = 82;
 const OVERLAY_MIN_HEIGHT_INPUT = INPUT_HEIGHT;
 const CHAT_HEIGHT = 420;
 const OVERLAY_MIN_HEIGHT_CHAT = 240;
-const CAPSULE_WIDTH = 260;
-const CAPSULE_HEIGHT = 44;
 const SUGGESTION_ROW_HEIGHT = 30;
 const SUGGESTION_PADDING = 9;
 const PICKER_META_ROWS = 2;
@@ -58,7 +54,6 @@ const INPUT_BAR_HEIGHT = INPUT_HEIGHT;
 
 const mode = ref<"input" | "chat">("input");
 const sessionId = ref("");
-const isCollapsed = ref(false);
 const lastComposerExtraHeight = ref(0);
 const chatWindowInitialized = ref(false);
 let layoutResizeQueue = Promise.resolve();
@@ -77,19 +72,11 @@ function computePickerHeight(rowCount: number) {
 }
 
 async function applySizeConstraints(
-  layout: "input" | "chat" | "capsule",
+  layout: "input" | "chat",
   minHeight: number,
 ) {
   const window = getCurrentWebviewWindow();
   const zoom = (settingStore.zoom || 100) / 100;
-
-  if (layout === "capsule") {
-    const width = CAPSULE_WIDTH * zoom;
-    const height = CAPSULE_HEIGHT * zoom;
-    await window.setMinSize(new LogicalSize(width, height));
-    await window.setMaxSize(new LogicalSize(width, height));
-    return;
-  }
 
   const panelWidth = PANEL_WIDTH * zoom;
   const height = minHeight * zoom;
@@ -225,10 +212,6 @@ function handleLayoutChange(payload: {
   mode?: "input" | "chat";
   hasImages?: boolean;
 }) {
-  if (isCollapsed.value) {
-    return;
-  }
-
   const pickerHeight =
     (payload.pickerRowCount ?? 0) > 0
       ? computePickerHeight(payload.pickerRowCount ?? 0)
@@ -284,21 +267,6 @@ async function enterChatMode(nextSessionId: string) {
   chatWindowInitialized.value = true;
 }
 
-async function collapseToCapSule(skipPositionCorrection = false) {
-  isCollapsed.value = true;
-  await applySizeConstraints("capsule", CAPSULE_HEIGHT);
-  await resizeWindow(CAPSULE_WIDTH, CAPSULE_HEIGHT, false, skipPositionCorrection);
-}
-
-async function expandFromCapsule() {
-  isCollapsed.value = false;
-  chatWindowInitialized.value = false;
-  lastComposerExtraHeight.value = 0;
-  await applySizeConstraints("chat", OVERLAY_MIN_HEIGHT_CHAT);
-  await resizeWindow(PANEL_WIDTH, CHAT_HEIGHT, true);
-  chatWindowInitialized.value = true;
-}
-
 async function resetToInputMode() {
   mode.value = "input";
   sessionId.value = "";
@@ -344,10 +312,7 @@ onMounted(async () => {
 watch(
   () => settingStore.zoom,
   async () => {
-    if (isCollapsed.value) {
-      await applySizeConstraints("capsule", CAPSULE_HEIGHT);
-      await resizeWindow(CAPSULE_WIDTH, CAPSULE_HEIGHT, false);
-    } else if (mode.value === "chat") {
+    if (mode.value === "chat") {
       await applySizeConstraints("chat", OVERLAY_MIN_HEIGHT_CHAT);
       const window = getCurrentWebviewWindow();
       const scaleFactor = await window.scaleFactor();

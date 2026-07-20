@@ -2,8 +2,8 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::core::runtime::RequestContext;
 use crate::services::window::{
-    destroy_overlay, hide_overlay, is_overlay_label, set_overlay_chat_mode, set_overlay_popup_open,
-    show_settings_window,
+    destroy_overlay, hide_overlay, is_overlay_label, minimize_overlay, set_overlay_chat_mode,
+    set_overlay_popup_open, show_settings_window,
 };
 
 #[tauri::command]
@@ -37,6 +37,12 @@ pub fn open_settings(app: AppHandle) {
 pub fn hide_overlay_window(app: AppHandle, label: Option<String>) {
     let label = label.unwrap_or_else(|| "overlay".to_string());
     hide_overlay(&app, &label);
+}
+
+#[tauri::command]
+pub fn minimize_overlay_window(app: AppHandle, label: Option<String>) {
+    let label = label.unwrap_or_else(|| "overlay".to_string());
+    minimize_overlay(&app, &label);
 }
 
 /// 前端调用：关闭并销毁窗口（适用于聊天窗口的关闭按钮）

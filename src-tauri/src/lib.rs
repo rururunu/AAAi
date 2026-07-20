@@ -20,9 +20,10 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use app_state::AppState;
 use commands::{app, ask, chat, harness, mcp, permission, settings, skills, window, workspace};
 use services::settings_store::{load_settings, SettingsState};
+use services::overlay_native::clear_minimize_pending;
 use services::window::{
-    cleanup_overlay_state, configure_overlay_window, is_overlay_label, mark_blur_guard,
-    should_keep_overlay_visible, show_settings_window, toggle_overlay,
+    cleanup_overlay_state, configure_overlay_window, handle_overlay_focused, is_overlay_label,
+    mark_blur_guard, should_keep_overlay_visible, show_settings_window, toggle_overlay,
 };
 
 const DOUBLE_TAP_MS: u64 = 400;
@@ -251,10 +252,18 @@ pub fn run() {
             // 导致另一个 overlay 被错误地隐藏（如点击另一个 overlay 的关闭按钮）
             if *focused && is_overlay_label(&label) {
                 mark_blur_guard();
+                handle_overlay_focused(window.app_handle(), &label);
                 return;
             }
 
-            if *focused || !window.is_visible().unwrap_or(false) {
+            if !*focused && is_overlay_label(&label) {
+                clear_minimize_pending();
+            }
+
+            if *focused
+                || !window.is_visible().unwrap_or(false)
+                || window.is_minimized().unwrap_or(false)
+            {
                 return;
             }
 
@@ -270,6 +279,7 @@ pub fn run() {
             window::open_settings,
             window::open_session_in_overlay,
             window::hide_overlay_window,
+            window::minimize_overlay_window,
             window::close_overlay_window,
             window::exit_app,
             window::set_overlay_chat_mode_command,

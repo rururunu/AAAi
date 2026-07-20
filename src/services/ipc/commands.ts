@@ -47,6 +47,10 @@ export function hideOverlay(label?: string) {
   return ipcInvoke<void>(IPC_COMMANDS.hideOverlay, label ? { label } : undefined);
 }
 
+export function minimizeOverlay(label?: string) {
+  return ipcInvoke<void>(IPC_COMMANDS.minimizeOverlay, label ? { label } : undefined);
+}
+
 export function closeOverlay(label: string) {
   return ipcInvoke<void>(IPC_COMMANDS.closeOverlay, { label });
 }

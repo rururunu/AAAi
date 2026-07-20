@@ -3,12 +3,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::services::overlay_native::{
+    clear_minimize_pending, clear_overlay_native_minimized, is_minimize_pending,
+    is_overlay_native_minimized, mark_minimize_pending, mark_overlay_native_minimized,
+    minimize_window, reapply_toolwindow_style,
+};
 use crate::core::context::store::capture_now;
 use crate::core::runtime::RequestContext;
 use tauri::WebviewUrl;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindowBuilder};
 
 const WINDOW_BLUR_GUARD_MS: u64 = 200;
+const WINDOW_MINIMIZE_BLUR_GUARD_MS: u64 = 800;
 
 static OVERLAY_IGNORE_BLUR_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
 
@@ -51,8 +57,12 @@ fn now_millis() -> u64 {
 }
 
 pub fn mark_blur_guard() {
+    mark_blur_guard_for(WINDOW_BLUR_GUARD_MS);
+}
+
+pub fn mark_blur_guard_for(ms: u64) {
     OVERLAY_IGNORE_BLUR_UNTIL_MS.store(
-        now_millis().saturating_add(WINDOW_BLUR_GUARD_MS),
+        now_millis().saturating_add(ms),
         Ordering::Relaxed,
     );
 }
@@ -103,7 +113,11 @@ pub fn is_overlay_popup_open(label: &str) -> bool {
 }
 
 pub fn should_keep_overlay_visible(label: &str) -> bool {
-    is_overlay_in_chat_mode(label) || is_overlay_popup_open(label) || should_ignore_overlay_blur()
+    is_overlay_in_chat_mode(label)
+        || is_overlay_popup_open(label)
+        || is_overlay_native_minimized(label)
+        || is_minimize_pending()
+        || should_ignore_overlay_blur()
 }
 
 /// 清除某个窗口的所有状态（窗口销毁时调用）
@@ -111,10 +125,55 @@ pub fn cleanup_overlay_state(label: &str) {
     chat_mode_labels().remove(label);
     popup_open_labels().remove(label);
     pending_contexts().remove(label);
+    clear_overlay_native_minimized(label);
 }
 
 pub fn is_overlay_label(label: &str) -> bool {
     (label == "overlay" || label.starts_with("overlay-")) && !label.starts_with("overlay-preview-")
+}
+
+/// 最小化 overlay：Windows 原生最小化到任务栏，保留 chat 状态
+pub fn minimize_overlay(app: &AppHandle, label: &str) {
+    let Some(window) = app.get_webview_window(label) else {
+        return;
+    };
+
+    mark_minimize_pending();
+    mark_blur_guard_for(WINDOW_MINIMIZE_BLUR_GUARD_MS);
+    let _ = window.set_skip_taskbar(false);
+
+    if minimize_window(&window).is_ok() {
+        mark_overlay_native_minimized(label);
+        return;
+    }
+
+    clear_minimize_pending();
+    let _ = window.minimize();
+    mark_overlay_native_minimized(label);
+}
+
+pub fn handle_overlay_focused(app: &AppHandle, label: &str) {
+    if !is_overlay_label(label) {
+        return;
+    }
+
+    let Some(window) = app.get_webview_window(label) else {
+        return;
+    };
+
+    clear_minimize_pending();
+
+    if !is_overlay_native_minimized(label) {
+        return;
+    }
+
+    if window.is_minimized().unwrap_or(false) {
+        return;
+    }
+
+    clear_overlay_native_minimized(label);
+    configure_overlay_window(&window);
+    let _ = window.emit_to(label, "overlay-shown", ());
 }
 
 /// 隐藏指定 overlay 窗口（不销毁，用于基础 overlay 窗口）
@@ -148,10 +207,14 @@ pub fn destroy_overlay(app: &AppHandle, label: &str) {
 pub fn configure_overlay_window(window: &tauri::WebviewWindow) {
     let _ = window.set_shadow(false);
     let _ = window.set_maximizable(false);
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_skip_taskbar(true);
 
     if window.is_maximized().unwrap_or(false) {
         let _ = window.unmaximize();
     }
+
+    reapply_toolwindow_style(window);
 }
 
 /// 生成新的唯一 overlay label

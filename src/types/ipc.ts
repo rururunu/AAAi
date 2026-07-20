@@ -2,6 +2,7 @@ export const IPC_COMMANDS = {
   openSettings: "open_settings",
   openSessionInOverlay: "open_session_in_overlay",
   hideOverlay: "hide_overlay_window",
+  minimizeOverlay: "minimize_overlay_window",
   closeOverlay: "close_overlay_window",
   exitApp: "exit_app",
   getAppSettings: "get_app_settings",

@@ -2,48 +2,19 @@
   <MotionConfig :transition="springSoft" reduced-motion="user">
     <div
       class="peek-panel"
-      :class="{ chat: mode === 'chat', collapsed: isCollapsed }"
+      :class="{ chat: mode === 'chat', 'minimize-preview': isMinimizePreview }"
       data-tauri-drag-region
       @mousedown="onWindowDragMouseDown"
     >
-      <div v-if="isCollapsed" class="capsule-container" data-tauri-drag-region>
-        <div class="capsule-content" data-tauri-drag-region>
-          <div class="capsule-spark-wrapper" data-tauri-drag-region>
-            <svg class="capsule-spark-icon" viewBox="0 0 16 16" fill="none" data-tauri-drag-region>
-              <path
-                d="M8 2.25L9.35 6.15L13.25 7.5L9.35 8.85L8 12.75L6.65 8.85L2.75 7.5L6.65 6.15L8 2.25Z"
-                stroke="currentColor"
-                stroke-width="1.35"
-                stroke-linejoin="round"
-                data-tauri-drag-region
-              />
-            </svg>
-          </div>
-          <span class="capsule-badge" data-tauri-drag-region>PEEK</span>
-          <span class="capsule-divider" data-tauri-drag-region></span>
-          <span class="capsule-title" data-tauri-drag-region>{{ chatTitle }}</span>
-        </div>
-        <div class="capsule-actions" data-no-drag>
-          <button
-            type="button"
-            class="capsule-action-btn expand"
-            :aria-label="tr(settingStore.language, 'expand')"
-            @click.stop="expand"
-          >
-            <ChevronUp :size="10" />
-          </button>
-          <button
-            type="button"
-            class="capsule-action-btn close"
-            :aria-label="tr(settingStore.language, 'close')"
-            @click.stop="close"
-          >
-            <X :size="10" />
-          </button>
-        </div>
+      <div
+        v-show="isMinimizePreview"
+        class="minimize-preview-screen"
+        data-tauri-drag-region
+        aria-hidden="true"
+      >
+        <span class="minimize-preview-title" data-tauri-drag-region>{{ chatTitle }}</span>
       </div>
 
-      <template v-else>
       <AnimatePresence mode="popLayout">
         <motion.section
           v-if="mode === 'chat'"
@@ -64,28 +35,24 @@
               class="window-controls"
               data-tauri-drag-region="false"
             >
-              <motion.button
+              <button
                 type="button"
-                class="window-btn btn-collapse"
-                :aria-label="tr(settingStore.language, 'collapse')"
+                class="window-btn btn-minimize"
+                :aria-label="tr(settingStore.language, 'minimize')"
                 data-tauri-drag-region="false"
-                :while-hover="{ scale: 1.08 }"
-                :while-press="{ scale: 0.92 }"
-                @mousedown.prevent="collapse"
+                @mousedown.stop.prevent="minimize"
               >
-                <ChevronDown :size="12" />
-              </motion.button>
-              <motion.button
+                <Minus :size="12" />
+              </button>
+              <button
                 type="button"
                 class="window-btn close"
                 :aria-label="tr(settingStore.language, 'close')"
                 data-tauri-drag-region="false"
-                :while-hover="{ scale: 1.08 }"
-                :while-press="{ scale: 0.92 }"
-                @mousedown.prevent="close"
+                @mousedown.stop.prevent="close"
               >
                 <X :size="12" />
-              </motion.button>
+              </button>
             </div>
           </header>
 
@@ -156,15 +123,14 @@
           @enter-plan="handleEnterPlan"
         />
       </motion.div>
-      </template>
     </div>
   </MotionConfig>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { ChevronDown, ChevronUp, X } from "@lucide/vue";
+import { Minus, X } from "@lucide/vue";
 import { AnimatePresence, MotionConfig, motion } from "motion-v";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
@@ -192,6 +158,7 @@ import {
   chatCancel,
   getPlanMode,
   listCheckpoints,
+  minimizeOverlay,
   respondAskUser,
   respondPathPermission,
   respondToolApproval,
@@ -241,8 +208,6 @@ const emit = defineEmits<{
   enterChat: [sessionId: string];
   contextConsumed: [];
   selectionRemoved: [];
-  collapse: [];
-  expand: [];
 }>();
 
 const chatStore = useChatStore();
@@ -251,7 +216,9 @@ const { sessions, overlayDraftSessionId, overlayContextNotice } = storeToRefs(ch
 
 const inputRef = ref<InstanceType<typeof ChatInputBar> | null>(null);
 const panelVisible = ref(false);
-const isCollapsed = ref(false);
+const isMinimizePreview = ref(false);
+const MINIMIZE_PREVIEW_MS = 64;
+let minimizeTimer: ReturnType<typeof setTimeout> | null = null;
 const askUserSession = ref<AskUserSession | null>(null);
 const askUserSubmitting = ref(false);
 const pathPermissionSession = ref<PathPermissionSession | null>(null);
@@ -330,7 +297,10 @@ const chatTitle = computed(() => {
   const userMsg = messages.value.find(
     (message) => String(message.role).toLowerCase() === "user",
   );
-  return userMsg ? parseSelectionAttachment(userMsg.content).message : tr(settingStore.language, "newChat");
+  const text = userMsg
+    ? parseSelectionAttachment(userMsg.content).message.trim()
+    : "";
+  return text || tr(settingStore.language, "newChat");
 });
 
 const composerLayout = ref({
@@ -432,14 +402,26 @@ function close() {
   emit("close");
 }
 
-function collapse() {
-  isCollapsed.value = true;
-  emit("collapse");
+function clearMinimizePreview() {
+  isMinimizePreview.value = false;
+  if (minimizeTimer) {
+    clearTimeout(minimizeTimer);
+    minimizeTimer = null;
+  }
 }
 
-function expand() {
-  isCollapsed.value = false;
-  emit("expand");
+function minimize() {
+  if (isMinimizePreview.value) {
+    return;
+  }
+
+  isMinimizePreview.value = true;
+  void nextTick().then(() => {
+    minimizeTimer = setTimeout(() => {
+      minimizeTimer = null;
+      void minimizeOverlay(getCurrentWebviewWindow().label);
+    }, MINIMIZE_PREVIEW_MS);
+  });
 }
 
 async function handleAskUserComplete(answer: string) {
@@ -513,7 +495,6 @@ function closePathPermission() {
 }
 
 async function handleOpenHistory() {
-  isCollapsed.value = false;
   closeAskUser();
   closePathPermission();
   historySessions.value = await loadScopedHistorySessions();
@@ -734,7 +715,6 @@ onMounted(async () => {
     if (payload.sessionId && payload.sessionId !== activeSessionId.value) {
       return;
     }
-    isCollapsed.value = false;
     pathPermissionSession.value = null;
     toolApprovalSession.value = null;
     askUserSession.value = {
@@ -750,7 +730,6 @@ onMounted(async () => {
     if (payload.sessionId && payload.sessionId !== activeSessionId.value) {
       return;
     }
-    isCollapsed.value = false;
     askUserSession.value = null;
     toolApprovalSession.value = null;
     pathPermissionSession.value = {
@@ -768,7 +747,6 @@ onMounted(async () => {
     if (payload.sessionId && payload.sessionId !== activeSessionId.value) {
       return;
     }
-    isCollapsed.value = false;
     askUserSession.value = null;
     pathPermissionSession.value = null;
     toolApprovalSession.value = {
@@ -796,14 +774,15 @@ onMounted(async () => {
   });
 
   await window.listen("overlay-shown", () => {
+    clearMinimizePreview();
     void refreshOverlayWindowBackground();
     panelVisible.value = true;
     void inputRef.value?.focusInput();
   });
 
   await window.listen("overlay-hidden", () => {
+    clearMinimizePreview();
     panelVisible.value = false;
-    isCollapsed.value = false;
     inputRef.value?.reset();
     emit("layoutChange", {
       showSuggestions: false,
@@ -836,9 +815,6 @@ onMounted(async () => {
 
   void listen<string>("open-session", async (event) => {
     const targetSessionId = event.payload;
-    if (isCollapsed.value) {
-      expand();
-    }
     await handleHistorySelect(targetSessionId);
   });
 
@@ -880,6 +856,10 @@ onMounted(async () => {
     },
   );
 });
+
+onUnmounted(() => {
+  clearMinimizePreview();
+});
 </script>
 
 <style scoped>
@@ -887,6 +867,7 @@ onMounted(async () => {
   box-sizing: border-box;
   width: 100%;
   height: 100%;
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -1068,137 +1049,37 @@ onMounted(async () => {
   border-bottom: 1px solid color-mix(in srgb, var(--peek-border) 70%, transparent);
 }
 
-.peek-panel.collapsed {
-  justify-content: center;
-  align-items: center;
-  padding: 0;
+.peek-panel.minimize-preview .thread-panel,
+.peek-panel.minimize-preview .composer-dock,
+.peek-panel.minimize-preview .plan-mode-banner {
+  visibility: hidden;
+  pointer-events: none;
 }
 
-.capsule-container {
+.minimize-preview-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  height: 100%;
-  padding: 0 12px;
-  border-radius: 9999px;
-  background: color-mix(in srgb, var(--peek-surface) 80%, rgba(10, 10, 10, 0.4));
-  border: 1px solid color-mix(in srgb, var(--peek-border) 40%, rgba(255, 255, 255, 0.05));
-  box-shadow: 
-    0 4px 16px rgba(0, 0, 0, 0.25),
-    inset 0 1px 1px rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(24px) saturate(1.2);
-  -webkit-backdrop-filter: blur(24px) saturate(1.2);
-  cursor: pointer;
-  user-select: none;
+  justify-content: center;
+  padding: 0 20px;
+  background: var(--peek-bg);
+  color: var(--peek-text);
   box-sizing: border-box;
-  transition: all 250ms cubic-bezier(0.16, 1, 0.3, 1);
-  overflow: hidden;
+  user-select: none;
 }
 
-.capsule-container:hover {
-  background: color-mix(in srgb, var(--peek-surface) 90%, rgba(15, 15, 15, 0.5));
-  border-color: color-mix(in srgb, var(--peek-accent) 40%, rgba(255, 255, 255, 0.15));
-  box-shadow: 
-    0 6px 20px rgba(0, 0, 0, 0.35),
-    inset 0 1px 1.5px rgba(255, 255, 255, 0.12);
-  transform: translateY(-0.5px);
-}
-
-.capsule-content {
-  flex: 1;
+.minimize-preview-title {
+  width: 100%;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.capsule-spark-wrapper {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--peek-accent) 12%, transparent);
-  color: var(--peek-accent);
-  flex-shrink: 0;
-  cursor: grab;
-}
-
-.capsule-spark-icon {
-  width: 12px;
-  height: 12px;
-}
-
-.capsule-badge {
-  font-family: var(--font-sans);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--peek-accent);
-  opacity: 0.85;
-  flex-shrink: 0;
-  cursor: grab;
-}
-
-.capsule-divider {
-  width: 1px;
-  height: 10px;
-  background: color-mix(in srgb, var(--peek-border) 60%, transparent);
-  flex-shrink: 0;
-}
-
-.capsule-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--peek-text);
-  opacity: 0.9;
-  overflow: hidden;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
   white-space: nowrap;
+  overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.capsule-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  margin-left: 6px;
-}
-
-.capsule-action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--peek-muted);
-  border: none;
-  cursor: pointer;
-  opacity: 0;
-  transform: scale(0.8);
-  transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
-  flex-shrink: 0;
-}
-
-.capsule-container:hover .capsule-action-btn {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.capsule-action-btn:hover {
-  background: color-mix(in srgb, var(--peek-accent) 15%, rgba(255, 255, 255, 0.1));
-  color: var(--peek-text);
-}
-
-.capsule-action-btn.close:hover {
-  background: var(--destructive);
-  color: #fff;
 }
 
 </style>
