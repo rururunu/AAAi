@@ -355,7 +355,7 @@ impl McpProcess {
             json!({
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": { "name": "AltAltAi", "version": "0.1.0" }
+                "clientInfo": { "name": "AltAltAi", "version": "0.1.1" }
             }),
         )?;
         proc.notify("notifications/initialized", json!({}))?;

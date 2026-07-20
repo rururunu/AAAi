@@ -1,7 +1,7 @@
 {
   "name": "altaltai",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AltAltAi — Windows overlay AI assistant",
   "type": "module",
   "scripts": {
