@@ -7,6 +7,7 @@ use crate::models::chat::{
     ChatCancelRequest, ChatHistoryRequest, ChatHistoryResponse, ChatModelInfo, ChatSendRequest,
     ChatSendResponse, ContextUsageRequest, ContextUsageResponse, ListChatSessionsResponse,
 };
+use crate::services::gemini_oauth;
 use crate::services::settings_store::get_settings;
 
 #[tauri::command]
@@ -82,7 +83,6 @@ pub async fn list_chat_models(app: AppHandle) -> Result<Vec<ChatModelInfo>, Stri
     let settings = get_settings(&app)?;
     let mut all_models: Vec<ChatModelInfo> = Vec::new();
 
-    // Load models from DeepSeek if API key is configured.
     if !settings.deepseek_api_key.trim().is_empty() {
         match deepseek::list_models(&settings.deepseek_api_key).await {
             Ok(models) => all_models.extend(models),
@@ -93,7 +93,15 @@ pub async fn list_chat_models(app: AppHandle) -> Result<Vec<ChatModelInfo>, Stri
         }
     }
 
-    // Load models from all custom providers if configured.
+    if settings.gemini_oauth.is_logged_in() {
+        match gemini_oauth::list_models(&app).await {
+            Ok(models) => all_models.extend(models),
+            Err(error) => {
+                eprintln!("Gemini fetchAvailableModels error: {error}");
+            }
+        }
+    }
+
     for custom in &settings.custom_providers {
         if !custom.base_url.trim().is_empty() && !custom.models.trim().is_empty() {
             let custom_models: Vec<ChatModelInfo> = custom
@@ -105,6 +113,8 @@ pub async fn list_chat_models(app: AppHandle) -> Result<Vec<ChatModelInfo>, Stri
                     id: id.to_string(),
                     owned_by: custom.name.clone(),
                     provider: custom.id.clone(),
+                    display_name: None,
+                    thinking_variants: None,
                 })
                 .collect();
             all_models.extend(custom_models);

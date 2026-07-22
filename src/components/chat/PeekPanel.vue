@@ -1,137 +1,125 @@
 <template>
-  <MotionConfig :transition="springSoft" reduced-motion="user">
+  <div
+    class="peek-panel"
+    :class="{ chat: mode === 'chat', 'minimize-preview': isMinimizePreview }"
+    data-tauri-drag-region
+    @mousedown="onWindowDragMouseDown"
+  >
     <div
-      class="peek-panel"
-      :class="{ chat: mode === 'chat', 'minimize-preview': isMinimizePreview }"
+      v-show="isMinimizePreview"
+      class="minimize-preview-screen"
       data-tauri-drag-region
-      @mousedown="onWindowDragMouseDown"
+      aria-hidden="true"
     >
-      <div
-        v-show="isMinimizePreview"
-        class="minimize-preview-screen"
-        data-tauri-drag-region
-        aria-hidden="true"
-      >
-        <span class="minimize-preview-title" data-tauri-drag-region>{{ chatTitle }}</span>
-      </div>
+      <span class="minimize-preview-title" data-tauri-drag-region>{{ chatTitle }}</span>
+    </div>
 
-      <AnimatePresence mode="popLayout">
-        <motion.section
-          v-if="mode === 'chat'"
-          key="thread"
-          class="thread-panel peek-surface"
-          :class="{
-            glass: isGlass,
-            'has-messages': hasVisibleMessages,
-          }"
-          data-tauri-drag-region
-          :initial="false"
-          :animate="threadReveal.animate"
-          :exit="threadReveal.exit"
-          :transition="threadReveal.transition"
-        >
-          <header class="thread-header" data-tauri-drag-region @mousedown="onWindowDragMouseDown">
-            <div
-              class="window-controls"
-              data-tauri-drag-region="false"
-            >
-              <button
-                type="button"
-                class="window-btn btn-minimize"
-                :aria-label="tr(settingStore.language, 'minimize')"
-                data-tauri-drag-region="false"
-                @mousedown.stop.prevent="minimize"
-              >
-                <Minus :size="12" />
-              </button>
-              <button
-                type="button"
-                class="window-btn close"
-                :aria-label="tr(settingStore.language, 'close')"
-                data-tauri-drag-region="false"
-                @mousedown.stop.prevent="close"
-              >
-                <X :size="12" />
-              </button>
-            </div>
-          </header>
-
-          <p
-            v-if="contextNotice"
-            class="context-notice"
-            data-tauri-drag-region="false"
-          >
-            {{ contextNotice }}
-          </p>
-
-          <MessageList
-            :messages="messages"
-            :session-id="activeSessionId"
-            :checkpoints="checkpoints"
-            @rewound="handleRewound"
-          />
-        </motion.section>
-      </AnimatePresence>
-
-      <PlanModeBanner
-        :active="planModeActive"
-        :language="settingStore.language"
-        :busy="planModeBusy"
-        @approve="handlePlanApprove"
-        @cancel="handlePlanCancel"
-      />
-
-      <motion.div
-        class="composer-dock peek-surface"
-        :class="{ expanded: mode === 'chat', glass: isGlass && mode !== 'chat' }"
-        :initial="panelVisible ? dockReveal.initial : false"
-        :animate="panelVisible ? dockReveal.animate : dockReveal.initial"
-        :exit="dockReveal.exit"
-        :transition="dockReveal.transition"
-      >
-        <p
-          v-if="contextPreview"
-          class="captured-context-preview"
+    <section
+      v-if="mode === 'chat'"
+      key="thread"
+      class="thread-panel peek-surface"
+      :class="{
+        glass: isGlass,
+        'has-messages': hasVisibleMessages,
+      }"
+      data-tauri-drag-region
+    >
+      <header class="thread-header" data-tauri-drag-region @mousedown="onWindowDragMouseDown">
+        <div
+          class="window-controls"
           data-tauri-drag-region="false"
         >
-          {{ contextPreview }}
-        </p>
-        <ChatInputBar
-          ref="inputRef"
-          :sending="sending"
-          :session-id="activeSessionId"
-          :captured-context="capturedContext"
-          :placeholder="tr(settingStore.language, mode === 'chat' ? 'continueQuestion' : 'askAnything')"
-          :close-on-escape="mode === 'input'"
-          :ask-user="askUserSession"
-          :path-permission="pathPermissionSession"
-          :tool-approval="toolApprovalSession"
-          :history-sessions="historySessions"
-          :show-workspace-button="mode === 'input'"
-          :selection-lines="selectionLines"
-          @submit="handleSubmit"
-          @pause="handlePause"
-          @close="emit('close')"
-          @layout-change="handleLayoutChange"
-          @ask-user-complete="handleAskUserComplete"
-          @path-permission-complete="handlePathPermissionComplete"
-          @tool-approval-complete="handleToolApprovalComplete"
-          @open-history="handleOpenHistory"
-          @history-select="handleHistorySelect"
-          @history-close="handleHistoryClose"
-          @remove-selection="emit('selectionRemoved')"
-          @enter-plan="handleEnterPlan"
-        />
-      </motion.div>
+          <button
+            type="button"
+            class="window-btn btn-minimize"
+            :aria-label="tr(settingStore.language, 'minimize')"
+            data-tauri-drag-region="false"
+            @mousedown.stop.prevent="minimize"
+          >
+            <Minus :size="12" />
+          </button>
+          <button
+            type="button"
+            class="window-btn close"
+            :aria-label="tr(settingStore.language, 'close')"
+            data-tauri-drag-region="false"
+            @mousedown.stop.prevent="close"
+          >
+            <X :size="12" />
+          </button>
+        </div>
+      </header>
+
+      <p
+        v-if="contextNotice"
+        class="context-notice"
+        data-tauri-drag-region="false"
+      >
+        {{ contextNotice }}
+      </p>
+
+      <MessageList
+        :messages="messages"
+        :session-id="activeSessionId"
+        :checkpoints="checkpoints"
+        @rewound="handleRewound"
+      />
+    </section>
+
+    <PlanModeBanner
+      :active="planModeActive"
+      :language="settingStore.language"
+      :busy="planModeBusy"
+      @approve="handlePlanApprove"
+      @cancel="handlePlanCancel"
+    />
+
+    <div
+      ref="dockRef"
+      class="composer-dock peek-surface"
+      :class="{ expanded: mode === 'chat', glass: isGlass && mode !== 'chat' }"
+    >
+      <p
+        v-if="contextPreview"
+        class="captured-context-preview"
+        data-tauri-drag-region="false"
+      >
+        {{ contextPreview }}
+      </p>
+      <ChatInputBar
+        ref="inputRef"
+        :sending="sending"
+        :session-id="activeSessionId"
+        :captured-context="capturedContext"
+        :placeholder="tr(settingStore.language, mode === 'chat' ? 'continueQuestion' : 'askAnything')"
+        :close-on-escape="mode === 'input'"
+        :ask-user="askUserSession"
+        :path-permission="pathPermissionSession"
+        :tool-approval="toolApprovalSession"
+        :history-sessions="historySessions"
+        :show-workspace-button="mode === 'input'"
+        :selection-lines="selectionLines"
+        @submit="handleSubmit"
+        @pause="handlePause"
+        @close="emit('close')"
+        @layout-change="handleLayoutChange"
+        @ask-user-complete="handleAskUserComplete"
+        @path-permission-complete="handlePathPermissionComplete"
+        @tool-approval-complete="handleToolApprovalComplete"
+        @open-history="handleOpenHistory"
+        @history-select="handleHistorySelect"
+        @history-close="handleHistoryClose"
+        @remove-selection="emit('selectionRemoved')"
+        @enter-plan="handleEnterPlan"
+      />
     </div>
-  </MotionConfig>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { Minus, X } from "@lucide/vue";
-import { AnimatePresence, MotionConfig, motion } from "motion-v";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import ChatInputBar, {
@@ -141,10 +129,8 @@ import ChatInputBar, {
 import MessageList from "@/components/chat/MessageList.vue";
 import PlanModeBanner from "@/components/chat/PlanModeBanner.vue";
 import {
-  dockReveal,
-  springSoft,
-  threadReveal,
-} from "@/services/motion/presets";
+  gsapOverlayDockReveal,
+} from "@/services/motion/gsapPresets";
 import { refreshOverlayWindowBackground } from "@/services/overlay/appearance";
 import { onWindowDragMouseDown } from "@/services/overlay/windowDrag";
 import { fetchChatSessions } from "@/commands/slash";
@@ -199,9 +185,11 @@ const emit = defineEmits<{
       modelMenuHeight: number;
       askUserRowCount: number;
       pickerRowCount: number;
+      pickerHeight?: number;
       hasContextPreview: boolean;
       mode: "input" | "chat";
       hasImages?: boolean;
+      hasFiles?: boolean;
     },
   ];
   close: [];
@@ -215,6 +203,7 @@ const settingStore = useSettingStore();
 const { sessions, overlayDraftSessionId, overlayContextNotice } = storeToRefs(chatStore);
 
 const inputRef = ref<InstanceType<typeof ChatInputBar> | null>(null);
+const dockRef = ref<HTMLElement | null>(null);
 const panelVisible = ref(false);
 const isMinimizePreview = ref(false);
 const MINIMIZE_PREVIEW_MS = 64;
@@ -310,7 +299,9 @@ const composerLayout = ref({
   modelMenuHeight: 0,
   askUserRowCount: 0,
   pickerRowCount: 0,
+  pickerHeight: 0,
   hasImages: false,
+  hasFiles: false,
 });
 
 function emitComposerLayout() {
@@ -328,11 +319,15 @@ function handleLayoutChange(payload: {
   modelMenuHeight: number;
   askUserRowCount: number;
   pickerRowCount: number;
+  pickerHeight?: number;
   hasImages?: boolean;
+  hasFiles?: boolean;
 }) {
   composerLayout.value = {
     ...payload,
+    pickerHeight: payload.pickerHeight ?? 0,
     hasImages: payload.hasImages ?? false,
+    hasFiles: payload.hasFiles ?? false,
   };
   emitComposerLayout();
 }
@@ -343,12 +338,16 @@ function createSessionId() {
 
 async function handleSubmit(text: string) {
   const trimmed = text.trim();
-  if (!trimmed || sending.value) {
+  if (!trimmed) {
     return;
   }
 
   if (props.mode === "chat") {
     await chatStore.send(trimmed, activeSessionId.value);
+    return;
+  }
+
+  if (sending.value) {
     return;
   }
 
@@ -708,8 +707,25 @@ watch(
   },
 );
 
+watch(
+  panelVisible,
+  async (visible) => {
+    gsapOverlayDockReveal(dockRef.value, visible);
+    if (!visible) {
+      return;
+    }
+    // Focus after the dock is visibility:visible (set synchronously in reveal).
+    await nextTick();
+    void inputRef.value?.focusInput();
+  },
+);
+
 onMounted(async () => {
   const window = getCurrentWebviewWindow();
+  // Hide dock until overlay-shown; avoid FOUC before first reveal tween.
+  if (!panelVisible.value) {
+    gsapOverlayDockReveal(dockRef.value, false);
+  }
 
   void listenAskUser(async (payload) => {
     if (payload.sessionId && payload.sessionId !== activeSessionId.value) {
@@ -791,6 +807,7 @@ onMounted(async () => {
       modelMenuHeight: 0,
       askUserRowCount: 0,
       pickerRowCount: 0,
+      pickerHeight: 0,
       hasContextPreview: false,
       mode: props.mode,
     });
@@ -880,9 +897,9 @@ onUnmounted(() => {
   --thread-side-gap: 14px;
 }
 
-.peek-panel.chat {
-  --composer-overlap: 12px;
-  --composer-clearance: 90px;
+.peek-panel.chat .thread-panel {
+  /* Keep room for at least one user bubble while the window is still expanding. */
+  min-height: 120px;
 }
 
 .thread-panel {
@@ -966,6 +983,7 @@ onUnmounted(() => {
   z-index: 2;
   overflow: hidden;
   isolation: isolate;
+  will-change: clip-path, opacity;
 }
 
 .composer-dock :deep(.chat-input-shell) {
@@ -986,8 +1004,8 @@ onUnmounted(() => {
 }
 
 .peek-panel.chat :deep(.input-footer-primary) {
-  flex-wrap: wrap;
-  row-gap: 4px;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .window-controls {

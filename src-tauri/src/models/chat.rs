@@ -144,11 +144,28 @@ pub struct ListChatSessionsResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ModelThinkingVariant {
+    /// Catalog model id used in API requests.
+    pub id: String,
+    /// Short tier label (e.g. `"High"`, `"Low"`, `"Agent"`).
+    pub label: String,
+    #[serde(default)]
+    pub recommended: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatModelInfo {
     pub id: String,
     pub owned_by: String,
     /// Stable provider key used by the UI for icons (e.g. `"deepseek"`).
     pub provider: String,
+    /// Human-readable label for pickers (e.g. `"Gemini 3.1 Pro (High)"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    /// Alternate thinking tiers for the same model family (High / Low / Agent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_variants: Option<Vec<ModelThinkingVariant>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,5 +1,6 @@
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_util::future::join_all;
@@ -66,6 +67,7 @@ impl AgentRunner {
         tool_ctx: ToolContext,
         tx: mpsc::Sender<StreamEvent>,
         cancelled: Arc<AtomicBool>,
+        soft_queue: Arc<Mutex<VecDeque<String>>>,
     ) -> Result<(), ProviderError> {
         request.tools = self.tools.schemas_arc();
         let mut steps = 0u32;
@@ -76,6 +78,7 @@ impl AgentRunner {
             if cancelled.load(Ordering::Relaxed) {
                 return Err(ProviderError::cancelled());
             }
+            drain_soft_injects(&soft_queue, &mut request, &tx, &mut user_msg_index).await;
             if self.max_steps > 0 && steps >= self.max_steps {
                 let _ = tx
                     .send(StreamEvent::TurnComplete {
@@ -186,7 +189,7 @@ impl AgentRunner {
 
             provider_task
                 .await
-                .map_err(|_| ProviderError::message("provider task failed"))??;
+                .map_err(|error| ProviderError::message(format!("provider task failed: {error}")))??;
 
             used_tokens += estimate_tokens(&content) + estimate_tokens(&reasoning);
 
@@ -201,6 +204,12 @@ impl AgentRunner {
                     .await;
                 break;
             }
+
+            let _ = tx
+                .send(StreamEvent::Status {
+                    kind: format!("tools:{}", tool_calls.len()),
+                })
+                .await;
 
             let assistant = ChatMessage {
                 id: format!("msg-{}", now_millis()),
@@ -263,6 +272,8 @@ impl AgentRunner {
                 return Ok(());
             }
 
+            // Soft-inject at tool boundary before the next provider call.
+            drain_soft_injects(&soft_queue, &mut request, &tx, &mut user_msg_index).await;
             steps += 1;
         }
 
@@ -446,6 +457,7 @@ impl AgentRunner {
         let runner = AgentRunner::new(provider, active_tools);
         let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
         let cancelled = Arc::new(AtomicBool::new(false));
+        let soft_queue = Arc::new(Mutex::new(VecDeque::new()));
         let request = ChatRequest {
             request_id: format!("sub-{}", now_millis()),
             session_id: tool_ctx.session_id.clone(),
@@ -489,7 +501,7 @@ impl AgentRunner {
             }
         });
 
-        Box::pin(runner.run(request, tool_ctx, tx, cancelled))
+        Box::pin(runner.run(request, tool_ctx, tx, cancelled, soft_queue))
             .await
             .map_err(|error| ToolError::new(error.to_string()))?;
 
@@ -560,6 +572,51 @@ fn now_millis() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
+}
+
+async fn drain_soft_injects(
+    soft_queue: &Arc<Mutex<VecDeque<String>>>,
+    request: &mut ChatRequest,
+    tx: &mpsc::Sender<StreamEvent>,
+    user_msg_index: &mut Option<usize>,
+) {
+    let injected: Vec<String> = {
+        let Ok(mut queue) = soft_queue.lock() else {
+            return;
+        };
+        queue.drain(..).collect()
+    };
+    if injected.is_empty() {
+        return;
+    }
+
+    for content in injected {
+        let message = ChatMessage {
+            id: format!("msg-{}", now_millis()),
+            session_id: request.session_id.clone(),
+            role: Role::User,
+            content: format!(
+                "[Follow-up instruction while you were working]\n{content}"
+            ),
+            reasoning: None,
+            tool_activities: None,
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+            status: MessageStatus::Done,
+            timestamp: now_millis(),
+        };
+        if user_msg_index.is_none() {
+            *user_msg_index = Some(request.messages.len());
+        }
+        request.messages.push(message);
+    }
+
+    let _ = tx
+        .send(StreamEvent::Status {
+            kind: "soft_injected".to_string(),
+        })
+        .await;
 }
 
 fn display_session_id(session_id: &str) -> String {

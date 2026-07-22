@@ -22,7 +22,6 @@ use context::ContextResolver;
 use tauri::{AppHandle, Manager};
 use tools::default_registry;
 
-/// Peek AI Runtime — Windows 上下文 + 统一 Provider 协议。
 pub struct PeekCore {
     chat: ChatService,
     workspace_manager: Arc<WorkspaceManager>,

@@ -18,9 +18,7 @@ const WINDOW_MINIMIZE_BLUR_GUARD_MS: u64 = 800;
 
 static OVERLAY_IGNORE_BLUR_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
 
-// 处于 chat mode 的窗口 labels（已开始聊天）
 static OVERLAY_CHAT_MODE_LABELS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-// popup 打开的窗口 labels
 static OVERLAY_POPUP_OPEN_LABELS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 static PENDING_OVERLAY_CONTEXTS: OnceLock<Mutex<HashMap<String, RequestContext>>> = OnceLock::new();
 
@@ -120,7 +118,6 @@ pub fn should_keep_overlay_visible(label: &str) -> bool {
         || should_ignore_overlay_blur()
 }
 
-/// 清除某个窗口的所有状态（窗口销毁时调用）
 pub fn cleanup_overlay_state(label: &str) {
     chat_mode_labels().remove(label);
     popup_open_labels().remove(label);
@@ -217,7 +214,6 @@ pub fn configure_overlay_window(window: &tauri::WebviewWindow) {
     reapply_toolwindow_style(window);
 }
 
-/// 生成新的唯一 overlay label
 fn next_overlay_label(app: &AppHandle) -> String {
     let mut i = 1u32;
     loop {
@@ -229,12 +225,11 @@ fn next_overlay_label(app: &AppHandle) -> String {
     }
 }
 
-/// 创建一个新的 overlay 窗口并显示（居中）
 fn create_new_overlay(app: &AppHandle, context: &RequestContext) {
     let label = next_overlay_label(app);
     pending_contexts().insert(label.clone(), context.clone());
     match WebviewWindowBuilder::new(app, &label, WebviewUrl::App("/#/overlay".into()))
-        .title("AltAltAi")
+        .title("AAAi")
         .inner_size(640.0, 82.0)
         .min_inner_size(640.0, 82.0)
         .decorations(false)
@@ -296,13 +291,11 @@ pub fn toggle_overlay(app: &AppHandle, mouse_pos: Option<(i32, i32)>) {
         .collect();
     overlay_labels.sort();
 
-    // 找未处于 chat mode 的 input 窗口（优先找基础 overlay）
     let input_label = overlay_labels
         .iter()
         .find(|label| is_available_input_window(app, label));
 
     if let Some(label) = input_label {
-        // 有 input 窗口：切换显示/隐藏
         if let Some(window) = app.get_webview_window(label) {
             let visible = window.is_visible().unwrap_or(false);
             if visible {
@@ -373,11 +366,9 @@ fn calc_position_near_mouse(
         None => return (mouse_x + offset, mouse_y + offset),
     };
 
-    // 将逻辑尺寸换算为物理像素
     let win_w_phys = (win_w_logical * scale) as i32;
     let win_h_phys = (win_h_logical * scale) as i32;
 
-    // 默认放在鼠标右下方
     let mut x = mouse_x + offset;
     let mut y = mouse_y + offset;
 
@@ -389,14 +380,12 @@ fn calc_position_near_mouse(
     if y + win_h_phys > screen_y + screen_h {
         y = mouse_y - win_h_phys - offset;
     }
-    // 确保不超出左/上边界
     x = x.max(screen_x);
     y = y.max(screen_y);
 
     (x, y)
 }
 
-/// 在主线程中将 overlay 定位到鼠标附近并显示（带上下文）
 fn place_and_show_overlay_at_mouse(
     app: &AppHandle,
     mouse_x: i32,
@@ -420,7 +409,6 @@ fn place_and_show_overlay_at_mouse(
         .find(|label| is_available_input_window(app, label));
 
     if let Some(label) = input_label {
-        // 复用现有空闲 overlay
         if let Some(window) = app.get_webview_window(label) {
             let (x, y) = calc_position_near_mouse(&window, mouse_x, mouse_y, WIN_W, WIN_H, OFFSET);
             configure_overlay_window(&window);
@@ -433,11 +421,10 @@ fn place_and_show_overlay_at_mouse(
             mark_blur_guard();
         }
     } else {
-        // 所有 overlay 都在 chat mode，创建新窗口
         let label = next_overlay_label(app);
         pending_contexts().insert(label.clone(), context.clone());
         match WebviewWindowBuilder::new(app, &label, WebviewUrl::App("/#/overlay".into()))
-            .title("AltAltAi")
+            .title("AAAi")
             .inner_size(WIN_W, WIN_H)
             .min_inner_size(640.0, WIN_H)
             .decorations(false)

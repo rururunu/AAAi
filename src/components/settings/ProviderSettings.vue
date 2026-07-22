@@ -3,9 +3,7 @@
     <AppConfirmDialog ref="confirmDialogRef" />
 
     <Transition name="fade-slide" mode="out-in">
-      <!-- 1. CARD LIST VIEW -->
       <div v-if="currentView === 'list'" key="list" class="view-container">
-        <!-- Header -->
         <header class="view-header">
           <div>
             <h2>{{ t('settings.provider.title') }}</h2>
@@ -13,9 +11,7 @@
           </div>
         </header>
 
-        <!-- List Sections -->
         <div class="sections-container">
-          <!-- DeepSeek Section -->
           <div class="section-block">
             <h4 class="section-title">DeepSeek</h4>
             <button 
@@ -44,7 +40,34 @@
             </button>
           </div>
 
-          <!-- Custom Providers Section -->
+          <div class="section-block">
+            <h4 class="section-title">Gemini</h4>
+            <button 
+              type="button" 
+              class="provider-nav-card" 
+              @click="openGemini"
+            >
+              <div class="card-left">
+                <div class="icon-wrapper">
+                  <GeminiIcon :size="18" />
+                </div>
+                <div class="card-text">
+                  <h3>{{ t('settings.provider.gemini') }}</h3>
+                  <p>{{ geminiSubtitle }}</p>
+                </div>
+              </div>
+              <div class="card-right">
+                <span 
+                  class="status-badge" 
+                  :class="{ configured: isGeminiConfigured }"
+                >
+                  {{ isGeminiConfigured ? t('settings.provider.geminiSignedIn') : t('settings.provider.geminiSignedOut') }}
+                </span>
+                <ChevronRight class="size-4 text-muted-foreground arrow-icon" />
+              </div>
+            </button>
+          </div>
+
           <div class="section-block">
             <div class="section-header-row">
               <h4 class="section-title">{{ t('settings.provider.custom') }}</h4>
@@ -59,7 +82,6 @@
               </Button>
             </div>
 
-            <!-- Custom Providers List -->
             <div v-if="settingStore.customProviders.length === 0" class="empty-state">
               <p class="text-xs text-muted-foreground">{{ t('settings.empty') }}</p>
             </div>
@@ -95,9 +117,7 @@
         </div>
       </div>
 
-      <!-- 2. DEEPSEEK CONFIGURATION VIEW -->
       <div v-else-if="currentView === 'deepseek'" key="deepseek" class="view-container">
-        <!-- Back Button Row -->
         <div class="back-btn-row">
           <Button 
             variant="ghost" 
@@ -109,7 +129,6 @@
             {{ t('settings.provider.back') }}
           </Button>
         </div>
-        <!-- Title Row -->
         <header class="view-header edit-header">
           <div class="header-details">
             <div class="edit-title-row">
@@ -120,7 +139,6 @@
           </div>
         </header>
 
-        <!-- Edit Form -->
         <div class="edit-form border-t border-border pt-4">
           <div class="field-row">
             <label>{{ t('settings.provider.apiKey') }}</label>
@@ -153,9 +171,7 @@
         </div>
       </div>
 
-      <!-- 3. CUSTOM PROVIDER CONFIGURATION VIEW -->
-      <div v-else-if="currentView === 'custom'" key="custom" class="view-container">
-        <!-- Back Button Row -->
+      <div v-else-if="currentView === 'gemini'" key="gemini" class="view-container">
         <div class="back-btn-row">
           <Button 
             variant="ghost" 
@@ -167,7 +183,72 @@
             {{ t('settings.provider.back') }}
           </Button>
         </div>
-        <!-- Title & Delete Button Row -->
+        <header class="view-header edit-header">
+          <div class="header-details">
+            <div class="edit-title-row">
+              <GeminiIcon :size="18" class="edit-title-icon" />
+              <h2>{{ t('settings.provider.gemini') }}</h2>
+            </div>
+            <p>{{ t('settings.provider.geminiDescription') }}</p>
+          </div>
+        </header>
+
+        <div class="edit-form border-t border-border pt-4">
+          <div class="oauth-status">
+            <p class="oauth-status-label">{{ t('settings.provider.geminiAccount') }}</p>
+            <p class="oauth-status-value">
+              {{ isGeminiConfigured
+                ? (settingStore.geminiOauth.email || t('settings.provider.geminiSignedIn'))
+                : t('settings.provider.geminiSignedOut') }}
+            </p>
+            <p v-if="geminiError" class="oauth-error">{{ geminiError }}</p>
+          </div>
+
+          <div class="form-actions pt-2">
+            <Button 
+              v-if="!isGeminiConfigured"
+              size="sm" 
+              class="h-8 flex-1 gap-1.5" 
+              :disabled="geminiBusy"
+              @click="loginGemini"
+            >
+              {{ geminiBusy ? t('settings.provider.geminiLoggingIn') : t('settings.provider.geminiLogin') }}
+            </Button>
+            <Button 
+              v-else
+              variant="outline"
+              size="sm" 
+              class="h-8 flex-1 gap-1.5" 
+              :disabled="geminiBusy"
+              @click="logoutGemini"
+            >
+              {{ t('settings.provider.geminiLogout') }}
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              class="h-8 flex-1 gap-1.5" 
+              @click="currentView = 'list'"
+            >
+              <ChevronLeft class="size-3.5" />
+              {{ t('settings.provider.back') }}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div v-else-if="currentView === 'custom'" key="custom" class="view-container">
+        <div class="back-btn-row">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            class="h-8 gap-1.5 pl-1.5 text-muted-foreground hover:text-foreground back-btn"
+            @click="currentView = 'list'"
+          >
+            <ChevronLeft class="size-4" />
+            {{ t('settings.provider.back') }}
+          </Button>
+        </div>
         <header class="view-header edit-header">
           <div class="header-details">
             <h2>{{ isNewProvider ? t('settings.provider.add') : t('settings.provider.custom') }}</h2>
@@ -186,7 +267,6 @@
           </Button>
         </header>
 
-        <!-- Edit Form -->
         <div class="edit-form border-t border-border pt-4">
           <div class="field-row">
             <label>{{ t('settings.provider.name') }}</label>
@@ -258,12 +338,14 @@
 import { ref, computed } from "vue";
 import { Globe2, ChevronLeft, ChevronRight, Plus, Trash2, Save } from "@lucide/vue";
 import DeepSeekIcon from "@/components/icons/DeepSeekIcon.vue";
+import GeminiIcon from "@/components/icons/GeminiIcon.vue";
 import { useSettingStore } from "@/stores/setting";
 import { useChatModelStore } from "@/stores/chatModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SecretInput } from "@/components/ui/secret-input";
 import { AppConfirmDialog } from "@/components/ui/confirm-dialog";
+import { geminiOauthLogin, geminiOauthLogout } from "@/services/ipc";
 import { tr } from "@/services/i18n";
 import type { SettingsI18nKey } from "@/services/locales/settings";
 
@@ -276,20 +358,32 @@ const chatModelStore = useChatModelStore();
 
 const confirmDialogRef = ref<InstanceType<typeof AppConfirmDialog> | null>(null);
 
-const currentView = ref<"list" | "deepseek" | "custom">("list");
+const currentView = ref<"list" | "deepseek" | "gemini" | "custom">("list");
 const editingProviderId = ref<string | null>(null);
 
 const deepseekKey = ref(settingStore.deepseekApiKey);
+const geminiBusy = ref(false);
+const geminiError = ref("");
 
-// Form fields for Custom Provider editing
 const customName = ref("");
 const customUrl = ref("");
 const customKey = ref("");
 const customModels = ref("");
 
-// Configured indicators
 const isDeepSeekConfigured = computed(() => {
   return !!settingStore.deepseekApiKey.trim();
+});
+
+const isGeminiConfigured = computed(() => {
+  const oauth = settingStore.geminiOauth;
+  return !!(oauth?.accessToken?.trim() || oauth?.refreshToken?.trim());
+});
+
+const geminiSubtitle = computed(() => {
+  if (isGeminiConfigured.value && settingStore.geminiOauth.email) {
+    return settingStore.geminiOauth.email;
+  }
+  return "Antigravity";
 });
 
 const isNewProvider = computed(() => {
@@ -300,6 +394,39 @@ const isNewProvider = computed(() => {
 const t = (key: string) => {
   return tr(settingStore.language, key as SettingsI18nKey);
 };
+
+function openGemini() {
+  geminiError.value = "";
+  currentView.value = "gemini";
+}
+
+async function loginGemini() {
+  geminiError.value = "";
+  geminiBusy.value = true;
+  try {
+    await geminiOauthLogin();
+    await settingStore.load();
+    await chatModelStore.refresh();
+  } catch (error) {
+    geminiError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    geminiBusy.value = false;
+  }
+}
+
+async function logoutGemini() {
+  geminiError.value = "";
+  geminiBusy.value = true;
+  try {
+    await geminiOauthLogout();
+    await settingStore.load();
+    await chatModelStore.refresh();
+  } catch (error) {
+    geminiError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    geminiBusy.value = false;
+  }
+}
 
 async function saveDeepSeek() {
   if (deepseekKey.value.trim() === settingStore.deepseekApiKey) {
@@ -355,7 +482,6 @@ async function saveCustom() {
   };
   
   if (index !== -1) {
-    // Check if anything actually changed
     const current = list[index];
     if (
       current.name === nextName &&
@@ -565,7 +691,6 @@ header.view-header p {
   border-radius: 8px;
 }
 
-/* Edit Header layout using Flexbox */
 header.view-header.edit-header {
   display: flex;
   flex-direction: row;
@@ -615,7 +740,6 @@ header.view-header.edit-header {
   margin-top: 4px;
 }
 
-/* Edit Form */
 .edit-form {
   display: flex;
   flex-direction: column;
@@ -634,6 +758,42 @@ header.view-header.edit-header {
   font-size: 11px;
   font-weight: 500;
   color: var(--muted-foreground);
+}
+
+.field-hint {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+
+.oauth-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--sidebar) 55%, transparent);
+}
+
+.oauth-status-label {
+  margin: 0;
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+
+.oauth-status-value {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.oauth-error {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--destructive, #ef4444);
+  line-height: 1.4;
 }
 
 .custom-textarea {
@@ -668,7 +828,6 @@ header.view-header.edit-header {
   width: 100%;
 }
 
-/* Transitions */
 .fade-slide-enter-active,
 .fade-slide-leave-active {
   transition: all 0.15s ease-out;

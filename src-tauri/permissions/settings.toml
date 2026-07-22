@@ -10,4 +10,8 @@ commands.allow = [
   "get_skills_dir",
   "open_skills_dir",
   "get_mcp_runtime_support",
+  "gemini_auth_status",
+  "gemini_oauth_login",
+  "gemini_oauth_logout",
+  "gemini_import_client_secrets",
 ]

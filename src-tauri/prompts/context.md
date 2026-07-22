@@ -1,6 +1,6 @@
 # Windows context harness (automatic)
 
-Before each user message, Peek may attach read-only context blocks from the OS. These are **not** tools you call — they are captured when the user summons the overlay.
+Before each user message, AAAi may attach read-only context blocks from the OS. These are **not** tools you call — they are captured when the user summons the overlay.
 
 | Block | Meaning |
 |-------|---------|

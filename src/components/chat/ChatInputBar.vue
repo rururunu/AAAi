@@ -65,12 +65,62 @@
         key="history-list"
         :items="historyItems"
         :selected-index="selectedIndex"
-        :header="historyHeader"
         :empty-text="historyEmptyText"
         :ariaLabel="tr(language, 'chatHistory')"
         :format-time="formatTime"
         @hover="selectedIndex = $event"
         @select="selectHistorySession"
+      />
+
+      <ModelPicker
+        v-else-if="showModelPicker"
+        key="model-list"
+        :models="modelPickerModels"
+        :selected-model-id="chatModel"
+        :selected-index="selectedIndex"
+        :loading="chatModelStore.loading"
+        :refreshing="chatModelStore.refreshing"
+        :error="chatModelStore.error"
+        :loading-text="modelStatusText.loading"
+        :empty-text="modelPickerEmptyText"
+        :refresh-text="tr(language, 'refreshModels')"
+        :ariaLabel="tr(language, 'chooseModel')"
+        @hover="selectedIndex = $event"
+        @select="selectModel"
+        @refresh="refreshModelList"
+      />
+
+      <OptionPicker
+        v-else-if="showChatModePicker"
+        key="chat-mode-list"
+        :options="chatModePickerOptions"
+        :selected-id="settingStore.chatMode"
+        :selected-index="selectedIndex"
+        :ariaLabel="tr(language, 'chooseChatMode')"
+        @hover="selectedIndex = $event"
+        @select="selectChatMode"
+      />
+
+      <OptionPicker
+        v-else-if="showThinkingTierList"
+        key="thinking-tier-list"
+        :options="thinkingTierPickerOptions"
+        :selected-id="chatModel"
+        :selected-index="selectedIndex"
+        :ariaLabel="tr(language, 'chooseThinkingTier')"
+        @hover="selectedIndex = $event"
+        @select="selectThinkingTier"
+      />
+
+      <OptionPicker
+        v-else-if="showApprovalPicker"
+        key="approval-mode-list"
+        :options="approvalPickerOptions"
+        :selected-id="settingStore.toolApprovalMode"
+        :selected-index="selectedIndex"
+        :ariaLabel="tr(language, 'toolApprovalMode')"
+        @hover="selectedIndex = $event"
+        @select="selectApprovalMode"
       />
 
       <FileMentionPicker
@@ -97,41 +147,16 @@
       />
     </Transition>
 
-    <ModelMenu
-      ref="modelMenuComponentRef"
-      :open="modelMenuOpen"
-      :style="modelMenuStyle"
-      :ariaLabel="tr(language, 'chooseModel')"
-      :loading="chatModelStore.loading"
-      :error="chatModelStore.error"
-      :models="availableModels"
-      :selected-model-id="chatModel"
-      :loading-text="modelStatusText.loading"
-      :empty-text="modelStatusText.empty"
-      @select="selectModel"
-    />
-
-    <ApprovalModeMenu
-      ref="approvalMenuComponentRef"
-      :open="approvalMenuOpen"
-      :style="approvalMenuStyle"
-      :ariaLabel="tr(language, 'toolApprovalMode')"
-      :options="approvalModeOptions"
-      :selected-value="settingStore.toolApprovalMode"
-      @select="selectApprovalMode"
-    />
-
-    <ChatModeMenu
-      ref="chatModeMenuComponentRef"
-      :open="chatModeMenuOpen"
-      :style="chatModeMenuStyle"
-      :ariaLabel="tr(language, 'chooseChatMode')"
-      :options="chatModeOptions"
-      :selected-value="settingStore.chatMode"
-      @select="selectChatMode"
-    />
-
-    <div class="input-bar" :class="{ 'has-images': attachedImages.length > 0 }">
+    <div
+      class="input-bar"
+      :class="{
+        'has-images': attachedImages.length > 0 || attachedFiles.length > 0,
+        'drag-over': fileDragOver,
+      }"
+      @dragover.prevent="onFileDragOver"
+      @dragleave="onFileDragLeave"
+      @drop.prevent="onFileDrop"
+    >
       <div v-if="attachedImages.length" class="input-images peek-scrollbar" data-tauri-drag-region="false">
         <div
           v-for="(img, idx) in attachedImages"
@@ -154,6 +179,28 @@
             @click="removeAttachedImage(idx)"
           >
             <X :size="10" />
+          </button>
+        </div>
+      </div>
+
+      <div v-if="attachedFiles.length" class="input-files peek-scrollbar" data-tauri-drag-region="false">
+        <div
+          v-for="(file, idx) in attachedFiles"
+          :key="`${file.path}-${idx}`"
+          class="file-chip"
+          :class="{ skipped: Boolean(file.skippedReason) }"
+          data-tauri-drag-region="false"
+          :title="file.skippedReason ? `${file.path} (${file.skippedReason})` : file.path"
+        >
+          <File :size="12" :stroke-width="1.75" class="file-chip-icon" aria-hidden="true" />
+          <span class="file-chip-name">{{ file.name }}</span>
+          <button
+            type="button"
+            class="file-chip-remove"
+            :aria-label="tr(language, 'close')"
+            @click.stop="removeAttachedFile(idx)"
+          >
+            <X :size="11" :stroke-width="2" />
           </button>
         </div>
       </div>
@@ -205,7 +252,7 @@
         role="combobox"
         aria-autocomplete="list"
         :aria-expanded="showSuggestions || interactivePickerOpen"
-        :readonly="interactivePickerOpen"
+        :readonly="inputLockedForTyping"
         @keydown="handleKeydown"
         @paste="handlePaste"
       />
@@ -242,16 +289,16 @@
         </button>
       </div>
 
-      <div ref="chatModeTriggerRef" class="model-picker">
+      <div class="model-picker">
         <button
           type="button"
           class="model-badge footer-chip"
           data-tauri-drag-region="false"
-          :class="{ open: chatModeMenuOpen }"
+          :class="{ open: chatModePickerOpen }"
           :title="chatModeBadgeTitle"
           :aria-label="chatModeBadgeTitle"
           aria-haspopup="listbox"
-          :aria-expanded="chatModeMenuOpen"
+          :aria-expanded="chatModePickerOpen"
           @mousedown.stop
           @click.stop="toggleChatModeMenu"
         >
@@ -265,40 +312,73 @@
         </button>
       </div>
 
-      <div ref="modelTriggerRef" class="model-picker">
+      <div class="model-picker">
         <button
           type="button"
           class="model-badge footer-chip"
           data-tauri-drag-region="false"
-          :class="{ open: modelMenuOpen }"
+          :class="{ open: modelPickerOpen, confirm: modelChipConfirm }"
           :title="modelBadgeTitle"
           :aria-label="modelBadgeTitle"
           aria-haspopup="listbox"
-          :aria-expanded="modelMenuOpen"
+          :aria-expanded="modelPickerOpen"
           @mousedown.stop
           @click.stop="toggleModelMenu"
         >
-          <component
-            :is="currentModelProviderIcon"
-            v-if="currentModelProviderIcon"
-            :size="13"
-            class="footer-chip-icon"
-          />
-          <span class="model-name">{{ currentModelDisplayName }}</span>
+          <span class="footer-chip-icon-slot" aria-hidden="true">
+            <component
+              :is="currentModelProviderIcon"
+              v-if="currentModelProviderIcon"
+              :size="13"
+              class="footer-chip-icon"
+            />
+          </span>
+          <span class="model-name" :key="currentModelDisplayName">{{ currentModelDisplayName }}</span>
           <ChevronDown :size="11" class="model-chevron" />
         </button>
       </div>
 
-      <div v-if="settingStore.chatMode !== 'ask'" ref="approvalTriggerRef" class="model-picker">
+      <div
+        class="model-picker thinking-tier-slot"
+        :class="{ dormant: !showThinkingTierPicker }"
+        :aria-hidden="!showThinkingTierPicker"
+      >
         <button
           type="button"
           class="model-badge footer-chip"
           data-tauri-drag-region="false"
-          :class="{ open: approvalMenuOpen }"
+          :class="{ open: thinkingTierPickerOpen }"
+          :title="thinkingTierBadgeTitle"
+          :aria-label="thinkingTierBadgeTitle"
+          aria-haspopup="listbox"
+          :aria-expanded="thinkingTierPickerOpen"
+          :tabindex="showThinkingTierPicker ? 0 : -1"
+          :disabled="!showThinkingTierPicker"
+          @mousedown.stop
+          @click.stop="toggleThinkingTierMenu"
+        >
+          <Brain :size="13" class="footer-chip-icon" />
+          <span class="model-name">{{ currentThinkingTierLabel || "—" }}</span>
+          <ChevronDown :size="11" class="model-chevron" />
+        </button>
+      </div>
+
+      <div
+        class="model-picker approval-slot"
+        :class="{ dormant: settingStore.chatMode === 'ask' }"
+        :aria-hidden="settingStore.chatMode === 'ask'"
+      >
+        <button
+          type="button"
+          class="model-badge footer-chip"
+          data-tauri-drag-region="false"
+          :class="{ open: approvalPickerOpen }"
           :title="approvalBadgeTitle"
           :aria-label="approvalBadgeTitle"
           aria-haspopup="listbox"
-          :aria-expanded="approvalMenuOpen"
+          :aria-expanded="approvalPickerOpen"
+          :tabindex="settingStore.chatMode === 'ask' ? -1 : 0"
+          :disabled="settingStore.chatMode === 'ask'"
           @mousedown.stop
           @click.stop="toggleApprovalMenu"
         >
@@ -322,18 +402,36 @@
         :tooltip="contextUsageTooltip"
       />
 
-      <motion.button
+      <button
+        v-if="sending && canSend"
+        type="button"
+        class="send-btn pause"
+        data-tauri-drag-region="false"
+        :aria-label="tr(language, 'pause')"
+        :disabled="interactivePickerOpen"
+        @click="emit('pause')"
+      >
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M5.25 4.5V11.5M10.75 4.5V11.5"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
+
+      <button
         type="button"
         class="send-btn"
         data-tauri-drag-region="false"
-        :class="sending ? 'pause' : canSend ? 'active' : ''"
-        :aria-label="tr(language, sending ? 'pause' : 'send')"
+        :class="showPauseIcon ? 'pause' : canSend ? 'active' : ''"
+        :aria-label="tr(language, showPauseIcon ? 'pause' : 'send')"
+        :title="sending && canSend ? tr(language, 'attachInjectHint') : undefined"
         :disabled="interactivePickerOpen"
-        :while-hover="!interactivePickerOpen && (sending || canSend) ? { scale: 1.08 } : undefined"
-        :while-press="!interactivePickerOpen && (sending || canSend) ? { scale: 0.92 } : undefined"
         @click="submit"
       >
-        <svg v-if="!sending" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <svg v-if="!showPauseIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path
             d="M8 2.25L9.35 6.15L13.25 7.5L9.35 8.85L8 12.75L6.65 8.85L2.75 7.5L6.65 6.15L8 2.25Z"
             stroke="currentColor"
@@ -349,7 +447,7 @@
             stroke-linecap="round"
           />
         </svg>
-      </motion.button>
+      </button>
         </div>
       </div>
     </div>
@@ -358,30 +456,48 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { onClickOutside, useDebounceFn, useEventListener } from "@vueuse/core";
+import { useDebounceFn, useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
-import { motion } from "motion-v";
-import { gsapMenuEnter, gsapMenuLeave, gsapMenuPrepare, gsapPickerEnter, gsapPickerLeave } from "@/services/motion/gsapPresets";
-import { ChevronDown, File, Folder, X, HelpCircle, Zap, CircleCheck, Bot, MessageCircle } from "@lucide/vue";
+import { gsapPickerEnter, gsapPickerLeave } from "@/services/motion/gsapPresets";
+import { ChevronDown, File, Folder, X, Zap, Bot, MessageCircle, Brain, ShieldQuestion, Shield, Unlock } from "@lucide/vue";
 import HistoryPicker from "./input/HistoryPicker.vue";
+import ModelPicker from "./input/ModelPicker.vue";
+import OptionPicker from "./input/OptionPicker.vue";
 import AskUserPicker from "./input/AskUserPicker.vue";
 import PathPermissionPicker from "./input/PathPermissionPicker.vue";
 import ToolApprovalPicker from "./input/ToolApprovalPicker.vue";
 import FileMentionPicker from "./input/FileMentionPicker.vue";
 import CommandSuggestions from "./input/CommandSuggestions.vue";
 import WorkspacePickerPanel from "./input/WorkspacePickerPanel.vue";
-import ModelMenu from "./input/ModelMenu.vue";
-import ApprovalModeMenu from "./input/ApprovalModeMenu.vue";
-import ChatModeMenu from "./input/ChatModeMenu.vue";
 import ContextUsageRing from "./ContextUsageRing.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { executeSlashCommand, slashCommands } from "@/commands/slash";
 import { getContextUsage, setOverlayPopupOpen, openImagePreview } from "@/services/ipc";
 import { tr } from "@/services/i18n";
+import {
+  formatAttachedFilesForMessage,
+  isImageFile,
+  readAttachedFile,
+  type AttachedFileChip,
+} from "@/services/chat/attachFiles";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useChatModelStore } from "@/stores/chatModel";
 import { useSettingStore } from "@/stores/setting";
-import { getProviderIcon, formatModelDisplayName } from "@/lib/providerIcons";
+import {
+  getProviderIcon,
+  getModelDisplayLabel,
+  getModelDisplaySubtitle,
+  groupModelsByProvider,
+} from "@/lib/providerIcons";
+import {
+  findModelEntry,
+  getActiveThinkingVariant,
+  getThinkingTierOptions,
+  isKnownModelSelection,
+  isModelEntrySelected,
+  localizeThinkingTierLabel,
+  modelHasThinkingVariants,
+} from "@/lib/modelThinking";
 import { formatTokenCount } from "@/lib/formatTokens";
 import { useChatStore } from "@/stores/chat";
 import {
@@ -473,21 +589,22 @@ const emit = defineEmits<{
       modelMenuHeight: number;
       askUserRowCount: number;
       pickerRowCount: number;
+      pickerHeight?: number;
       hasImages?: boolean;
+      hasFiles?: boolean;
       isPreviewOpen?: boolean;
     },
   ];
   modelChange: [modelId: string];
 }>();
 
-const MODEL_MENU_GAP = 6;
-const MODEL_MENU_MIN_WIDTH = 160;
-
 const message = ref("");
 const prefixText = ref("");
 const pastedText = ref("");
 const mentionedFiles = ref<string[]>([]);
 const attachedImages = ref<string[]>([]);
+const attachedFiles = ref<AttachedFileChip[]>([]);
+const fileDragOver = ref(false);
 
 function previewImage(url: string) {
   void openImagePreview(url).catch((error) => {
@@ -498,6 +615,51 @@ function previewImage(url: string) {
 function removeAttachedImage(index: number) {
   attachedImages.value.splice(index, 1);
   emitLayoutChange();
+}
+
+function removeAttachedFile(index: number) {
+  attachedFiles.value.splice(index, 1);
+  collapsePrefixIfNeeded();
+  emitLayoutChange();
+}
+
+async function ingestDroppedOrPastedFiles(files: FileList | File[]) {
+  const list = Array.from(files);
+  if (list.length === 0) return;
+  lockPrefixFromMessage();
+  for (const file of list) {
+    if (isImageFile(file)) {
+      const dataUrl = await new Promise<string | null>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result ?? "") || null);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+      });
+      if (!dataUrl) continue;
+      const compressed = await compressImageDataUrl(dataUrl);
+      attachedImages.value.push(compressed);
+      continue;
+    }
+    const chip = await readAttachedFile(file);
+    attachedFiles.value.push(chip);
+  }
+  emitLayoutChange();
+}
+
+function onFileDragOver(event: DragEvent) {
+  if (!event.dataTransfer?.types?.includes("Files")) return;
+  fileDragOver.value = true;
+}
+
+function onFileDragLeave() {
+  fileDragOver.value = false;
+}
+
+async function onFileDrop(event: DragEvent) {
+  fileDragOver.value = false;
+  const files = event.dataTransfer?.files;
+  if (!files?.length) return;
+  await ingestDroppedOrPastedFiles(files);
 }
 
 async function applyCapturedImages(images?: string[]) {
@@ -512,39 +674,6 @@ async function applyCapturedImages(images?: string[]) {
 }
 
 const inputRef = ref<HTMLInputElement | null>(null);
-const modelTriggerRef = ref<HTMLElement | null>(null);
-const modelMenuComponentRef = ref<InstanceType<typeof ModelMenu> | null>(null);
-const modelMenuStyle = ref<Record<string, string>>({
-  visibility: "hidden",
-  pointerEvents: "none",
-});
-const modelMenuHeight = ref(0);
-const approvalTriggerRef = ref<HTMLElement | null>(null);
-const approvalMenuComponentRef = ref<InstanceType<typeof ApprovalModeMenu> | null>(null);
-const approvalMenuStyle = ref<Record<string, string>>({
-  visibility: "hidden",
-  pointerEvents: "none",
-});
-const approvalMenuHeight = ref(0);
-const chatModeTriggerRef = ref<HTMLElement | null>(null);
-const chatModeMenuComponentRef = ref<InstanceType<typeof ChatModeMenu> | null>(null);
-const chatModeMenuStyle = ref<Record<string, string>>({
-  visibility: "hidden",
-  pointerEvents: "none",
-});
-const chatModeMenuHeight = ref(0);
-
-function getModelMenuEl(): HTMLElement | null {
-  return modelMenuComponentRef.value?.menuEl ?? null;
-}
-
-function getApprovalMenuEl(): HTMLElement | null {
-  return approvalMenuComponentRef.value?.menuEl ?? null;
-}
-
-function getChatModeMenuEl(): HTMLElement | null {
-  return chatModeMenuComponentRef.value?.menuEl ?? null;
-}
 const selectedIndex = ref(0);
 
 watch(selectedIndex, async () => {
@@ -558,12 +687,12 @@ watch(selectedIndex, async () => {
   }
 });
 
-const modelMenuOpen = ref(false);
-const modelMenuRevealed = ref(false);
-const approvalMenuOpen = ref(false);
-const approvalMenuRevealed = ref(false);
-const chatModeMenuOpen = ref(false);
-const chatModeMenuRevealed = ref(false);
+const modelPickerOpen = ref(false);
+const modelChipConfirm = ref(false);
+let modelChipConfirmTimer: ReturnType<typeof setTimeout> | null = null;
+const approvalPickerOpen = ref(false);
+const thinkingTierPickerOpen = ref(false);
+const chatModePickerOpen = ref(false);
 const askQuestionIndex = ref(0);
 const askAnswers = ref<Record<number, string[]>>({});
 const askUserFinishing = ref(false);
@@ -664,8 +793,17 @@ function formatTime(timestamp: number) {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-// 每个窗口独立的本地模型选择，初始值从全局设置读取，但切换时不写入全局设置
+// Bound to global settings — backend resolve_provider reads settings.chatModel only.
 const chatModel = ref(settingStore.chatModel);
+
+watch(
+  () => settingStore.chatModel,
+  (next) => {
+    if (next !== chatModel.value) {
+      chatModel.value = next;
+    }
+  },
+);
 
 const modelStatusText = computed(() => ({
   loading: tr(language.value, "loadingModels"),
@@ -676,24 +814,150 @@ const availableModels = computed(() => {
   const models = [...chatModelStore.models];
   const current = chatModel.value.trim();
 
-  if (current && !models.some((model) => model.id === current)) {
+  if (
+    current &&
+    models.length > 0 &&
+    !models.some((model) => isModelEntrySelected(model, current))
+  ) {
     models.unshift({ id: current, ownedBy: "", provider: "" });
   }
 
   return models;
 });
 
+/** Draft stashed while the model list uses the input as a filter query. */
+const modelPickerDraft = ref<string | null>(null);
+
+function beginModelFilterSession() {
+  if (modelPickerDraft.value !== null) {
+    return;
+  }
+  modelPickerDraft.value = message.value;
+  message.value = "";
+}
+
+function endModelFilterSession() {
+  if (modelPickerDraft.value === null) {
+    return;
+  }
+  message.value = modelPickerDraft.value;
+  modelPickerDraft.value = null;
+}
+
+function modelMatchesFilter(model: (typeof availableModels.value)[number], query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
+  }
+  const haystack = [
+    model.id,
+    model.provider,
+    model.ownedBy,
+    getModelDisplayLabel(model),
+    getModelDisplaySubtitle(model) ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(q);
+}
+
+const modelPickerModels = computed(() => {
+  const models = availableModels.value;
+  if (!modelPickerOpen.value) {
+    return models;
+  }
+  return models.filter((model) => modelMatchesFilter(model, message.value));
+});
+
+const modelPickerEmptyText = computed(() => {
+  if (modelPickerOpen.value && message.value.trim()) {
+    return tr(language.value, "noMatchingModels");
+  }
+  return modelStatusText.value.empty;
+});
+
+const currentModelEntry = computed(() =>
+  findModelEntry(availableModels.value, chatModel.value),
+);
+
+const showThinkingTierPicker = computed(() => {
+  const entry = currentModelEntry.value;
+  return entry ? modelHasThinkingVariants(entry) : false;
+});
+
+function thinkingTierIcon(label: string) {
+  switch (label.trim().toLowerCase()) {
+    case "low":
+      return Zap;
+    case "high":
+      return Brain;
+    case "agent":
+      return Bot;
+    case "default":
+      return MessageCircle;
+    default:
+      return Brain;
+  }
+}
+
+const thinkingTierPickerOptions = computed(() => {
+  const entry = currentModelEntry.value;
+  if (!entry) {
+    return [];
+  }
+  return getThinkingTierOptions(entry).map((variant) => {
+    const label = localizeThinkingTierLabel(variant.label, language.value);
+    return {
+      id: variant.id,
+      label,
+      icon: thinkingTierIcon(variant.label),
+    };
+  });
+});
+
+const currentThinkingTierLabel = computed(() => {
+  const entry = currentModelEntry.value;
+  if (!entry) {
+    return "";
+  }
+  const active = getActiveThinkingVariant(entry, chatModel.value);
+  return active ? localizeThinkingTierLabel(active.label, language.value) : "";
+});
+
+const thinkingTierBadgeTitle = computed(() =>
+  tr(language.value, "currentThinkingTier", { tier: currentThinkingTierLabel.value }),
+);
+
 const currentModelProviderIcon = computed(() => {
-  const match = availableModels.value.find((model) => model.id === chatModel.value);
-  return getProviderIcon(match?.provider);
+  return getProviderIcon(currentModelEntry.value?.provider);
 });
 
 const currentModelDisplayName = computed(() => {
-  const match = availableModels.value.find((model) => model.id === chatModel.value);
-  return formatModelDisplayName(chatModel.value, match?.provider);
+  const current = chatModel.value.trim();
+  if (!current || (chatModelStore.models.length === 0 && !chatModelStore.loading)) {
+    return tr(language.value, "chooseModel");
+  }
+  const match = currentModelEntry.value;
+  if (!match && chatModelStore.models.length === 0) {
+    return tr(language.value, "chooseModel");
+  }
+  return getModelDisplayLabel(
+    match ?? { id: current, provider: "", displayName: undefined },
+  );
 });
 
-const modelBadgeTitle = computed(() => tr(language.value, "currentModel", { model: chatModel.value }));
+const modelBadgeTitle = computed(() => {
+  const current = chatModel.value.trim();
+  if (!current || chatModelStore.models.length === 0) {
+    return tr(language.value, "chooseModel");
+  }
+  const match = currentModelEntry.value;
+  return tr(language.value, "currentModel", {
+    model: getModelDisplayLabel(
+      match ?? { id: current, provider: "", displayName: undefined },
+    ),
+  });
+});
 const chatModeLabel = computed(() =>
   settingStore.chatMode === "ask"
     ? tr(language.value, "chatModeAsk")
@@ -707,29 +971,45 @@ const chatModeBadgeTitle = computed(() =>
 const chatModeIcon = computed(() =>
   settingStore.chatMode === "ask" ? MessageCircle : Bot,
 );
-const chatModeOptions = computed(() => [
+
+function getApprovalIcon(mode: ToolApprovalMode) {
+  switch (mode) {
+    case "ask":
+      // Ask before each tool — shield with question.
+      return ShieldQuestion;
+    case "auto":
+      // Auto-run under policy — guarded shield.
+      return Shield;
+    case "alwaysAllow":
+      // No prompts (dangerous shell still blocked) — unlocked.
+      return Unlock;
+  }
+}
+
+const chatModePickerOptions = computed(() => [
   {
-    value: "ask" as const,
+    id: "ask",
     label: tr(language.value, "chatModeAsk"),
     description: tr(language.value, "chatModeAskDesc"),
     icon: MessageCircle,
   },
   {
-    value: "agent" as const,
+    id: "agent",
     label: tr(language.value, "chatModeAgent"),
     description: tr(language.value, "chatModeAgentDesc"),
     icon: Bot,
   },
 ]);
-const approvalModeOptions = computed(() =>
+const approvalPickerOptions = computed(() =>
   toolApprovalModeOptions.map((option) => ({
-    value: option.value,
+    id: option.value,
     label: localizedOptionLabel(option, language.value),
+    icon: getApprovalIcon(option.value),
   })),
 );
 const approvalModeLabel = computed(() => {
-  const current = approvalModeOptions.value.find(
-    (option) => option.value === settingStore.toolApprovalMode,
+  const current = approvalPickerOptions.value.find(
+    (option) => option.id === settingStore.toolApprovalMode,
   );
   return current?.label ?? tr(language.value, "toolApprovalMode");
 });
@@ -737,27 +1017,41 @@ const approvalBadgeTitle = computed(() =>
   tr(language.value, "currentApprovalMode", { mode: approvalModeLabel.value }),
 );
 
-function getApprovalIcon(mode: ToolApprovalMode) {
-  switch (mode) {
-    case "ask":
-      return HelpCircle;
-    case "auto":
-      return Zap;
-    case "alwaysAllow":
-      return CircleCheck;
-  }
-}
-
 const showHistoryPicker = computed(() => props.historySessions !== null);
 
 const historyItems = computed(() => props.historySessions ?? []);
 
-const historyHeader = computed(() => tr(language.value, "chatHistory"));
-
 const historyEmptyText = computed(() => tr(language.value, "noChats"));
 
 const historyPickerRowCount = computed(() =>
-  showHistoryPicker.value ? 2 + Math.max(historyItems.value.length, 1) : 0,
+  showHistoryPicker.value ? Math.max(historyItems.value.length, 1) : 0,
+);
+
+const showModelPicker = computed(() => modelPickerOpen.value);
+const showChatModePicker = computed(() => chatModePickerOpen.value);
+const showApprovalPicker = computed(() => approvalPickerOpen.value);
+const showThinkingTierList = computed(() => thinkingTierPickerOpen.value);
+
+const modelPickerRowCount = computed(() => {
+  if (!showModelPicker.value) {
+    return 0;
+  }
+  const models = Math.max(modelPickerModels.value.length, 1);
+  const groups = Math.max(groupModelsByProvider(modelPickerModels.value).length, 1);
+  // group headers + model rows + refresh
+  return groups + models + 1;
+});
+
+const chatModePickerRowCount = computed(() =>
+  showChatModePicker.value ? chatModePickerOptions.value.length : 0,
+);
+
+const approvalPickerRowCount = computed(() =>
+  showApprovalPicker.value ? approvalPickerOptions.value.length : 0,
+);
+
+const thinkingTierPickerRowCount = computed(() =>
+  showThinkingTierList.value ? thinkingTierPickerOptions.value.length : 0,
 );
 
 // function historySlug(sessionId: string) {
@@ -867,6 +1161,23 @@ const interactivePickerOpen = computed(
     showPathPermissionPicker.value ||
     showToolApprovalPicker.value ||
     showHistoryPicker.value ||
+    showModelPicker.value ||
+    showChatModePicker.value ||
+    showApprovalPicker.value ||
+    showThinkingTierList.value ||
+    workspacePickerOpen.value,
+);
+
+/** Pickers that must keep the input read-only (model picker allows typing to filter). */
+const inputLockedForTyping = computed(
+  () =>
+    showAskUserPicker.value ||
+    showPathPermissionPicker.value ||
+    showToolApprovalPicker.value ||
+    showHistoryPicker.value ||
+    showChatModePicker.value ||
+    showApprovalPicker.value ||
+    showThinkingTierList.value ||
     workspacePickerOpen.value,
 );
 
@@ -886,7 +1197,8 @@ const hasInlineAttachmentTags = computed(
   () =>
     Boolean(props.selectionLines) ||
     Boolean(pastedText.value) ||
-    mentionedFiles.value.length > 0,
+    mentionedFiles.value.length > 0 ||
+    attachedFiles.value.length > 0,
 );
 const hasAttachmentTags = computed(
   () => hasInlineAttachmentTags.value || attachedImages.value.length > 0,
@@ -898,10 +1210,18 @@ const inputPlaceholder = computed(() => {
     return "";
   }
   if (props.sending && !interactivePickerOpen.value) {
-    return tr(language.value, "aiResponding");
+    return canSend.value
+      ? tr(language.value, "attachInjectHint")
+      : tr(language.value, "aiResponding");
   }
   if (showHistoryPicker.value) {
     return tr(language.value, "openChatHint");
+  }
+  if (showModelPicker.value) {
+    return tr(language.value, "selectModelHint");
+  }
+  if (showChatModePicker.value || showApprovalPicker.value || showThinkingTierList.value) {
+    return tr(language.value, "selectOptionHint");
   }
   if (showPathPermissionPicker.value || showToolApprovalPicker.value) {
     return tr(language.value, "permissionHint");
@@ -917,8 +1237,11 @@ const canSend = computed(() =>
   message.value.trim().length > 0 ||
   pastedText.value.length > 0 ||
   mentionedFiles.value.length > 0 ||
+  attachedFiles.value.length > 0 ||
   attachedImages.value.length > 0,
 );
+
+const showPauseIcon = computed(() => props.sending && !canSend.value);
 
 function composeVisibleText() {
   const pre = prefixText.value;
@@ -952,6 +1275,11 @@ function removeTrailingAttachment(): boolean {
     collapsePrefixIfNeeded();
     return true;
   }
+  if (attachedFiles.value.length > 0) {
+    attachedFiles.value.pop();
+    collapsePrefixIfNeeded();
+    return true;
+  }
   if (mentionedFiles.value.length > 0) {
     mentionedFiles.value.pop();
     collapsePrefixIfNeeded();
@@ -971,37 +1299,141 @@ function removeTrailingAttachment(): boolean {
   return false;
 }
 
+let layoutChangeFlushScheduled = false;
+
 function emitLayoutChange() {
-  const pickerRows = workspacePickerOpen.value
-    ? workspacePickerRowCount.value
-    : showAskUserPicker.value
-    ? askPickerRowCount.value
-    : showPathPermissionPicker.value
-      ? pathPermissionPickerRowCount.value
-      : showToolApprovalPicker.value
-        ? toolApprovalPickerRowCount.value
-        : showHistoryPicker.value
-        ? historyPickerRowCount.value
-        : showSuggestions.value
-          ? suggestionCount.value
-          : 0;
+  if (layoutChangeFlushScheduled) {
+    return;
+  }
+  layoutChangeFlushScheduled = true;
+  void nextTick(() => {
+    layoutChangeFlushScheduled = false;
+    flushLayoutChange();
+  });
+}
+
+
+/** Last measured picker list height — refined after paint so tall/desc rows fit. */
+let measuredPickerHeight = 0;
+let pickerMeasureScheduled = false;
+
+function estimateActivePickerHeight(pickerRows: number): number {
+  if (pickerRows <= 0) {
+    return 0;
+  }
+  // Match component row metrics (padding + row). Prefer overestimate to avoid clipping.
+  if (showChatModePicker.value) {
+    return 10 + chatModePickerOptions.value.length * 48;
+  }
+  if (showApprovalPicker.value) {
+    return 10 + approvalPickerOptions.value.length * 36;
+  }
+  if (showThinkingTierList.value) {
+    return 10 + thinkingTierPickerOptions.value.length * 36;
+  }
+  if (showModelPicker.value) {
+    const models = Math.max(modelPickerModels.value.length, 1);
+    const groups = Math.max(
+      groupModelsByProvider(modelPickerModels.value).length,
+      1,
+    );
+    return 6 + groups * 24 + models * 32 + 34;
+  }
+  if (showHistoryPicker.value) {
+    return 10 + Math.max(historyItems.value.length, 1) * 32;
+  }
+  if (showAskUserPicker.value) {
+    const options =
+      activeAskOptions.value.length +
+      (activeAskQuestion.value?.multiSelect ? 1 : 0);
+    return 10 + 26 + 48 + options * 30;
+  }
+  if (showPathPermissionPicker.value) {
+    return 10 + 26 + 48 + 34 + pathPermissionOptions.value.length * 30;
+  }
+  if (showToolApprovalPicker.value) {
+    return 10 + 26 + toolApprovalOptions.value.length * 30;
+  }
+  if (workspacePickerOpen.value) {
+    return 10 + pickerRows * 32;
+  }
+  if (showSuggestions.value) {
+    return 9 + suggestionCount.value * 30;
+  }
+  return 9 + pickerRows * 32;
+}
+
+function activePickerRowCount(): number {
+  if (workspacePickerOpen.value) return workspacePickerRowCount.value;
+  if (showAskUserPicker.value) return askPickerRowCount.value;
+  if (showPathPermissionPicker.value) return pathPermissionPickerRowCount.value;
+  if (showToolApprovalPicker.value) return toolApprovalPickerRowCount.value;
+  if (showHistoryPicker.value) return historyPickerRowCount.value;
+  if (showModelPicker.value) return modelPickerRowCount.value;
+  if (showChatModePicker.value) return chatModePickerRowCount.value;
+  if (showApprovalPicker.value) return approvalPickerRowCount.value;
+  if (showThinkingTierList.value) return thinkingTierPickerRowCount.value;
+  if (showSuggestions.value) return suggestionCount.value;
+  return 0;
+}
+
+function schedulePickerHeightMeasure() {
+  if (pickerMeasureScheduled) {
+    return;
+  }
+  pickerMeasureScheduled = true;
+  void nextTick(async () => {
+    pickerMeasureScheduled = false;
+    // Wait two frames so Transition/GSAP has mounted the list.
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+    if (activePickerRowCount() <= 0) {
+      measuredPickerHeight = 0;
+      return;
+    }
+    const list = document.querySelector(
+      ".chat-input-shell .command-list",
+    ) as HTMLElement | null;
+    const height = list?.offsetHeight ?? 0;
+    if (height <= 0) {
+      return;
+    }
+    if (Math.abs(height - measuredPickerHeight) < 1) {
+      return;
+    }
+    measuredPickerHeight = height;
+    flushLayoutChange();
+  });
+}
+
+function flushLayoutChange() {
+  const pickerRows = activePickerRowCount();
+  if (pickerRows <= 0) {
+    measuredPickerHeight = 0;
+  }
+
+  const pickerHeight =
+    pickerRows > 0
+      ? Math.max(measuredPickerHeight, estimateActivePickerHeight(pickerRows))
+      : 0;
 
   emit("layoutChange", {
     showSuggestions: showSuggestions.value,
     suggestionCount: suggestionCount.value,
-    showModelMenu: modelMenuOpen.value || approvalMenuOpen.value || chatModeMenuOpen.value,
-    modelMenuHeight:
-      modelMenuOpen.value
-        ? modelMenuHeight.value + MODEL_MENU_GAP
-        : approvalMenuOpen.value
-          ? approvalMenuHeight.value + MODEL_MENU_GAP
-          : chatModeMenuOpen.value
-            ? chatModeMenuHeight.value + MODEL_MENU_GAP
-            : 0,
+    showModelMenu: false,
+    modelMenuHeight: 0,
     askUserRowCount: showAskUserPicker.value ? askPickerRowCount.value : 0,
     pickerRowCount: pickerRows,
+    pickerHeight,
+    // Grow the overlay for image thumbs and/or file chips above the input.
     hasImages: attachedImages.value.length > 0,
+    hasFiles: attachedFiles.value.length > 0,
   });
+
+  if (pickerRows > 0) {
+    schedulePickerHeightMeasure();
+  }
 }
 
 async function syncPopupState(open: boolean) {
@@ -1013,411 +1445,271 @@ async function syncPopupState(open: boolean) {
   }
 }
 
-async function updateModelMenuPosition() {
-  await nextTick();
+function closeChipPickers() {
+  if (modelPickerOpen.value) {
+    endModelFilterSession();
+  }
+  modelPickerOpen.value = false;
+  approvalPickerOpen.value = false;
+  chatModePickerOpen.value = false;
+  thinkingTierPickerOpen.value = false;
+}
 
-  const trigger = modelTriggerRef.value;
-  const menu = getModelMenuEl();
-  if (!trigger || !menu) {
+function closeModelPicker() {
+  if (!modelPickerOpen.value) {
     return;
   }
-
-  const zoom = (settingStore.zoom || 100) / 100;
-  const triggerRect = trigger.getBoundingClientRect();
-  
-  const unzoomedTriggerRect = {
-    top: triggerRect.top / zoom,
-    right: triggerRect.right / zoom,
-    width: triggerRect.width / zoom,
-  };
-
-  const menuWidth = Math.max(unzoomedTriggerRect.width, MODEL_MENU_MIN_WIDTH);
-  const measuredHeight = menu.offsetHeight;
-
-  modelMenuHeight.value = measuredHeight;
-
-  let left = unzoomedTriggerRect.right - menuWidth;
-  left = Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8));
-
-  const top = Math.max(8, unzoomedTriggerRect.top - measuredHeight - MODEL_MENU_GAP);
-
-  modelMenuStyle.value = {
-    top: `${top}px`,
-    left: `${left}px`,
-    width: `${menuWidth}px`,
-    visibility: modelMenuRevealed.value ? "visible" : "hidden",
-    pointerEvents: modelMenuRevealed.value ? "auto" : "none",
-  };
-
+  endModelFilterSession();
+  modelPickerOpen.value = false;
+  if (!approvalPickerOpen.value && !chatModePickerOpen.value && !thinkingTierPickerOpen.value) {
+    void syncPopupState(false);
+  }
   emitLayoutChange();
 }
 
-function closeModelMenu(immediate = false) {
-  if (!modelMenuOpen.value) {
+function closeApprovalPicker() {
+  if (!approvalPickerOpen.value) {
     return;
   }
-
-  const menu = getModelMenuEl();
-  const finish = () => {
-    modelMenuOpen.value = false;
-    modelMenuRevealed.value = false;
-    modelMenuHeight.value = 0;
-    modelMenuStyle.value = {
-      visibility: "hidden",
-      pointerEvents: "none",
-    };
-    if (!approvalMenuOpen.value && !chatModeMenuOpen.value) {
-      void syncPopupState(false);
-    }
-    emitLayoutChange();
-  };
-
-  if (immediate || !menu) {
-    finish();
-    return;
+  approvalPickerOpen.value = false;
+  if (!modelPickerOpen.value && !chatModePickerOpen.value && !thinkingTierPickerOpen.value) {
+    void syncPopupState(false);
   }
-
-  gsapMenuLeave(menu, finish);
-}
-
-async function updateApprovalMenuPosition() {
-  await nextTick();
-
-  const trigger = approvalTriggerRef.value;
-  const menu = getApprovalMenuEl();
-  if (!trigger || !menu) {
-    return;
-  }
-
-  const zoom = (settingStore.zoom || 100) / 100;
-  const triggerRect = trigger.getBoundingClientRect();
-  const unzoomedTriggerRect = {
-    top: triggerRect.top / zoom,
-    right: triggerRect.right / zoom,
-    width: triggerRect.width / zoom,
-  };
-
-  const menuWidth = Math.max(unzoomedTriggerRect.width, 140);
-  const measuredHeight = menu.offsetHeight;
-  approvalMenuHeight.value = measuredHeight;
-
-  let left = unzoomedTriggerRect.right - menuWidth;
-  left = Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8));
-  const top = Math.max(8, unzoomedTriggerRect.top - measuredHeight - MODEL_MENU_GAP);
-
-  approvalMenuStyle.value = {
-    top: `${top}px`,
-    left: `${left}px`,
-    width: `${menuWidth}px`,
-    visibility: approvalMenuRevealed.value ? "visible" : "hidden",
-    pointerEvents: approvalMenuRevealed.value ? "auto" : "none",
-  };
-
   emitLayoutChange();
 }
 
-function closeApprovalMenu(immediate = false) {
-  if (!approvalMenuOpen.value) {
+function closeChatModePicker() {
+  if (!chatModePickerOpen.value) {
     return;
   }
-
-  const menu = getApprovalMenuEl();
-  const finish = () => {
-    approvalMenuOpen.value = false;
-    approvalMenuRevealed.value = false;
-    approvalMenuHeight.value = 0;
-    approvalMenuStyle.value = {
-      visibility: "hidden",
-      pointerEvents: "none",
-    };
-    if (!modelMenuOpen.value && !chatModeMenuOpen.value) {
-      void syncPopupState(false);
-    }
-    emitLayoutChange();
-  };
-
-  if (immediate || !menu) {
-    finish();
-    return;
+  chatModePickerOpen.value = false;
+  if (!modelPickerOpen.value && !approvalPickerOpen.value && !thinkingTierPickerOpen.value) {
+    void syncPopupState(false);
   }
-
-  gsapMenuLeave(menu, finish);
-}
-
-async function updateChatModeMenuPosition() {
-  await nextTick();
-
-  const trigger = chatModeTriggerRef.value;
-  const menu = getChatModeMenuEl();
-  if (!trigger || !menu) {
-    return;
-  }
-
-  const zoom = (settingStore.zoom || 100) / 100;
-  const triggerRect = trigger.getBoundingClientRect();
-  const unzoomedTriggerRect = {
-    top: triggerRect.top / zoom,
-    right: triggerRect.right / zoom,
-    width: triggerRect.width / zoom,
-  };
-
-  const menuWidth = Math.max(unzoomedTriggerRect.width, 120);
-  const measuredHeight = menu.offsetHeight;
-  chatModeMenuHeight.value = measuredHeight;
-
-  let left = unzoomedTriggerRect.right - menuWidth;
-  left = Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8));
-  const top = Math.max(8, unzoomedTriggerRect.top - measuredHeight - MODEL_MENU_GAP);
-
-  chatModeMenuStyle.value = {
-    top: `${top}px`,
-    left: `${left}px`,
-    width: `${menuWidth}px`,
-    visibility: chatModeMenuRevealed.value ? "visible" : "hidden",
-    pointerEvents: chatModeMenuRevealed.value ? "auto" : "none",
-  };
-
   emitLayoutChange();
 }
 
-function closeChatModeMenu(immediate = false) {
-  if (!chatModeMenuOpen.value) {
+function closeThinkingTierPicker() {
+  if (!thinkingTierPickerOpen.value) {
     return;
   }
-
-  const menu = getChatModeMenuEl();
-  const finish = () => {
-    chatModeMenuOpen.value = false;
-    chatModeMenuRevealed.value = false;
-    chatModeMenuHeight.value = 0;
-    chatModeMenuStyle.value = {
-      visibility: "hidden",
-      pointerEvents: "none",
-    };
-    if (!modelMenuOpen.value && !approvalMenuOpen.value) {
-      void syncPopupState(false);
-    }
-    emitLayoutChange();
-  };
-
-  if (immediate || !menu) {
-    finish();
-    return;
+  thinkingTierPickerOpen.value = false;
+  if (!modelPickerOpen.value && !approvalPickerOpen.value && !chatModePickerOpen.value) {
+    void syncPopupState(false);
   }
-
-  gsapMenuLeave(menu, finish);
+  emitLayoutChange();
 }
 
-async function openModelMenu() {
-  closeApprovalMenu(true);
-  closeChatModeMenu(true);
-  modelMenuRevealed.value = false;
-  modelMenuOpen.value = true;
-  modelMenuStyle.value = {
-    visibility: "hidden",
-    pointerEvents: "none",
-  };
+/** Compatibility aliases used by shared close sites. */
+function closeApprovalMenu(_immediate = false) {
+  closeApprovalPicker();
+}
+function closeChatModeMenu(_immediate = false) {
+  closeChatModePicker();
+}
+function closeThinkingTierMenu(_immediate = false) {
+  closeThinkingTierPicker();
+}
+
+async function prepareChipPicker() {
+  if (showHistoryPicker.value) {
+    emit("historyClose");
+  }
+  workspacePickerOpen.value = false;
+  workspaceQuickSelectOnly.value = false;
+  closeChipPickers();
+}
+
+async function openModelPicker() {
+  await prepareChipPicker();
+  beginModelFilterSession();
+  const currentIdx = modelPickerModels.value.findIndex((model) =>
+    isModelEntrySelected(model, chatModel.value),
+  );
+  selectedIndex.value = currentIdx >= 0 ? currentIdx : 0;
+  modelPickerOpen.value = true;
   await syncPopupState(true);
-  // Position while hidden, then fade in — avoids jump/flash at 0,0.
-  await updateModelMenuPosition();
-  const menu = getModelMenuEl();
-  if (menu) {
-    // Lock opacity before the menu becomes hittable/visible to paint.
-    gsapMenuPrepare(menu);
-    modelMenuRevealed.value = true;
-    modelMenuStyle.value = {
-      ...modelMenuStyle.value,
-      visibility: "visible",
-      pointerEvents: "none",
-    };
-    gsapMenuEnter(menu, () => {
-      modelMenuStyle.value = {
-        ...modelMenuStyle.value,
-        pointerEvents: "auto",
-      };
-    });
-  }
+  emitLayoutChange();
+  void focusInput();
 
-  // Prefer cached list to avoid loading flash; refresh quietly in background.
   if (chatModelStore.models.length === 0) {
     void chatModelStore.fetch().then(() => {
-      if (modelMenuOpen.value) {
-        void updateModelMenuPosition();
+      if (modelPickerOpen.value) {
+        emitLayoutChange();
       }
     });
   } else {
     void chatModelStore.softRefresh().then(() => {
-      if (modelMenuOpen.value) {
-        void updateModelMenuPosition();
+      if (modelPickerOpen.value) {
+        emitLayoutChange();
       }
     });
   }
 }
 
-async function openApprovalMenu() {
-  closeModelMenu(true);
-  closeChatModeMenu(true);
-  approvalMenuRevealed.value = false;
-  approvalMenuOpen.value = true;
-  approvalMenuStyle.value = {
-    visibility: "hidden",
-    pointerEvents: "none",
-  };
-  await syncPopupState(true);
-  await updateApprovalMenuPosition();
-  const menu = getApprovalMenuEl();
-  if (menu) {
-    gsapMenuPrepare(menu);
-    approvalMenuRevealed.value = true;
-    approvalMenuStyle.value = {
-      ...approvalMenuStyle.value,
-      visibility: "visible",
-      pointerEvents: "none",
-    };
-    gsapMenuEnter(menu, () => {
-      approvalMenuStyle.value = {
-        ...approvalMenuStyle.value,
-        pointerEvents: "auto",
-      };
-    });
+async function openApprovalPicker() {
+  if (settingStore.chatMode === "ask") {
+    return;
   }
+  await prepareChipPicker();
+  const idx = approvalPickerOptions.value.findIndex(
+    (option) => option.id === settingStore.toolApprovalMode,
+  );
+  selectedIndex.value = idx >= 0 ? idx : 0;
+  approvalPickerOpen.value = true;
+  await syncPopupState(true);
+  emitLayoutChange();
+  void focusInput();
+}
+
+async function openChatModePicker() {
+  await prepareChipPicker();
+  const idx = chatModePickerOptions.value.findIndex(
+    (option) => option.id === settingStore.chatMode,
+  );
+  selectedIndex.value = idx >= 0 ? idx : 0;
+  chatModePickerOpen.value = true;
+  await syncPopupState(true);
+  emitLayoutChange();
+  void focusInput();
+}
+
+async function openThinkingTierPicker() {
+  if (!showThinkingTierPicker.value) {
+    return;
+  }
+  await prepareChipPicker();
+  const idx = thinkingTierPickerOptions.value.findIndex(
+    (option) => option.id === chatModel.value,
+  );
+  selectedIndex.value = idx >= 0 ? idx : 0;
+  thinkingTierPickerOpen.value = true;
+  await syncPopupState(true);
+  emitLayoutChange();
+  void focusInput();
 }
 
 function toggleModelMenu() {
-  if (modelMenuOpen.value) {
-    closeModelMenu();
+  if (modelPickerOpen.value) {
+    closeModelPicker();
     return;
   }
-
-  void openModelMenu();
+  void openModelPicker();
 }
 
 function toggleApprovalMenu() {
-  if (approvalMenuOpen.value) {
-    closeApprovalMenu();
+  if (settingStore.chatMode === "ask") {
     return;
   }
-
-  void openApprovalMenu();
-}
-
-function selectModel(modelId: string) {
-  closeModelMenu();
-  if (modelId === chatModel.value) {
+  if (approvalPickerOpen.value) {
+    closeApprovalPicker();
     return;
   }
-
-  // 只更新本地状态，不写入全局设置，避免所有窗口联动切换
-  chatModel.value = modelId;
-  emit("modelChange", modelId);
-}
-
-function selectApprovalMode(mode: ToolApprovalMode) {
-  closeApprovalMenu();
-  if (mode === settingStore.toolApprovalMode) {
-    return;
-  }
-  void settingStore.update({ toolApprovalMode: mode });
-}
-
-async function openChatModeMenu() {
-  closeModelMenu(true);
-  closeApprovalMenu(true);
-  chatModeMenuRevealed.value = false;
-  chatModeMenuOpen.value = true;
-  chatModeMenuStyle.value = {
-    visibility: "hidden",
-    pointerEvents: "none",
-  };
-  await syncPopupState(true);
-  await updateChatModeMenuPosition();
-  const menu = getChatModeMenuEl();
-  if (menu) {
-    gsapMenuPrepare(menu);
-    chatModeMenuRevealed.value = true;
-    chatModeMenuStyle.value = {
-      ...chatModeMenuStyle.value,
-      visibility: "visible",
-      pointerEvents: "none",
-    };
-    gsapMenuEnter(menu, () => {
-      chatModeMenuStyle.value = {
-        ...chatModeMenuStyle.value,
-        pointerEvents: "auto",
-      };
-    });
-  }
+  void openApprovalPicker();
 }
 
 function toggleChatModeMenu() {
-  if (chatModeMenuOpen.value) {
-    closeChatModeMenu();
+  if (chatModePickerOpen.value) {
+    closeChatModePicker();
     return;
   }
-  void openChatModeMenu();
+  void openChatModePicker();
 }
 
-function selectChatMode(mode: ChatMode) {
-  closeChatModeMenu();
-  if (mode === settingStore.chatMode) {
+function toggleThinkingTierMenu() {
+  if (!showThinkingTierPicker.value) {
     return;
   }
-  if (mode === "ask") {
-    closeApprovalMenu();
+  if (thinkingTierPickerOpen.value) {
+    closeThinkingTierPicker();
+    return;
   }
-  void settingStore.update({ chatMode: mode });
+  void openThinkingTierPicker();
 }
 
-onClickOutside(
-  getModelMenuEl,
-  () => {
-    closeModelMenu();
-  },
-  { ignore: [modelTriggerRef] },
-);
+function flashModelChipConfirm() {
+  modelChipConfirm.value = true;
+  if (modelChipConfirmTimer) {
+    clearTimeout(modelChipConfirmTimer);
+  }
+  modelChipConfirmTimer = setTimeout(() => {
+    modelChipConfirm.value = false;
+    modelChipConfirmTimer = null;
+  }, 120);
+}
 
-onClickOutside(
-  getApprovalMenuEl,
-  () => {
-    closeApprovalMenu();
-  },
-  { ignore: [approvalTriggerRef] },
-);
+function selectModel(modelId: string) {
+  closeModelPicker();
+  const entry = availableModels.value.find((model) => model.id === modelId);
+  const nextId = entry?.id ?? modelId;
+  if (nextId === chatModel.value) {
+    return;
+  }
+  chatModel.value = nextId;
+  flashModelChipConfirm();
+  void settingStore.update({ chatModel: nextId });
+  emit("modelChange", nextId);
+}
 
-onClickOutside(
-  getChatModeMenuEl,
-  () => {
-    closeChatModeMenu();
-  },
-  { ignore: [chatModeTriggerRef] },
-);
+async function refreshModelList() {
+  await chatModelStore.reload();
+  if (modelPickerOpen.value) {
+    emitLayoutChange();
+  }
+}
 
-useEventListener(window, "resize", () => {
-  if (modelMenuOpen.value) {
-    void updateModelMenuPosition();
+function selectApprovalMode(mode: string) {
+  closeApprovalPicker();
+  const next = mode as ToolApprovalMode;
+  if (next === settingStore.toolApprovalMode) {
+    return;
   }
-  if (approvalMenuOpen.value) {
-    void updateApprovalMenuPosition();
-  }
-  if (chatModeMenuOpen.value) {
-    void updateChatModeMenuPosition();
-  }
-});
+  void settingStore.update({ toolApprovalMode: next });
+}
 
-useEventListener(window, "scroll", () => {
-  if (modelMenuOpen.value) {
-    void updateModelMenuPosition();
+function selectChatMode(mode: string) {
+  closeChatModePicker();
+  const next = mode as ChatMode;
+  if (next === settingStore.chatMode) {
+    return;
   }
-  if (approvalMenuOpen.value) {
-    void updateApprovalMenuPosition();
+  if (next === "ask") {
+    closeApprovalPicker();
   }
-  if (chatModeMenuOpen.value) {
-    void updateChatModeMenuPosition();
+  void settingStore.update({ chatMode: next });
+}
+
+function selectThinkingTier(variantId: string) {
+  closeThinkingTierPicker();
+  if (variantId === chatModel.value) {
+    return;
   }
-}, { capture: true });
+  chatModel.value = variantId;
+  void settingStore.update({ chatModel: variantId });
+  emit("modelChange", variantId);
+}
 
 onMounted(async () => {
-  void chatModelStore.fetch();
+  await chatModelStore.fetch();
+  if (
+    chatModelStore.models.length === 0 &&
+    chatModel.value.trim() === "deepseek-chat"
+  ) {
+    chatModel.value = "";
+    if (settingStore.chatModel.trim() === "deepseek-chat") {
+      void settingStore.update({ chatModel: "" });
+    }
+  } else if (
+    chatModelStore.models.length > 0 &&
+    (!chatModel.value.trim() ||
+      !isKnownModelSelection(chatModelStore.models, chatModel.value))
+  ) {
+    const fallbackId = chatModelStore.models[0].id;
+    chatModel.value = fallbackId;
+    if (fallbackId !== settingStore.chatModel) {
+      void settingStore.update({ chatModel: fallbackId });
+    }
+  }
   void refreshContextUsage();
   await loadWorkspaceState();
   unlistenWorkspaces = await listen("workspaces-changed", () => {
@@ -1558,7 +1850,7 @@ async function focusInput() {
 
 /** Keyboard navigation for pickers must work even if the input lost focus (e.g. after Alt-Tab). */
 function handleGlobalKeydown(event: KeyboardEvent) {
-  if (!interactivePickerOpen.value && !modelMenuOpen.value && !approvalMenuOpen.value && !chatModeMenuOpen.value) {
+  if (!interactivePickerOpen.value) {
     return;
   }
   if (event.target === inputRef.value) {
@@ -1568,7 +1860,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 }
 
 function restorePickerFocus() {
-  if (interactivePickerOpen.value || modelMenuOpen.value || approvalMenuOpen.value || chatModeMenuOpen.value) {
+  if (interactivePickerOpen.value) {
     void focusInput();
   }
 }
@@ -1581,6 +1873,10 @@ async function executeCommand(command: string) {
   const action = await executeSlashCommand(command);
   if (action === "openHistory") {
     emit("openHistory");
+    return;
+  }
+  if (action === "openModel") {
+    void openModelPicker();
     return;
   }
   if (action === "openWorkspace") {
@@ -1650,9 +1946,10 @@ async function toggleWorkspacePicker() {
   workspaceError.value = "";
   workspaceQuickSelectOnly.value = false;
   selectedIndex.value = 0;
-  closeModelMenu();
+  closeModelPicker();
   closeApprovalMenu();
   closeChatModeMenu();
+  closeThinkingTierMenu();
   await loadWorkspaceState();
   if (workspaces.value.length === 0) {
     await addWorkspaceFromFolder();
@@ -1667,9 +1964,10 @@ async function openWorkspaceQuickPicker() {
   workspaceError.value = "";
   workspaceQuickSelectOnly.value = true;
   selectedIndex.value = 0;
-  closeModelMenu();
+  closeModelPicker();
   closeApprovalMenu();
   closeChatModeMenu();
+  closeThinkingTierMenu();
   await loadWorkspaceState();
   workspacePickerOpen.value = true;
   await syncPopupState(true);
@@ -1742,7 +2040,7 @@ async function submit() {
   if (workspacePickerOpen.value) {
     return;
   }
-  if (props.sending && !interactivePickerOpen.value) {
+  if (props.sending && !canSend.value && !interactivePickerOpen.value) {
     emit("pause");
     return;
   }
@@ -1752,6 +2050,35 @@ async function submit() {
     if (item) {
       selectHistorySession(item.sessionId);
     }
+    return;
+  }
+
+  if (showModelPicker.value) {
+    const models = modelPickerModels.value;
+    if (selectedIndex.value < models.length) {
+      const model = models[selectedIndex.value];
+      if (model) selectModel(model.id);
+    } else {
+      void refreshModelList();
+    }
+    return;
+  }
+
+  if (showChatModePicker.value) {
+    const option = chatModePickerOptions.value[selectedIndex.value];
+    if (option) selectChatMode(option.id);
+    return;
+  }
+
+  if (showApprovalPicker.value) {
+    const option = approvalPickerOptions.value[selectedIndex.value];
+    if (option) selectApprovalMode(option.id);
+    return;
+  }
+
+  if (showThinkingTierList.value) {
+    const option = thinkingTierPickerOptions.value[selectedIndex.value];
+    if (option) selectThinkingTier(option.id);
     return;
   }
 
@@ -1788,7 +2115,13 @@ async function submit() {
   }
 
   const text = composeVisibleText().trim();
-  if (!text && !pastedText.value && mentionedFiles.value.length === 0 && attachedImages.value.length === 0) {
+  if (
+    !text &&
+    !pastedText.value &&
+    mentionedFiles.value.length === 0 &&
+    attachedFiles.value.length === 0 &&
+    attachedImages.value.length === 0
+  ) {
     return;
   }
 
@@ -1814,8 +2147,9 @@ async function submit() {
   const fileMentions = mentionedFiles.value
     .map((path) => (/\s/.test(path) ? `@"${path}"` : `@${path}`))
     .join(" ");
+  const attachedFileBlocks = formatAttachedFilesForMessage(attachedFiles.value);
   const imageTags = attachedImages.value.map(img => `![image](${img})`).join("\n");
-  const submittedText = [text, fileMentions, pastedText.value, imageTags]
+  const submittedText = [text, fileMentions, attachedFileBlocks, pastedText.value, imageTags]
     .filter((part) => part.length > 0)
     .join("\n\n");
   emit("submit", submittedText);
@@ -1823,6 +2157,7 @@ async function submit() {
   prefixText.value = "";
   pastedText.value = "";
   mentionedFiles.value = [];
+  attachedFiles.value = [];
   attachedImages.value = [];
   emitLayoutChange();
 }
@@ -1830,24 +2165,16 @@ async function submit() {
 function handlePaste(event: ClipboardEvent) {
   const items = event.clipboardData?.items;
   if (items) {
+    const files: File[] = [];
     for (const item of items) {
-      if (item.type.startsWith("image/")) {
-        const file = item.getAsFile();
-        if (file) {
-          event.preventDefault();
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const base64 = e.target?.result as string;
-            if (!base64) return;
-            void compressImageDataUrl(base64).then((compressed) => {
-              attachedImages.value.push(compressed);
-              emitLayoutChange();
-            });
-          };
-          reader.readAsDataURL(file);
-          return;
-        }
-      }
+      if (item.kind !== "file") continue;
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+    if (files.length > 0) {
+      event.preventDefault();
+      void ingestDroppedOrPastedFiles(files);
+      return;
     }
   }
 
@@ -1872,7 +2199,7 @@ function selectToolApproval(decision: ToolApprovalDecision) {
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key === "Backspace" || event.key === "Delete") {
+  if ((event.key === "Backspace" || event.key === "Delete") && !showModelPicker.value) {
     const input = inputRef.value;
     const caretAtStart =
       Boolean(input) &&
@@ -1890,7 +2217,12 @@ function handleKeydown(event: KeyboardEvent) {
   }
 
   if (props.sending && !interactivePickerOpen.value && event.key === "Enter") {
-    // 回复中：允许输入，但回车不发送也不触发暂停（只能鼠标点暂停）
+    if (canSend.value) {
+      event.preventDefault();
+      void submit();
+      return;
+    }
+    // 回复中且无可发送内容：回车不暂停（点暂停按钮）
     event.preventDefault();
     return;
   }
@@ -1958,6 +2290,37 @@ function handleKeydown(event: KeyboardEvent) {
     if (event.key === "Escape") {
       event.preventDefault();
       closeHistoryPicker();
+      return;
+    }
+  }
+
+  if (showModelPicker.value) {
+    const modelCount = modelPickerModels.value.length;
+    const totalRows = modelCount + 1; // models + refresh
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      selectedIndex.value = (selectedIndex.value + 1) % Math.max(totalRows, 1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      selectedIndex.value =
+        (selectedIndex.value - 1 + Math.max(totalRows, 1)) % Math.max(totalRows, 1);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (selectedIndex.value < modelCount) {
+        const model = modelPickerModels.value[selectedIndex.value];
+        if (model) selectModel(model.id);
+      } else {
+        void refreshModelList();
+      }
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeModelPicker();
       return;
     }
   }
@@ -2056,26 +2419,80 @@ function handleKeydown(event: KeyboardEvent) {
     }
   }
 
-  if (modelMenuOpen.value) {
+  if (showChatModePicker.value) {
+    const totalRows = chatModePickerOptions.value.length;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      selectedIndex.value = (selectedIndex.value + 1) % Math.max(totalRows, 1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      selectedIndex.value =
+        (selectedIndex.value - 1 + Math.max(totalRows, 1)) % Math.max(totalRows, 1);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const option = chatModePickerOptions.value[selectedIndex.value];
+      if (option) selectChatMode(option.id);
+      return;
+    }
     if (event.key === "Escape") {
       event.preventDefault();
-      closeModelMenu();
+      closeChatModePicker();
       return;
     }
   }
 
-  if (approvalMenuOpen.value) {
+  if (showApprovalPicker.value) {
+    const totalRows = approvalPickerOptions.value.length;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      selectedIndex.value = (selectedIndex.value + 1) % Math.max(totalRows, 1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      selectedIndex.value =
+        (selectedIndex.value - 1 + Math.max(totalRows, 1)) % Math.max(totalRows, 1);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const option = approvalPickerOptions.value[selectedIndex.value];
+      if (option) selectApprovalMode(option.id);
+      return;
+    }
     if (event.key === "Escape") {
       event.preventDefault();
-      closeApprovalMenu();
+      closeApprovalPicker();
       return;
     }
   }
 
-  if (chatModeMenuOpen.value) {
+  if (showThinkingTierList.value) {
+    const totalRows = thinkingTierPickerOptions.value.length;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      selectedIndex.value = (selectedIndex.value + 1) % Math.max(totalRows, 1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      selectedIndex.value =
+        (selectedIndex.value - 1 + Math.max(totalRows, 1)) % Math.max(totalRows, 1);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const option = thinkingTierPickerOptions.value[selectedIndex.value];
+      if (option) selectThinkingTier(option.id);
+      return;
+    }
     if (event.key === "Escape") {
       event.preventDefault();
-      closeChatModeMenu();
+      closeThinkingTierPicker();
       return;
     }
   }
@@ -2154,11 +2571,13 @@ function reset() {
   prefixText.value = "";
   pastedText.value = "";
   mentionedFiles.value = [];
+  attachedFiles.value = [];
   attachedImages.value = [];
   selectedIndex.value = 0;
-  closeModelMenu();
+  closeModelPicker();
   closeApprovalMenu();
   closeChatModeMenu();
+  closeThinkingTierMenu();
   workspacePickerOpen.value = false;
   workspaceQuickSelectOnly.value = false;
   emitLayoutChange();
@@ -2168,6 +2587,7 @@ function setMessage(text: string) {
   prefixText.value = "";
   pastedText.value = "";
   mentionedFiles.value = [];
+  attachedFiles.value = [];
   attachedImages.value = [];
   message.value = text;
   emitLayoutChange();
@@ -2313,36 +2733,62 @@ watch(fileSuggestions, () => {
 });
 
 watch(
-  [() => chatModelStore.loading, () => chatModelStore.error, availableModels],
+  [() => chatModelStore.loading, () => chatModelStore.error, modelPickerModels],
   () => {
-    if (modelMenuOpen.value) {
-      void updateModelMenuPosition();
+    if (!modelPickerOpen.value) {
+      return;
     }
+    const maxIndex = modelPickerModels.value.length; // refresh row
+    if (selectedIndex.value > maxIndex) {
+      selectedIndex.value = 0;
+    }
+    emitLayoutChange();
+  },
+);
+
+watch(
+  () => message.value,
+  () => {
+    if (!modelPickerOpen.value) {
+      return;
+    }
+    const models = modelPickerModels.value;
+    const currentIdx = models.findIndex((model) =>
+      isModelEntrySelected(model, chatModel.value),
+    );
+    selectedIndex.value = currentIdx >= 0 ? currentIdx : 0;
+    emitLayoutChange();
   },
 );
 
 watch(showSuggestions, () => {
-  if (showSuggestions.value && modelMenuOpen.value) {
-    closeModelMenu();
+  if (showSuggestions.value && modelPickerOpen.value) {
+    closeModelPicker();
   }
-  if (showSuggestions.value && approvalMenuOpen.value) {
+  if (showSuggestions.value && approvalPickerOpen.value) {
     closeApprovalMenu();
   }
-  if (showSuggestions.value && chatModeMenuOpen.value) {
+  if (showSuggestions.value && chatModePickerOpen.value) {
     closeChatModeMenu();
+  }
+  if (showSuggestions.value && thinkingTierPickerOpen.value) {
+    closeThinkingTierMenu();
   }
   emitLayoutChange();
 }, { immediate: true });
 
 watch(showAskUserPicker, () => {
-  if (showAskUserPicker.value && modelMenuOpen.value) {
-    closeModelMenu();
+  if (showAskUserPicker.value && modelPickerOpen.value) {
+    closeModelPicker();
   }
-  if (showAskUserPicker.value && approvalMenuOpen.value) {
+  if (showAskUserPicker.value && approvalPickerOpen.value) {
     closeApprovalMenu();
   }
-  if (showAskUserPicker.value && chatModeMenuOpen.value) {
+  if (showAskUserPicker.value && chatModePickerOpen.value) {
     closeChatModeMenu();
+  }
+  if (showAskUserPicker.value && thinkingTierPickerOpen.value) {
+    closeThinkingTierMenu();
   }
   emitLayoutChange();
 });
@@ -2352,14 +2798,17 @@ watch(
   async (session) => {
     if (session) {
       selectedIndex.value = 0;
-      if (modelMenuOpen.value) {
-        closeModelMenu();
+      if (modelPickerOpen.value) {
+        closeModelPicker();
       }
-      if (approvalMenuOpen.value) {
+      if (approvalPickerOpen.value) {
         closeApprovalMenu();
       }
-      if (chatModeMenuOpen.value) {
+      if (chatModePickerOpen.value) {
         closeChatModeMenu();
+      }
+      if (thinkingTierPickerOpen.value) {
+        closeThinkingTierMenu();
       }
       await syncPopupState(true);
       void focusInput();
@@ -2373,14 +2822,17 @@ watch(
   async (session) => {
     if (session) {
       selectedIndex.value = 0;
-      if (modelMenuOpen.value) {
-        closeModelMenu();
+      if (modelPickerOpen.value) {
+        closeModelPicker();
       }
-      if (approvalMenuOpen.value) {
+      if (approvalPickerOpen.value) {
         closeApprovalMenu();
       }
-      if (chatModeMenuOpen.value) {
+      if (chatModePickerOpen.value) {
         closeChatModeMenu();
+      }
+      if (thinkingTierPickerOpen.value) {
+        closeThinkingTierMenu();
       }
       await syncPopupState(true);
       void focusInput();
@@ -2394,14 +2846,17 @@ watch(
   async (sessions) => {
     if (sessions !== null) {
       selectedIndex.value = 0;
-      if (modelMenuOpen.value) {
-        closeModelMenu();
+      if (modelPickerOpen.value) {
+        closeModelPicker();
       }
-      if (approvalMenuOpen.value) {
+      if (approvalPickerOpen.value) {
         closeApprovalMenu();
       }
-      if (chatModeMenuOpen.value) {
+      if (chatModePickerOpen.value) {
         closeChatModeMenu();
+      }
+      if (thinkingTierPickerOpen.value) {
+        closeThinkingTierMenu();
       }
       await syncPopupState(true);
       void focusInput();
@@ -2409,7 +2864,6 @@ watch(
     emitLayoutChange();
   },
 );
-
 defineExpose({ focusInput, reset, setMessage });
 </script>
 
@@ -2496,11 +2950,39 @@ defineExpose({ focusInput, reset, setMessage });
 
 .chat-input::placeholder {
   color: var(--peek-placeholder);
+  transition: color 160ms ease, opacity 160ms ease;
 }
 
 .model-picker {
   flex: none;
   min-width: 0;
+}
+
+.thinking-tier-slot {
+  flex: none;
+  min-width: 0;
+}
+
+.thinking-tier-slot.dormant {
+  display: none;
+}
+
+.approval-slot {
+  flex: none;
+  min-width: 0;
+}
+
+.approval-slot.dormant {
+  display: none;
+}
+
+.footer-chip-icon-slot {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Shared ghost-chip language for footer controls */
@@ -2516,10 +2998,10 @@ defineExpose({ focusInput, reset, setMessage });
   letter-spacing: 0.01em;
   line-height: 16px;
   transition:
-    border-color 140ms ease,
-    color 140ms ease,
-    background 140ms ease,
-    box-shadow 140ms ease;
+    border-color 160ms ease,
+    color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .footer-chip-icon {
@@ -2567,6 +3049,92 @@ defineExpose({ focusInput, reset, setMessage });
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.input-bar.drag-over {
+  outline: 1px dashed color-mix(in srgb, var(--peek-accent) 55%, transparent);
+  outline-offset: -2px;
+}
+
+.input-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  max-height: 64px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(220px, 100%);
+  height: 26px;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--peek-border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--peek-input-bg) 72%, var(--peek-surface));
+  color: var(--peek-text);
+  font-size: 12px;
+  line-height: 1;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    opacity 120ms ease;
+}
+
+.file-chip:hover {
+  border-color: color-mix(in srgb, var(--peek-accent) 28%, var(--peek-border));
+  background: color-mix(in srgb, var(--peek-accent) 8%, var(--peek-input-bg));
+}
+
+.file-chip.skipped {
+  opacity: 0.55;
+}
+
+.file-chip-icon {
+  flex: none;
+  color: var(--peek-muted);
+}
+
+.file-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.file-chip-remove {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--peek-muted);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.file-chip:hover .file-chip-remove {
+  opacity: 0.9;
+}
+
+.file-chip-remove:hover {
+  opacity: 1;
+  color: var(--peek-text);
+  background: color-mix(in srgb, var(--peek-muted) 16%, transparent);
 }
 
 .selection-tag {
@@ -2658,8 +3226,8 @@ defineExpose({ focusInput, reset, setMessage });
 }
 
 .workspace-exit-btn:hover {
-  border-color: #ef4444;
-  background: #ef4444;
+  border-color: var(--destructive);
+  background: var(--destructive);
   color: white;
 }
 
@@ -2687,6 +3255,22 @@ defineExpose({ focusInput, reset, setMessage });
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 16px;
+  animation: model-name-fade 160ms ease;
+}
+
+@keyframes model-name-fade {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.model-badge.confirm {
+  border-color: color-mix(in srgb, var(--peek-accent) 45%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--peek-accent) 22%, transparent);
+  color: var(--peek-text);
 }
 
 .model-chevron {
@@ -2747,7 +3331,11 @@ defineExpose({ focusInput, reset, setMessage });
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 120ms ease, color 120ms ease;
+  transform: translateZ(0);
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .send-btn svg {
@@ -2762,108 +3350,34 @@ defineExpose({ focusInput, reset, setMessage });
 }
 
 .send-btn.pause {
-  background: color-mix(in srgb, #f87171 18%, var(--peek-send-bg));
-  color: color-mix(in srgb, #f87171 85%, var(--peek-send-fg));
+  background: color-mix(in srgb, var(--destructive) 18%, var(--peek-send-bg));
+  color: color-mix(in srgb, var(--destructive) 85%, var(--peek-send-fg));
   cursor: pointer;
+}
+
+.send-btn.active:hover:not(:disabled),
+.send-btn.pause:hover:not(:disabled) {
+  transform: scale(1.03);
+}
+
+.send-btn.active:active:not(:disabled),
+.send-btn.pause:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .send-btn,
+  .send-btn.active:hover:not(:disabled),
+  .send-btn.pause:hover:not(:disabled),
+  .send-btn.active:active:not(:disabled),
+  .send-btn.pause:active:not(:disabled) {
+    transition: none;
+    transform: none;
+  }
 }
 </style>
 
 <style>
-.model-menu-floating {
-  position: fixed;
-  z-index: 10000;
-  list-style: none;
-  margin: 0;
-  padding: 3px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--peek-border) 88%, transparent);
-  background: color-mix(in srgb, var(--peek-list-bg) 94%, transparent);
-  backdrop-filter: blur(16px) saturate(1.15);
-  -webkit-backdrop-filter: blur(16px) saturate(1.15);
-  box-shadow:
-    0 0 0 0.5px color-mix(in srgb, #fff 6%, transparent),
-    0 10px 28px rgba(0, 0, 0, 0.22),
-    0 2px 8px rgba(0, 0, 0, 0.12);
-  max-height: 220px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  /* Floating menus are short — don't reserve permanent scrollbar gutter. */
-  scrollbar-gutter: auto;
-  transform-origin: bottom right;
-  will-change: opacity, transform;
-}
-
-.model-menu-floating .model-menu-item {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  min-height: 26px;
-  justify-content: flex-start;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
-}
-
-.model-menu-floating .model-menu-item:hover {
-  background: color-mix(in srgb, var(--peek-text) 6%, transparent);
-}
-
-.model-menu-floating .model-menu-item.active {
-  background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
-}
-
-.model-menu-floating .model-menu-item:hover.active {
-  background: color-mix(in srgb, var(--peek-accent) 14%, transparent);
-}
-
-.model-menu-floating .model-option-name {
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 14px;
-  color: var(--peek-text);
-  letter-spacing: 0.01em;
-}
-
-.model-menu-floating .model-option-id {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  line-height: 12px;
-  color: var(--peek-muted);
-  opacity: 0.9;
-}
-
-.model-menu-floating .model-option-desc {
-  font-family: var(--peek-font-sans);
-  font-size: 9px;
-  line-height: 12px;
-  font-weight: 400;
-  color: var(--peek-muted);
-  opacity: 0.88;
-}
-
-.model-menu-floating .model-option-check {
-  width: 12px;
-  height: 12px;
-}
-
-.model-menu-floating .model-status {
-  font-size: 11px;
-  line-height: 14px;
-  color: var(--peek-muted);
-  cursor: default;
-}
-
-.model-menu-floating .model-status:hover {
-  background: transparent;
-}
-
-.model-menu-floating .model-status.error {
-  color: #e07a7a;
-  line-height: 1.4;
-}
-
 /* Image thumbnail area in input bar */
 .input-images {
   display: flex;

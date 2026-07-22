@@ -1,5 +1,8 @@
+pub mod antigravity;
 pub mod deepseek;
 pub mod image_analysis;
+pub mod multimodal;
+pub mod multimodal_response;
 pub mod provider;
 pub mod registry;
 

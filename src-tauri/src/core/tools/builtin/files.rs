@@ -8,6 +8,8 @@ use regex::Regex;
 use serde_json::{json, Value};
 use walkdir::WalkDir;
 
+use crate::runtime::terminal::prepare_command;
+
 use super::super::context::{Tool, ToolContext};
 use super::super::error::ToolError;
 use super::super::fuzzy::apply_old_string_edit;
@@ -213,14 +215,15 @@ impl Tool for SearchFilesTool {
         let pattern = args["pattern"].as_str().unwrap_or("");
         let base = args["path"].as_str().unwrap_or(".");
         let resolved = resolve_read(ctx, self.name(), base)?;
-        if let Ok(output) = Command::new("rg")
-            .args([
-                "--no-heading",
-                "--line-number",
-                pattern,
-                resolved.to_str().unwrap_or(""),
-            ])
-            .output()
+        let mut rg = Command::new("rg");
+        rg.args([
+            "--no-heading",
+            "--line-number",
+            pattern,
+            resolved.to_str().unwrap_or(""),
+        ]);
+        prepare_command(&mut rg);
+        if let Ok(output) = rg.output()
         {
             if output.status.success() || !output.stdout.is_empty() {
                 let text = String::from_utf8_lossy(&output.stdout);

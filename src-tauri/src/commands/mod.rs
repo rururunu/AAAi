@@ -1,6 +1,7 @@
 pub mod app;
 pub mod ask;
 pub mod chat;
+pub mod gemini;
 pub mod harness;
 pub mod mcp;
 pub mod permission;

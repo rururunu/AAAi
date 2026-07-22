@@ -291,7 +291,7 @@ function isLikelyTex(value: string) {
 .markdown-body :deep(pre code.language-diff .hljs-deletion) {
   display: inline-block;
   min-width: 100%;
-  background: color-mix(in srgb, #ef4444 18%, transparent);
+  background: color-mix(in srgb, var(--destructive) 18%, transparent);
 }
 
 :global([data-theme="light"]) .markdown-body :deep(.hljs-comment),

@@ -1,9 +1,13 @@
-# AltAltAi
-
-Windows overlay coding agent — double-tap **Alt** to bring your current selection, files, and workspace to AI (DeepSeek).
+# AAAi
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" alt="AltAltAi" width="96" height="96" />
+  <img src="src-tauri/icons/icon.png" alt="AAAi" width="112" height="112" />
+</p>
+
+<h2 align="center">An AI chat and coding assistant, available anywhere on Windows</h2>
+
+<p align="center">
+  Double-tap <kbd>Alt</kbd> to bring a text selection, selected Explorer files, or manually attached images and files into a conversation.
 </p>
 
 <p align="center">
@@ -12,28 +16,81 @@ Windows overlay coding agent — double-tap **Alt** to bring your current select
 </p>
 
 <p align="center">
-  <img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?style=flat-square" />
-  <img alt="tauri" src="https://img.shields.io/badge/Tauri-2-FFC131?style=flat-square" />
-  <img alt="vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square" />
-  <img alt="rust" src="https://img.shields.io/badge/Rust-backend-DEA584?style=flat-square" />
-  <img alt="ai" src="https://img.shields.io/badge/AI-DeepSeek-4D6BFE?style=flat-square" />
+  <img alt="platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" />
+  <img alt="release" src="https://img.shields.io/badge/version-v0.1.2-4D6BFE?style=flat-square" />
+  <img alt="license" src="https://img.shields.io/badge/license-Unlicense-3DA639?style=flat-square" />
 </p>
 
-AltAltAi is a local Windows desktop overlay. It captures context from the foreground app, then runs a DeepSeek agent that can read and edit files, run Shell, use MCP tools, and search the web — without leaving the window you were in.
+## Context and attachments
 
----
+When summoned, AAAi attempts to read the text selection in the foreground app or files selected in Explorer. You can also paste or drag images, text, and text files into the input.
 
-## Quickstart
+<p align="center">
+  <img src="./docs/image/select_text_recognition.webp" alt="AAAi recognizing a selected text context" width="720" />
+</p>
 
-### Installer
+<p align="center">
+  <img src="./docs/image/select_image_recognition.webp" alt="AAAi attaching image context from a selected image" width="720" />
+</p>
 
-1. Download the MSI from [Releases](../../releases)
-2. Open **Settings** from the tray and add your DeepSeek API key
-3. In any app, **double-tap Alt** → type → Enter
+The workspace is not detected automatically: select it in Settings or with `/work`. Unselected clipboard text and the active-window title are not added to a message automatically.
 
-### From source
+## How it works
 
-Requires Node 18+, pnpm, Rust stable, VS C++ Build Tools, and WebView2.
+### One gesture away
+
+Double-tap <kbd>Alt</kbd> in any app to show or hide the overlay. The default fallback shortcut is <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd>, configurable in Settings.
+
+### Ask and Agent
+
+- **Ask**: read-only tools such as file reading, search, LSP, and configured read-only tools; it cannot change files, run Shell commands, or use Git.
+- **Agent**: the default mode; can read and edit files, run PowerShell, and use Git, Skills, MCP, and sub-agents. Tool approval behavior is configured in Settings.
+- Use `/plan` to enter Plan Mode, which blocks write operations while you discuss an approach.
+
+<p align="center">
+  <img src="./docs/image/set_code.png" alt="Agent editing files and showing the resulting changes" width="720" />
+</p>
+
+### Model providers
+
+- DeepSeek with an API key.
+- Gemini through Google sign-in with Antigravity OAuth.
+- Custom OpenAI-compatible providers with a Base URL, API key, and model list.
+
+For image input with a model that does not support images, configure a vision model or enable multimodal split analysis in Settings.
+
+### Optional capabilities
+
+- Web search requires enabling it and configuring a Serper or Tavily API key.
+- MCP requires adding MCP servers in Settings.
+- LSP requires enabling it in Settings.
+- Cross-conversation memory can use local memory; mem0 cloud sync contacts its service.
+
+The input shows context usage. You can choose a model and thinking level, and inspect tool activity during a conversation.
+
+## Install and get started
+
+1. Download and install the MSI from [Releases](../../releases).
+2. Open **Settings** from the AAAi system tray icon and configure a model provider.
+3. Return to any app, double-tap <kbd>Alt</kbd>, then type and press <kbd>Enter</kbd>.
+
+| Shortcut | Action |
+| --- | --- |
+| Double-tap <kbd>Alt</kbd> | Show or hide the overlay |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> | Fallback summon shortcut |
+| <kbd>Enter</kbd> | Send a message |
+| <kbd>/</kbd> | Open slash commands |
+| <kbd>Esc</kbd> | Clear input; closes the window in some contexts |
+
+## Data and privacy
+
+API keys, OAuth tokens, settings, and chat history are stored locally by default. Context and file capture also happen locally; only when you send a message are the message and its attached context sent to your configured model provider.
+
+When you enable web search, MCP, or mem0 cloud sync, relevant content is also sent to the corresponding third-party service. Decide whether to enable them based on each service's privacy policy.
+
+## Run from source
+
+Requires Node.js 18+, pnpm, Rust stable, VS C++ Build Tools, and WebView2.
 
 ```bash
 pnpm install
@@ -44,59 +101,9 @@ Build an MSI:
 
 ```bash
 pnpm tauri build
-# → src-tauri/target/release/bundle/msi/
 ```
 
-### Everyday use
-
-| Shortcut | Action |
-|----------|--------|
-| Double-tap `Alt` | Show / hide overlay |
-| Enter | Send (with captured context) |
-| `/` | Slash commands |
-
----
-
-## What you get
-
-- **Overlay summon** — transparent panel near the cursor
-- **Automatic context** — selection, Explorer files, active window, optional workspace
-- **Coding agent** — files, Shell, Git, Skills, MCP, sub-agents, optional LSP / web search
-- **Controls** — tool approval, Plan Mode, checkpoints / rewind, path sandbox
-- **Local-first** — settings and chats stay on your machine by default
-
----
-
-## Project layout
-
-| Path | Role |
-|------|------|
-| `src/` | Overlay, chat UI, settings |
-| `src-tauri/src/commands/` | Tauri IPC |
-| `src-tauri/src/core/` | AI, chat, context, tools, MCP, checkpoint |
-| `src-tauri/src/runtime/` | Search, browser, Git helpers |
-| `src-tauri/prompts/` | System / tool prompts |
-
----
-
-## Docs
-
-- [使用指南](./docs/user-guide.md) — how to install, summon, chat, and configure
-- [维护文档](./docs/maintenance.md) — develop, test, and release
-
----
-
-## Privacy
-
-API keys and settings live in the local app data directory. Chats are local by default. Workspace files leave your machine only when you send a turn to your configured DeepSeek endpoint.
-
----
-
-## Acknowledgments
-
-Inspired in part by [DeepSeek-Reasonix](https://github.com/DeepSeek-Reasonix).
-
-Built with Tauri, Vue, Rust, and DeepSeek.
+The installer is written to `src-tauri/target/release/bundle/msi/`.
 
 ## License
 

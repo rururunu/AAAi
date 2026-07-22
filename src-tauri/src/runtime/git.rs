@@ -2,6 +2,7 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
+use crate::runtime::terminal::prepare_command;
 use crate::runtime::tool::{Tool, ToolContext, ToolError};
 
 pub struct GitTool;
@@ -32,6 +33,7 @@ impl Tool for GitTool {
         let action = args["action"].as_str().unwrap_or_default();
         let mut command = Command::new("git");
         command.current_dir(&ctx.workspace_root);
+        prepare_command(&mut command);
         match action {
             "current_branch" => {
                 command.args(["branch", "--show-current"]);

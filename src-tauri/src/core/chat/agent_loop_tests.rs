@@ -116,6 +116,7 @@ fn tool_call(id: &str, name: &str) -> ToolCallPayload {
         id: id.into(),
         name: name.into(),
         arguments: "{}".into(),
+        thought_signature: None,
     }
 }
 
@@ -176,6 +177,127 @@ async fn collect_finish(rx: &mut mpsc::Receiver<StreamEvent>) -> Option<StreamEv
     last
 }
 
+struct InjectAwareProvider {
+    scripts: Mutex<Vec<ProviderTurn>>,
+    saw_inject: Arc<AtomicBool>,
+}
+
+#[async_trait]
+impl AIProvider for InjectAwareProvider {
+    fn id(&self) -> &'static str {
+        "inject-aware"
+    }
+
+    async fn stream(
+        &self,
+        request: ChatRequest,
+        tx: mpsc::Sender<StreamEvent>,
+    ) -> Result<(), ProviderError> {
+        if request.messages.iter().any(|message| {
+            matches!(message.role, Role::User) && message.content.contains("INJECT-ME")
+        }) {
+            self.saw_inject.store(true, Ordering::SeqCst);
+        }
+
+        let turn = self
+            .scripts
+            .lock()
+            .ok()
+            .and_then(|mut scripts| {
+                if scripts.is_empty() {
+                    None
+                } else {
+                    Some(scripts.remove(0))
+                }
+            })
+            .unwrap_or(ProviderTurn {
+                content: "done".into(),
+                tool_calls: vec![],
+            });
+
+        let _ = tx.send(StreamEvent::Start).await;
+        if !turn.content.is_empty() {
+            let _ = tx.send(StreamEvent::Delta(turn.content.clone())).await;
+        }
+        for call in &turn.tool_calls {
+            let _ = tx.send(StreamEvent::ToolCall(call.clone())).await;
+        }
+        let _ = tx
+            .send(StreamEvent::TurnComplete {
+                content: turn.content,
+                reasoning: None,
+                tool_calls: turn.tool_calls,
+                finish_reason: Some("stop".into()),
+            })
+            .await;
+        let _ = tx.send(StreamEvent::Finish).await;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn soft_inject_applies_at_tool_boundary() {
+    use std::collections::VecDeque;
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(CountingTool {
+        name: "read_a",
+        read_only: true,
+        counter: Arc::new(AtomicUsize::new(0)),
+        parallel_peak: Arc::new(AtomicUsize::new(0)),
+        active: Arc::new(AtomicUsize::new(0)),
+        payload: "a".into(),
+    }));
+    let tools = Arc::new(ToolManager::new(registry));
+    let saw_inject = Arc::new(AtomicBool::new(false));
+    let provider = Arc::new(InjectAwareProvider {
+        scripts: Mutex::new(vec![
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("1", "read_a")],
+            },
+            ProviderTurn {
+                content: "after inject".into(),
+                tool_calls: vec![],
+            },
+        ]),
+        saw_inject: Arc::clone(&saw_inject),
+    });
+    let (ctx, db) = make_ctx(tools.registry());
+    let runner = AgentRunner::new(provider, tools);
+    let (tx, mut rx) = mpsc::channel(32);
+    let soft_queue = Arc::new(Mutex::new(VecDeque::new()));
+    let soft_queue_push = Arc::clone(&soft_queue);
+    let pusher = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        if let Ok(mut queue) = soft_queue_push.lock() {
+            queue.push_back("INJECT-ME now".into());
+        }
+    });
+
+    runner
+        .run(
+            base_request(),
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            soft_queue,
+        )
+        .await
+        .unwrap();
+    let _ = pusher.await;
+    let finish = collect_finish(&mut rx).await.expect("finish");
+    match finish {
+        StreamEvent::TurnComplete { content, .. } => assert_eq!(content, "after inject"),
+        _ => panic!("unexpected"),
+    }
+    assert!(
+        saw_inject.load(Ordering::SeqCst),
+        "second provider call should see soft-injected user message"
+    );
+    let _ = std::fs::remove_file(db);
+}
+
 #[tokio::test]
 async fn finishes_without_tools() {
     let provider = Arc::new(ScriptedProvider {
@@ -189,7 +311,7 @@ async fn finishes_without_tools() {
     let runner = AgentRunner::new(provider, tools);
     let (tx, mut rx) = mpsc::channel(16);
     runner
-        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)))
+        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)), Arc::new(Mutex::new(std::collections::VecDeque::new())))
         .await
         .unwrap();
     let finish = collect_finish(&mut rx).await.expect("finish");
@@ -239,7 +361,7 @@ async fn runs_read_only_tools_in_parallel() {
     let runner = AgentRunner::new(provider, tools);
     let (tx, mut rx) = mpsc::channel(16);
     runner
-        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)))
+        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)), Arc::new(Mutex::new(std::collections::VecDeque::new())))
         .await
         .unwrap();
     let _ = collect_finish(&mut rx).await;
@@ -285,7 +407,7 @@ async fn stops_at_max_steps() {
     let runner = AgentRunner::with_limits(provider, tools, 2, 200_000, TOOL_OUTPUT_MAX_CHARS);
     let (tx, mut rx) = mpsc::channel(16);
     runner
-        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)))
+        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)), Arc::new(Mutex::new(std::collections::VecDeque::new())))
         .await
         .unwrap();
     let finish = collect_finish(&mut rx).await.expect("finish");
@@ -339,7 +461,7 @@ async fn truncates_tool_output_for_model() {
     let runner = AgentRunner::with_limits(recorder.clone(), tools, 30, 200_000, 100);
     let (tx, mut rx) = mpsc::channel(16);
     runner
-        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)))
+        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)), Arc::new(Mutex::new(std::collections::VecDeque::new())))
         .await
         .unwrap();
     let _ = collect_finish(&mut rx).await;
@@ -412,7 +534,7 @@ async fn stops_when_token_budget_exhausted() {
     let runner = AgentRunner::with_limits(provider, tools, 30, 50, TOOL_OUTPUT_MAX_CHARS);
     let (tx, mut rx) = mpsc::channel(16);
     runner
-        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)))
+        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)), Arc::new(Mutex::new(std::collections::VecDeque::new())))
         .await
         .unwrap();
     let finish = collect_finish(&mut rx).await.expect("finish");

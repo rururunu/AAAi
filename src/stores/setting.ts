@@ -4,20 +4,24 @@ import { DEFAULT_CHAT_MODEL } from "@/constants/chat";
 import { getAppSettings, setAppSettings } from "@/services/ipc";
 import { applyOpacity } from "@/services/overlay/appearance";
 import {
+    DEFAULT_ACCENT_COLOR,
     isLightColorScheme,
+    normalizeAccentColor,
     type AppLanguage,
     type AppSettings,
     type AppSettingsPatch,
     type ColorScheme,
+    defaultGeminiOAuthSettings,
 } from "@/types/setting";
 
 const LEGACY_STORAGE_KEY = "peek.settings";
 
 const defaultSettings: AppSettings = {
     colorScheme: "blue-black",
-    customAccentColor: "",
+    customAccentColor: DEFAULT_ACCENT_COLOR,
     language: "zh-CN",
     deepseekApiKey: "",
+    geminiOauth: defaultGeminiOAuthSettings(),
     memoryEnabled: true,
     mem0ApiKey: "",
     mem0UserId: "peek-user",
@@ -48,19 +52,11 @@ export function applyTheme(settings: Pick<AppSettings, "colorScheme" | "customAc
     document.documentElement.dataset.theme = settings.colorScheme;
     document.documentElement.lang = settings.language;
     document.documentElement.classList.toggle("dark", !isLightColorScheme(settings.colorScheme));
-    const accent = /^#[0-9a-f]{6}$/i.test(settings.customAccentColor)
-        ? settings.customAccentColor
-        : "";
+    const accent = normalizeAccentColor(settings.customAccentColor);
     const style = document.documentElement.style;
-    if (accent) {
-        style.setProperty("--peek-accent", accent);
-        style.setProperty("--peek-send-active-bg", accent);
-        style.setProperty("--peek-list-active", `color-mix(in srgb, ${accent} 15%, transparent)`);
-    } else {
-        style.removeProperty("--peek-accent");
-        style.removeProperty("--peek-send-active-bg");
-        style.removeProperty("--peek-list-active");
-    }
+    style.setProperty("--peek-accent", accent);
+    style.setProperty("--peek-send-active-bg", accent);
+    style.setProperty("--peek-list-active", `color-mix(in srgb, ${accent} 15%, transparent)`);
 }
 
 export function applyZoom(zoom: number) {
@@ -72,7 +68,7 @@ export const useSettingStore = defineStore("setting", {
     actions: {
         applyPublicSettings(settings: AppSettings) {
             this.colorScheme = settings.colorScheme;
-            this.customAccentColor = settings.customAccentColor ?? "";
+            this.customAccentColor = normalizeAccentColor(settings.customAccentColor);
             this.language = settings.language;
             
             let opacityVal = settings.opacity;
@@ -113,9 +109,10 @@ export const useSettingStore = defineStore("setting", {
         },
         applySettings(settings: AppSettings) {
             this.colorScheme = settings.colorScheme;
-            this.customAccentColor = settings.customAccentColor ?? "";
+            this.customAccentColor = normalizeAccentColor(settings.customAccentColor);
             this.language = settings.language;
             this.deepseekApiKey = settings.deepseekApiKey ?? "";
+            this.geminiOauth = settings.geminiOauth ?? defaultGeminiOAuthSettings();
             this.memoryEnabled = settings.memoryEnabled ?? true;
             this.mem0ApiKey = settings.mem0ApiKey ?? "";
             this.mem0UserId = settings.mem0UserId ?? "peek-user";

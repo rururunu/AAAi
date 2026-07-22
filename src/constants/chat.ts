@@ -1,2 +1,2 @@
-/** 设置中未选择模型时的默认值 */
-export const DEFAULT_CHAT_MODEL = "deepseek-chat";
+/** 未配置供应商 / 未选择模型时为空，不预填 deepseek-chat */
+export const DEFAULT_CHAT_MODEL = "";

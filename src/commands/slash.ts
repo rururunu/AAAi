@@ -9,6 +9,7 @@ export interface SlashCommand {
 export type SlashCommandAction =
     | "close"
     | "openHistory"
+    | "openModel"
     | "openWorkspace"
     | "enterPlan"
     | "clearInput"
@@ -19,6 +20,11 @@ export const slashCommands: SlashCommand[] = [
         command: "/history",
         label: "history",
         description: "打开历史对话",
+    },
+    {
+        command: "/model",
+        label: "model",
+        description: "切换对话模型",
     },
     {
         command: "/plan",
@@ -53,6 +59,8 @@ export async function executeSlashCommand(
     switch (command) {
         case "/history":
             return "openHistory";
+        case "/model":
+            return "openModel";
         case "/plan":
             return "enterPlan";
         case "/settings":

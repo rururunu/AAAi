@@ -33,7 +33,7 @@ pub fn load_settings(app: &AppHandle) -> AppSettings {
         Err(_) => return AppSettings::default(),
     };
 
-    let raw = match fs::read_to_string(path) {
+    let raw = match fs::read_to_string(&path) {
         Ok(raw) => raw,
         Err(_) => return AppSettings::default(),
     };
@@ -41,6 +41,28 @@ pub fn load_settings(app: &AppHandle) -> AppSettings {
     let mut settings: AppSettings = serde_json::from_str(&raw).unwrap_or_default();
     settings.secondary_hotkey =
         crate::services::hotkey::normalize_hotkey(&settings.secondary_hotkey);
+    // Migrate to embedded Antigravity OAuth client; old Gemini Desktop tokens won't refresh.
+    let defaults = crate::models::settings::GeminiOAuthSettings::default();
+    let client_changed = settings.gemini_oauth.client_id.trim() != defaults.client_id;
+    if settings.gemini_oauth.client_id.trim().is_empty() || client_changed {
+        if client_changed && settings.gemini_oauth.is_logged_in() {
+            settings.gemini_oauth.access_token.clear();
+            settings.gemini_oauth.refresh_token.clear();
+            settings.gemini_oauth.expires_at = 0;
+            settings.gemini_oauth.email.clear();
+            settings.gemini_oauth.project_id.clear();
+        }
+        settings.gemini_oauth.client_id = defaults.client_id;
+        settings.gemini_oauth.client_secret = defaults.client_secret;
+    } else if settings.gemini_oauth.client_secret.trim().is_empty() {
+        settings.gemini_oauth.client_secret = defaults.client_secret;
+    }
+    if settings.custom_accent_color.trim().is_empty()
+        || settings.custom_accent_color.eq_ignore_ascii_case("#ffffff")
+    {
+        // Soft off-white; migrate empty / former pure-white default.
+        settings.custom_accent_color = "#e8ecf2".to_string();
+    }
     settings
 }
 

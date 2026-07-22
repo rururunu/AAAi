@@ -21,31 +21,35 @@ defineProps<{
 <style scoped>
 .assistant-activity {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   align-self: flex-start;
   gap: 6px;
   min-height: 22px;
   color: var(--peek-muted);
   font-size: 12px;
-  line-height: 1;
+  line-height: 1.55;
 }
 
 .activity-spinner {
   flex: none;
+  margin-top: 2px;
   color: var(--peek-accent);
   animation: activity-spin 1.1s linear infinite;
 }
 
 .activity-label {
   min-width: 3em;
+  word-break: break-word;
 }
 
 .activity-dots {
   display: inline-flex;
   align-items: center;
+  flex: none;
   gap: 3px;
   width: 24px;
   height: 10px;
+  margin-top: 6px;
 }
 
 .activity-dots span {

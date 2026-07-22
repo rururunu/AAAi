@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 
 use crate::core::tools::error::ToolError;
 use crate::models::settings::{AppSettings, LspServerConfig};
+use crate::runtime::terminal::prepare_command;
 
 struct LspProcess {
     child: Child,
@@ -20,12 +21,14 @@ struct LspProcess {
 
 impl LspProcess {
     fn spawn(command: &str, args: &[String], root: &Path) -> Result<Self, ToolError> {
-        let mut child = Command::new(command)
-            .args(args)
+        let mut cmd = Command::new(command);
+        cmd.args(args)
             .current_dir(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+        prepare_command(&mut cmd);
+        let mut child = cmd
             .spawn()
             .map_err(|e| ToolError::new(format!("failed to start LSP `{command}`: {e}")))?;
         let stdin = child

@@ -1,4 +1,5 @@
 import type { ChatMessage, MessageStatus, Role, ToolActivity } from "@/types/chat";
+import { isSoftInjectContent } from "@/services/chat/softInject";
 
 type RawMessage = Partial<ChatMessage> & {
   session_id?: string;
@@ -79,6 +80,7 @@ export function normalizeMessage(
     workTimeline: raw.workTimeline,
     toolActivities: raw.toolActivities,
     askUserAnswer: raw.askUserAnswer,
+    injected: raw.injected === true || isSoftInjectContent(raw.content ?? ""),
     status: normalizeStatus(raw.status),
     timestamp: raw.timestamp ?? Date.now(),
   };

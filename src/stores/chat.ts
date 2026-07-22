@@ -237,6 +237,26 @@ export const useChatStore = defineStore("chat", {
         timestamp: Date.now(),
       });
     },
+    stageSoftInject(sessionId: string, content: string) {
+      const trimmed = content.trim();
+      if (!trimmed) return;
+      const token = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const messages = this.sessions[sessionId] ?? [];
+      // Place the inject after the active assistant so MessageList can fold it
+      // into that turn (not as a new unanswered user bubble).
+      this.setSessionMessages(sessionId, [
+        ...messages,
+        {
+          id: `local-user-${token}`,
+          sessionId,
+          role: "user",
+          content: trimmed,
+          injected: true,
+          status: "done",
+          timestamp: Date.now(),
+        },
+      ]);
+    },
     stageTurn(sessionId: string, content: string) {
       const trimmed = content.trim();
       if (!trimmed) return;
@@ -368,8 +388,32 @@ export const useChatStore = defineStore("chat", {
       }
       if (changed) this.setSessionMessages(sessionId, messages);
     },
-    failOptimisticSend(sessionId: string, error: unknown) {
+    markMessageInjected(sessionId: string, messageId: string) {
       const messages = [...(this.sessions[sessionId] ?? [])];
+      const index = messages.findIndex((item) => item.id === messageId);
+      if (index === -1) return;
+      const current = messages[index]!;
+      messages[index] = {
+        ...current,
+        injected: true,
+        content: current.content.startsWith("<!--peek:soft-inject-->")
+          ? current.content
+          : `<!--peek:soft-inject-->\n${current.content}`,
+      };
+      this.setSessionMessages(sessionId, messages);
+    },
+    failOptimisticSend(sessionId: string, error: unknown, softInject = false) {
+      const messages = [...(this.sessions[sessionId] ?? [])];
+      if (softInject) {
+        const index = findLastMessageIndex(messages, (item) =>
+          item.id.startsWith("local-user-"),
+        );
+        if (index !== -1) {
+          messages.splice(index, 1);
+          this.setSessionMessages(sessionId, messages);
+        }
+        return;
+      }
       const index = findLastMessageIndex(
         messages,
         (item) => normalizeRole(item.role) === "assistant" && item.status === "pending",
@@ -869,18 +913,30 @@ export const useChatStore = defineStore("chat", {
       options?: { staged?: boolean },
     ) {
       const trimmed = message.trim();
-      if (
-        !trimmed ||
-        this.sending[sessionId] ||
-        (!options?.staged && this.hasActiveAssistantResponse(sessionId))
-      ) {
+      if (!trimmed) {
+        return false;
+      }
+
+      // Soft-inject = user sent while a prior turn is still streaming.
+      // `staged: true` already created this turn's user+assistant pair — the
+      // pending assistant must NOT be treated as an in-flight prior turn, or the
+      // first overlay message gets markMessageInjected and disappears from the list.
+      const softInject =
+        !options?.staged
+        && (this.sending[sessionId] || this.hasActiveAssistantResponse(sessionId));
+
+      if (!softInject && !options?.staged && this.hasActiveAssistantResponse(sessionId)) {
         return false;
       }
 
       this.overlayDraftSessionId = sessionId;
 
       if (!options?.staged) {
-        this.stageTurn(sessionId, trimmed);
+        if (softInject) {
+          this.stageSoftInject(sessionId, trimmed);
+        } else {
+          this.stageTurn(sessionId, trimmed);
+        }
       }
 
       this.sending[sessionId] = true;
@@ -894,6 +950,9 @@ export const useChatStore = defineStore("chat", {
           response.userMessageId,
           response.assistantMessageId,
         );
+        if (softInject) {
+          this.markMessageInjected(sessionId, response.userMessageId);
+        }
         if (response.sessionId && response.sessionId !== sessionId) {
           this.mergeSession(response.sessionId, sessionId);
           this.sending[sessionId] = true;
@@ -901,8 +960,10 @@ export const useChatStore = defineStore("chat", {
         return true;
       } catch (error) {
         console.error("chat failed:", error);
-        this.failOptimisticSend(sessionId, error);
-        this.clearSending(sessionId);
+        this.failOptimisticSend(sessionId, error, softInject);
+        if (!softInject) {
+          this.clearSending(sessionId);
+        }
         return false;
       }
     },

@@ -13,6 +13,7 @@ use crate::core::tools::context::{Tool, ToolContext};
 use crate::core::tools::error::ToolError;
 use crate::core::tools::registry::ToolRegistry;
 use crate::models::settings::{AppSettings, McpServerConfig};
+use crate::runtime::terminal::prepare_command;
 
 /// Extra dirs GUI apps often miss (nvm, hermes, Volta, Scoop, system Node).
 fn known_node_bin_dirs() -> Vec<PathBuf> {
@@ -324,12 +325,7 @@ impl McpProcess {
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
+        prepare_command(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| {
             ToolError::new(format!(
                 "failed to start MCP `{}` via `{resolved}`: {e}",
@@ -355,7 +351,7 @@ impl McpProcess {
             json!({
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": { "name": "AltAltAi", "version": "0.1.1" }
+                "clientInfo": { "name": "AAAi", "version": "0.1.2" }
             }),
         )?;
         proc.notify("notifications/initialized", json!({}))?;

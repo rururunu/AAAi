@@ -173,6 +173,7 @@ import type {
   WebSearchProvider,
   ToolApprovalMode,
 } from "@/types/setting";
+import { DEFAULT_ACCENT_COLOR, normalizeAccentColor } from "@/types/setting";
 
 const settingStore = useSettingStore();
 const chatModelStore = useChatModelStore();
@@ -353,15 +354,12 @@ async function saveApiKey() {
   await chatModelStore.refresh();
 }
 
-function onCustomAccentChange(event: Event) {
-  const value = (event.target as HTMLInputElement).value;
-  if (/^#[0-9a-f]{6}$/i.test(value)) {
-    void settingStore.update({ customAccentColor: value });
-  }
+function onCustomAccentChange(value: string) {
+  void settingStore.update({ customAccentColor: normalizeAccentColor(value) });
 }
 
 function resetCustomAccent() {
-  void settingStore.update({ customAccentColor: "" });
+  void settingStore.update({ customAccentColor: DEFAULT_ACCENT_COLOR });
 }
 
 function onDefaultModelChange(value: unknown) {

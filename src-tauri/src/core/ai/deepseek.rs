@@ -16,13 +16,12 @@ use super::provider::{AIProvider, ProviderError};
 
 const API_URL: &str = "https://api.deepseek.com/chat/completions";
 const MODELS_URL: &str = "https://api.deepseek.com/models";
-const DEFAULT_MODEL: &str = "deepseek-chat";
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_PRE_TOKEN_RETRIES: u32 = 3;
 const RETRY_BACKOFF: Duration = Duration::from_millis(500);
 
-const USER_STREAM_INTERRUPTED: &str = "连接中断，请重试";
-const USER_STREAM_STALLED: &str = "响应超时，请重试";
+const USER_STREAM_INTERRUPTED: &str = "Connection interrupted, please retry";
+const USER_STREAM_STALLED: &str = "Response timed out, please retry";
 
 pub struct DeepSeekProvider {
     app: tauri::AppHandle,
@@ -58,20 +57,21 @@ impl DeepSeekProvider {
         let api_key = (self.resolve_api_key)();
         if api_key.trim().is_empty() {
             return Err(ProviderError::message(
-                "DeepSeek API Key 未配置，请在设置中填写",
+                "Model credentials are not configured. Sign in to Gemini (Antigravity) or enter an API Key in Settings.",
             ));
         }
         Ok(api_key.trim().to_string())
     }
 
-    fn model(&self) -> String {
+    fn model(&self) -> Result<String, ProviderError> {
         let model = (self.resolve_model)();
         let trimmed = model.trim();
         if trimmed.is_empty() {
-            DEFAULT_MODEL.to_string()
-        } else {
-            trimmed.to_string()
+            return Err(ProviderError::message(
+                "No model selected. Configure a provider and choose a model in Settings first.",
+            ));
         }
+        Ok(trimmed.to_string())
     }
 
     fn effort(&self) -> ReasoningEffort {
@@ -128,21 +128,6 @@ struct ApiToolCallFunction {
     arguments: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ApiNonStreamResponse {
-    choices: Vec<ApiNonStreamChoice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ApiNonStreamChoice {
-    message: ApiNonStreamMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct ApiNonStreamMessage {
-    content: String,
-}
-
 #[derive(Debug, Default)]
 struct ToolCallBuilder {
     id: String,
@@ -176,221 +161,312 @@ impl AIProvider for DeepSeekProvider {
     ) -> Result<(), ProviderError> {
         let settings = crate::services::settings_store::get_settings(&self.app).unwrap_or_default();
         let mut request = request;
-
-        let has_multimodal = request.messages.iter().any(|msg| {
-            msg.role == Role::User && msg.content.contains("![image](")
-        });
-
-        if has_multimodal && settings.multimodal_split_analysis {
-            let client = reqwest::Client::builder()
-                .connect_timeout(MULTIMODAL_CONNECT_TIMEOUT)
-                .timeout(MULTIMODAL_REQUEST_TIMEOUT)
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new());
-            let mm_model = if settings.multimodal_model.trim().is_empty() {
-                "gpt-4o".to_string()
-            } else {
-                settings.multimodal_model.trim().to_string()
-            };
-
-            let image_re = match regex::Regex::new(r"!\[image\]\((.*?)\)") {
-                Ok(re) => re,
-                Err(_) => {
-                    return Err(ProviderError::message("invalid image regex"));
-                }
-            };
-
-            let mut any_api_calls = false;
-            let mut patches: Vec<(String, String)> = Vec::new();
-
-            for message in &mut request.messages {
-                if message.role != Role::User || !message.content.contains("![image](") {
-                    continue;
-                }
-
-                let image_markdowns: Vec<String> = image_re
-                    .find_iter(&message.content)
-                    .map(|m| m.as_str().to_string())
-                    .collect();
-
-                let mut stored = message.content.clone();
-                let original = stored.clone();
-
-                for image_markdown in &image_markdowns {
-                    if crate::core::ai::image_analysis::usable_analysis_after_image(
-                        &stored,
-                        image_markdown,
-                    )
-                    .is_some()
-                    {
-                        continue;
-                    }
-
-                    // Drop stale failed analyses so we can retry cleanly.
-                    if crate::core::ai::image_analysis::analysis_after_image(
-                        &stored,
-                        image_markdown,
-                    )
-                    .is_some()
-                    {
-                        stored = crate::core::ai::image_analysis::remove_analysis_after_image(
-                            &stored,
-                            image_markdown,
-                        );
-                    }
-
-                    if !any_api_calls {
-                        any_api_calls = true;
-                        let _ = tx
-                            .send(StreamEvent::Status {
-                                kind: "analyzing_images".to_string(),
-                            })
-                            .await;
-                    }
-
-                    let image_url = image_re
-                        .captures(image_markdown)
-                        .and_then(|c| c.get(1))
-                        .map(|m| m.as_str())
-                        .unwrap_or("");
-
-                    let text = match describe_image(&client, &self.app, image_url).await {
-                        Ok(desc) => desc,
-                        Err(err) => {
-                            // Always clear analyzing status before failing, or the UI sticks.
-                            let _ = tx
-                                .send(StreamEvent::Status {
-                                    kind: String::new(),
-                                })
-                                .await;
-                            return emit_stream_error(&tx, err).await;
-                        }
-                    };
-
-                    stored = crate::core::ai::image_analysis::insert_analysis_after_image(
-                        &stored,
-                        image_markdown,
-                        &mm_model,
-                        &text,
-                    );
-                }
-
-                if stored != original {
-                    patches.push((message.id.clone(), stored.clone()));
-                }
-                message.content = stored;
-            }
-
-            for (message_id, content) in &patches {
-                let _ = tx
-                    .send(StreamEvent::UserContentPatch {
-                        message_id: message_id.clone(),
-                        content: content.clone(),
-                    })
-                    .await;
-            }
-
-            if any_api_calls {
-                let _ = tx
-                    .send(StreamEvent::Status {
-                        kind: String::new(),
-                    })
-                    .await;
-            }
-
-            for message in &mut request.messages {
-                if message.role == Role::User
-                    && (message.content.contains("![image](")
-                        || message.content.contains("peek-image-analysis"))
-                {
-                    message.content =
-                        crate::core::ai::image_analysis::replace_images_with_analysis_text(
-                            &message.content,
-                        );
-                }
-            }
-        }
-
-        let has_multimodal = request.messages.iter().any(|msg| {
-            msg.role == Role::User && msg.content.contains("![image](")
-        });
-
-        let mut model = self.model();
-        let mut api_key = self.api_key()?;
-        let mut url = self.chat_completions_url();
-
-        if has_multimodal {
-            if !settings.multimodal_model.trim().is_empty() {
-                let mm_model = settings.multimodal_model.trim().to_string();
-                match resolve_multimodal_endpoint(&settings, &mm_model) {
-                    Ok(endpoint) => {
-                        api_key = endpoint.api_key;
-                        url = endpoint.url;
-                        model = mm_model;
-                    }
-                    Err(error) => return emit_stream_error(&tx, error).await,
-                }
-            }
-        }
-
+        let primary_model = self.model()?;
+        let primary_api_key = self.api_key()?;
+        let primary_url = self.chat_completions_url();
         let effort = self.effort();
         let pass_tool_reasoning = self.pass_tool_reasoning();
-        let body = build_api_body(&request, &model, true, effort, pass_tool_reasoning);
+        let include_thinking = !primary_url.contains("generativelanguage.googleapis.com");
+
+        let has_images = request.messages.iter().any(|msg| {
+            msg.role == Role::User && msg.content.contains("![image](")
+        });
 
         let _ = tx.send(StreamEvent::Start).await;
-
         let client = reqwest::Client::new();
-        let mut last_error: Option<ProviderError> = None;
 
-        for attempt in 0..MAX_PRE_TOKEN_RETRIES {
-            if attempt > 0 {
-                tokio::time::sleep(RETRY_BACKOFF * attempt).await;
-            }
+        let mut model = primary_model.clone();
+        let mut api_key = primary_api_key.clone();
+        let mut url = primary_url.clone();
 
-            let response = match post_stream_request(&client, &url, &api_key, &body).await {
-                Ok(response) => response,
-                Err(error) => {
-                    last_error = Some(error.clone());
-                    if attempt + 1 < MAX_PRE_TOKEN_RETRIES && is_retryable_before_token(&error) {
-                        continue;
-                    }
-                    return emit_stream_error(&tx, error).await;
-                }
-            };
-
-            match read_sse_stream(response, &tx).await {
-                Ok(outcome) if outcome.is_complete() => {
-                    let _ = tx.send(StreamEvent::Finish).await;
-                    return Ok(());
-                }
-                Ok(outcome) if outcome.emitted => {
-                    let error = ProviderError::message(USER_STREAM_INTERRUPTED);
-                    return emit_stream_error(&tx, error).await;
-                }
-                Ok(_) if attempt + 1 < MAX_PRE_TOKEN_RETRIES => {
-                    last_error = Some(ProviderError::message(USER_STREAM_INTERRUPTED));
-                    continue;
-                }
-                Ok(_) => {
-                    let error = ProviderError::message(USER_STREAM_INTERRUPTED);
-                    return emit_stream_error(&tx, error).await;
-                }
+        if has_images {
+            let body = build_api_body(
+                &request,
+                &primary_model,
+                true,
+                effort,
+                pass_tool_reasoning,
+                include_thinking,
+            );
+            match run_chat_stream(&client, &primary_url, &primary_api_key, &body, &tx).await {
+                Ok(()) => return Ok(()),
+                // Multimodal split-analysis is only for text-only primaries.
+                // Gemini / gpt-4o / Claude already see images natively — never describe→reask.
                 Err(error)
-                    if attempt + 1 < MAX_PRE_TOKEN_RETRIES && is_retryable_before_token(&error) =>
+                    if crate::core::ai::multimodal::is_vision_unsupported_error(&error)
+                        && !crate::core::ai::multimodal::primary_model_has_native_vision(
+                            &primary_model,
+                        ) =>
                 {
-                    last_error = Some(error);
-                    continue;
+                    match apply_image_input_fallback(
+                        &mut request,
+                        &settings,
+                        &self.app,
+                        &tx,
+                    )
+                    .await
+                    {
+                        Ok(FallbackPlan::RetryPrimary) => {
+                            model = primary_model;
+                            api_key = primary_api_key;
+                            url = primary_url;
+                        }
+                        Ok(FallbackPlan::SwitchToMultimodal {
+                            model: mm_model,
+                            api_key: mm_key,
+                            url: mm_url,
+                        }) => {
+                            model = mm_model;
+                            api_key = mm_key;
+                            url = mm_url;
+                        }
+                        Err(error) => return emit_stream_error(&tx, error).await,
+                    }
                 }
                 Err(error) => return emit_stream_error(&tx, error).await,
             }
         }
 
-        emit_stream_error(
-            &tx,
-            last_error.unwrap_or_else(|| ProviderError::message(USER_STREAM_INTERRUPTED)),
-        )
-        .await
+        let body = build_api_body(
+            &request,
+            &model,
+            true,
+            effort,
+            pass_tool_reasoning,
+            include_thinking,
+        );
+        match run_chat_stream(&client, &url, &api_key, &body, &tx).await {
+            Ok(()) => Ok(()),
+            Err(error) => emit_stream_error(&tx, error).await,
+        }
     }
+}
+
+enum FallbackPlan {
+    RetryPrimary,
+    SwitchToMultimodal {
+        model: String,
+        api_key: String,
+        url: String,
+    },
+}
+
+async fn apply_image_input_fallback(
+    request: &mut ChatRequest,
+    settings: &crate::models::settings::AppSettings,
+    app: &tauri::AppHandle,
+    tx: &Sender<StreamEvent>,
+) -> Result<FallbackPlan, ProviderError> {
+    let mm_model = settings.multimodal_model.trim();
+
+    if !mm_model.is_empty()
+        && crate::services::gemini_oauth::can_use_antigravity_for_model(settings, mm_model)
+        && !settings.multimodal_split_analysis
+    {
+        apply_split_image_analysis(request, settings, app, tx).await?;
+        return Ok(FallbackPlan::RetryPrimary);
+    }
+
+    if settings.multimodal_split_analysis {
+        apply_split_image_analysis(request, settings, app, tx).await?;
+        return Ok(FallbackPlan::RetryPrimary);
+    }
+
+    if mm_model.is_empty() {
+        return Err(ProviderError::message(
+            "The primary model does not support image input. Configure a multimodal model in Settings, or enable multimodal split analysis.",
+        ));
+    }
+
+    if crate::services::gemini_oauth::can_use_antigravity_for_model(settings, mm_model) {
+        return Err(ProviderError::message(
+            "Gemini multimodal models cannot be switched wholesale to the OpenAI API. Enable multimodal split analysis, or use a model such as gpt-4o.",
+        ));
+    }
+
+    let endpoint = resolve_multimodal_endpoint(settings, mm_model)?;
+    Ok(FallbackPlan::SwitchToMultimodal {
+        model: mm_model.to_string(),
+        api_key: endpoint.api_key,
+        url: endpoint.url,
+    })
+}
+
+async fn apply_split_image_analysis(
+    request: &mut ChatRequest,
+    settings: &crate::models::settings::AppSettings,
+    app: &tauri::AppHandle,
+    tx: &Sender<StreamEvent>,
+) -> Result<(), ProviderError> {
+    let client = multimodal_http_client();
+    let mm_model = if settings.multimodal_model.trim().is_empty() {
+        "gpt-4o".to_string()
+    } else {
+        settings.multimodal_model.trim().to_string()
+    };
+
+    let image_re = match regex::Regex::new(r"!\[image\]\((.*?)\)") {
+        Ok(re) => re,
+        Err(_) => return Err(ProviderError::message("invalid image regex")),
+    };
+
+    let mut any_api_calls = false;
+    let mut patches: Vec<(String, String)> = Vec::new();
+
+    for message in &mut request.messages {
+        if message.role != Role::User || !message.content.contains("![image](") {
+            continue;
+        }
+
+        let image_markdowns: Vec<String> = image_re
+            .find_iter(&message.content)
+            .map(|m| m.as_str().to_string())
+            .collect();
+
+        let mut stored = message.content.clone();
+        let original = stored.clone();
+
+        for image_markdown in &image_markdowns {
+            if crate::core::ai::image_analysis::usable_analysis_after_image(
+                &stored,
+                image_markdown,
+            )
+            .is_some()
+            {
+                continue;
+            }
+
+            if crate::core::ai::image_analysis::analysis_after_image(&stored, image_markdown)
+                .is_some()
+            {
+                stored = crate::core::ai::image_analysis::remove_analysis_after_image(
+                    &stored,
+                    image_markdown,
+                );
+            }
+
+            if !any_api_calls {
+                any_api_calls = true;
+                let _ = tx
+                    .send(StreamEvent::Status {
+                        kind: "analyzing_images".to_string(),
+                    })
+                    .await;
+            }
+
+            let image_url = image_re
+                .captures(image_markdown)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str())
+                .unwrap_or("");
+
+            let text = match describe_image(&client, app, image_url).await {
+                Ok(desc) => desc,
+                Err(err) => {
+                    let _ = tx
+                        .send(StreamEvent::Status {
+                            kind: String::new(),
+                        })
+                        .await;
+                    return Err(err);
+                }
+            };
+
+            stored = crate::core::ai::image_analysis::insert_analysis_after_image(
+                &stored,
+                image_markdown,
+                &mm_model,
+                &text,
+            );
+        }
+
+        if stored != original {
+            patches.push((message.id.clone(), stored.clone()));
+        }
+        message.content = stored;
+    }
+
+    for (message_id, content) in &patches {
+        let _ = tx
+            .send(StreamEvent::UserContentPatch {
+                message_id: message_id.clone(),
+                content: content.clone(),
+            })
+            .await;
+    }
+
+    if any_api_calls {
+        let _ = tx
+            .send(StreamEvent::Status {
+                kind: String::new(),
+            })
+            .await;
+    }
+
+    for message in &mut request.messages {
+        if message.role == Role::User
+            && (message.content.contains("![image](")
+                || message.content.contains("peek-image-analysis"))
+        {
+            message.content =
+                crate::core::ai::image_analysis::replace_images_with_analysis_text(
+                    &message.content,
+                );
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_chat_stream(
+    client: &reqwest::Client,
+    url: &str,
+    api_key: &str,
+    body: &Value,
+    tx: &Sender<StreamEvent>,
+) -> Result<(), ProviderError> {
+    let mut last_error: Option<ProviderError> = None;
+
+    for attempt in 0..MAX_PRE_TOKEN_RETRIES {
+        if attempt > 0 {
+            tokio::time::sleep(RETRY_BACKOFF * attempt).await;
+        }
+
+        let response = match post_stream_request(client, url, api_key, body).await {
+            Ok(response) => response,
+            Err(error) => {
+                last_error = Some(error.clone());
+                if attempt + 1 < MAX_PRE_TOKEN_RETRIES && is_retryable_before_token(&error) {
+                    continue;
+                }
+                return Err(error);
+            }
+        };
+
+        match read_sse_stream(response, tx).await {
+            Ok(outcome) if outcome.is_complete() => {
+                let _ = tx.send(StreamEvent::Finish).await;
+                return Ok(());
+            }
+            Ok(outcome) if outcome.emitted => {
+                return Err(ProviderError::message(USER_STREAM_INTERRUPTED));
+            }
+            Ok(_) if attempt + 1 < MAX_PRE_TOKEN_RETRIES => {
+                last_error = Some(ProviderError::message(USER_STREAM_INTERRUPTED));
+                continue;
+            }
+            Ok(_) => return Err(ProviderError::message(USER_STREAM_INTERRUPTED)),
+            Err(error)
+                if attempt + 1 < MAX_PRE_TOKEN_RETRIES && is_retryable_before_token(&error) =>
+            {
+                last_error = Some(error);
+                continue;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| ProviderError::message(USER_STREAM_INTERRUPTED)))
 }
 
 async fn post_stream_request(
@@ -525,6 +601,7 @@ async fn read_sse_stream(
             id: builder.id,
             name: builder.name,
             arguments: builder.arguments,
+            thought_signature: None,
         })
         .collect();
 
@@ -559,7 +636,7 @@ async fn emit_stream_error(
 
 fn user_facing_stream_error(error: &ProviderError) -> String {
     match error {
-        ProviderError::Cancelled => "请求已取消".to_string(),
+        ProviderError::Cancelled => "Request cancelled".to_string(),
         ProviderError::Message(message) => {
             if message.starts_with("DeepSeek API") {
                 return message.clone();
@@ -567,8 +644,11 @@ fn user_facing_stream_error(error: &ProviderError) -> String {
             if message.contains("API Key") {
                 return message.clone();
             }
-            // Keep multimodal failure reasons (e.g. 502 explanation) intact for the user.
-            if message.contains("多模态") || message.contains("图片分析") || message.contains("视觉")
+            if message.contains("multimodal")
+                || message.contains("Multimodal")
+                || message.contains("image analysis")
+                || message.contains("vision")
+                || message.contains("Vision")
             {
                 return message.clone();
             }
@@ -635,6 +715,7 @@ pub(crate) fn build_api_body(
     stream: bool,
     effort: ReasoningEffort,
     pass_tool_reasoning: bool,
+    include_thinking: bool,
 ) -> Value {
     let messages: Vec<_> = request
         .messages
@@ -673,7 +754,9 @@ pub(crate) fn build_api_body(
         );
     }
 
-    apply_thinking_effort(&mut body, effort);
+    if include_thinking {
+        apply_thinking_effort(&mut body, effort);
+    }
 
     Value::Object(body)
 }
@@ -836,7 +919,7 @@ pub async fn list_models(api_key: &str) -> Result<Vec<ChatModelInfo>, ProviderEr
     let api_key = api_key.trim();
     if api_key.is_empty() {
         return Err(ProviderError::message(
-            "DeepSeek API Key 未配置，请在设置中填写",
+            "DeepSeek API Key is not configured. Please enter it in Settings.",
         ));
     }
 
@@ -872,6 +955,8 @@ pub async fn list_models(api_key: &str) -> Result<Vec<ChatModelInfo>, ProviderEr
             id: item.id,
             owned_by: item.owned_by,
             provider: "deepseek".to_string(),
+            display_name: None,
+            thinking_variants: None,
         })
         .collect())
 }
@@ -899,12 +984,39 @@ fn load_image_as_base64(path_or_data: &str) -> Result<String, String> {
 }
 
 /// Normalize an OpenAI-compatible base URL to a chat completions endpoint.
+///
+/// Bare hosts such as `https://www.micuapi.ai` (NewAPI) must become
+/// `.../v1/chat/completions`, not `.../chat/completions`.
 pub(crate) fn normalize_chat_completions_url(base_url: &str) -> String {
-    let base = base_url.trim().trim_end_matches('/');
-    if base.ends_with("/chat/completions") {
-        base.to_string()
-    } else {
-        format!("{base}/chat/completions")
+    let mut base = base_url.trim().trim_end_matches('/').to_string();
+    if let Some(stripped) = base.strip_suffix("/chat/completions") {
+        base = stripped.trim_end_matches('/').to_string();
+    }
+    if !has_versioned_api_path(&base) {
+        base = format!("{base}/v1");
+    }
+    format!("{base}/chat/completions")
+}
+
+fn has_versioned_api_path(base: &str) -> bool {
+    let path = url_path(base);
+    if path.is_empty() || path == "/" {
+        return false;
+    }
+    path == "/v1"
+        || path.ends_with("/v1")
+        || path.contains("/v1/")
+        || path.contains("/v1beta")
+}
+
+fn url_path(base: &str) -> &str {
+    let rest = base
+        .strip_prefix("https://")
+        .or_else(|| base.strip_prefix("http://"))
+        .unwrap_or(base);
+    match rest.find('/') {
+        Some(index) => &rest[index..],
+        None => "",
     }
 }
 
@@ -930,12 +1042,12 @@ fn resolve_multimodal_endpoint(
         }
         if custom.api_key.trim().is_empty() {
             return Err(ProviderError::message(
-                "多模态模型对应供应商的 API Key 未配置，请在设置中填写",
+                "API Key for the multimodal provider is not configured. Please set it in Settings.",
             ));
         }
         if custom.base_url.trim().is_empty() {
             return Err(ProviderError::message(
-                "多模态模型对应供应商的 Base URL 未配置，请在设置中填写",
+                "Base URL for the multimodal provider is not configured. Please set it in Settings.",
             ));
         }
         return Ok(MultimodalEndpoint {
@@ -944,17 +1056,9 @@ fn resolve_multimodal_endpoint(
         });
     }
 
-    // DeepSeek 官方 Chat Completions 不支持视觉模型；避免把 gpt-4o 误打到 DeepSeek。
     Err(ProviderError::message(format!(
-        "多模态模型「{mm_model}」未配置在自定义供应商中。请在设置中添加支持视觉的供应商（含 Base URL、API Key 与模型名），或关闭「多模态分步分析」。"
+        "Multimodal model \"{mm_model}\" is not configured under any custom provider. Add a vision-capable provider (Base URL, API Key, and model name) in Settings, or disable multimodal split analysis."
     )))
-}
-
-fn is_retryable_multimodal_status(status: reqwest::StatusCode) -> bool {
-    status.as_u16() == 429
-        || status.as_u16() == 502
-        || status.as_u16() == 503
-        || status.as_u16() == 504
 }
 
 fn format_reqwest_error_chain(error: &reqwest::Error) -> String {
@@ -970,68 +1074,216 @@ fn format_reqwest_error_chain(error: &reqwest::Error) -> String {
     parts.join(" | ")
 }
 
-/// Translate transport-level multimodal failures into actionable Chinese copy.
 pub(crate) fn multimodal_transport_error_message(error: &reqwest::Error) -> String {
     let detail = format_reqwest_error_chain(error);
     let lower = detail.to_lowercase();
 
     let reason = if lower.contains("timed out") || lower.contains("timeout") {
-        "连接超时：多模态供应商无响应，或当前网络/代理过慢。"
+        "Connection timed out: the multimodal provider did not respond, or the network/proxy is too slow."
     } else if lower.contains("dns")
         || lower.contains("name resolution")
         || lower.contains("no such host")
     {
-        "域名解析失败：无法解析多模态供应商地址，请检查网络或 DNS。"
+        "DNS resolution failed: could not resolve the multimodal provider host. Check network or DNS settings."
     } else if lower.contains("certificate") || lower.contains("tls") || lower.contains("ssl") {
-        "TLS/证书校验失败：请检查系统时间，或供应商证书是否被代理拦截。"
+        "TLS/certificate verification failed: check system time, or whether a proxy is intercepting the certificate."
     } else if lower.contains("connection refused") {
-        "连接被拒绝：供应商地址不可达，或本地代理端口未启动。"
+        "Connection refused: the provider address is unreachable, or the local proxy port is not running."
     } else if lower.contains("error sending request") {
-        "无法建立到多模态供应商的网络连接。若你使用 Clash/V2Ray 等代理（尤其是 fake-ip 模式），请确认系统代理已开启，或将 Peek 加入代理规则后重试。"
+        "Could not establish a network connection to the multimodal provider. If you use Clash/V2Ray (especially fake-ip mode), enable the system proxy or add AAAi to proxy rules and retry."
     } else {
-        "网络请求未能发出：请检查网络、系统代理与多模态 Base URL。"
+        "The network request could not be sent. Check network, system proxy, and the multimodal Base URL."
     };
 
-    format!("{reason} 技术详情：{detail}")
+    format!("{reason} Details: {detail}")
 }
 
-/// Human-readable explanation for multimodal HTTP failures (shown to the user).
 pub(crate) fn multimodal_http_error_message(status: reqwest::StatusCode, body: &str) -> String {
     let code = status.as_u16();
     let reason = match code {
-        401 | 403 => "鉴权失败：API Key 无效，或当前密钥无权调用该视觉模型。",
-        404 => "接口地址或模型名不正确：请检查自定义供应商的 Base URL 与多模态模型名称。",
-        413 => "请求体过大：图片体积超出供应商限制，请换更小的图片后重试。",
-        429 => "请求过于频繁或额度不足：请稍后重试，或检查供应商配额。",
-        500 => "视觉模型服务内部错误：多为上游临时故障，请稍后重试。",
-        502 => "网关错误（502）：多模态代理/上游未能正确响应。常见原因包括图片过大、上游视觉服务暂时不可用，或 Base URL/代理配置有误。",
-        503 => "服务暂时不可用（503）：上游视觉服务过载或维护中，请稍后重试。",
-        504 => "网关超时（504）：图片分析耗时过长或上游无响应，请稍后重试或换更小的图片。",
+        401 | 403 => "Authentication failed: the API Key is invalid, or it cannot call this vision model.",
+        404 => "Endpoint or model name is incorrect: check the custom provider Base URL and multimodal model name.",
+        413 => "Request body too large: the image exceeds the provider limit. Try a smaller image.",
+        429 => "Rate limited or quota exceeded: retry later, or check the provider quota.",
+        500 => "Vision model internal error: usually a temporary upstream failure. Retry later.",
+        502 => "Bad gateway (502): the multimodal proxy/upstream did not respond correctly. Common causes include an oversized image, temporary upstream outage, or a wrong Base URL/proxy setup.",
+        503 => "Service unavailable (503): the upstream vision service is overloaded or under maintenance. Retry later.",
+        504 => "Gateway timeout (504): image analysis took too long or the upstream did not respond. Retry later or use a smaller image.",
         _ if status.is_client_error() => {
-            "请求被供应商拒绝：请检查多模态模型名、Base URL 与图片格式是否受支持。"
+            "Request rejected by the provider: check the multimodal model name, Base URL, and whether the image format is supported."
         }
         _ if status.is_server_error() => {
-            "视觉模型服务端错误：请稍后重试，或更换多模态供应商。"
+            "Vision model server error: retry later, or switch multimodal providers."
         }
-        _ => "多模态接口调用失败。",
+        _ => "Multimodal API call failed.",
     };
 
     let detail = body.trim();
     if detail.is_empty() || detail == "unknown error" {
-        format!("多模态模型接口返回 {code}。{reason}")
+        format!("Multimodal API returned {code}. {reason}")
     } else {
         let truncated = if detail.len() > 240 {
             format!("{}…", &detail[..240])
         } else {
             detail.to_string()
         };
-        format!("多模态模型接口返回 {code}。{reason} 接口详情：{truncated}")
+        format!("Multimodal API returned {code}. {reason} Response: {truncated}")
     }
 }
 
 const MAX_MULTIMODAL_RETRIES: u32 = 2;
 const MULTIMODAL_REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 const MULTIMODAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const MULTIMODAL_IMAGE_PROMPT: &str = "You are a professional visual analyst. Provide a detailed, structured description of this image covering: (1) all visible text transcribed via precise OCR; (2) primary subjects and scene content; (3) charts, diagrams, or layout structure; (4) key information; and (5) color palette and visual style. Output the analysis directly—no preamble, greetings, or closing remarks.";
+
+async fn request_multimodal_image_description(
+    client: &reqwest::Client,
+    endpoint: &MultimodalEndpoint,
+    mm_model: &str,
+    b64_url: &str,
+    stream: bool,
+) -> Result<String, ProviderError> {
+    let mut body = json!({
+        "model": mm_model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": b64_url
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": MULTIMODAL_IMAGE_PROMPT
+                    }
+                ]
+            }
+        ],
+        "stream": stream
+    });
+
+    if wants_max_completion_tokens(mm_model) {
+        body.as_object_mut()
+            .expect("request object")
+            .insert("max_completion_tokens".into(), json!(4096));
+    } else if wants_max_tokens(mm_model) {
+        body.as_object_mut()
+            .expect("request object")
+            .insert("max_tokens".into(), json!(4096));
+    }
+
+    let response = client
+        .post(&endpoint.url)
+        .header("Authorization", format!("Bearer {}", endpoint.api_key))
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json, text/event-stream")
+        .timeout(MULTIMODAL_REQUEST_TIMEOUT)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| ProviderError::message(multimodal_transport_error_message(&error)))?;
+
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let response_text = read_multimodal_response_text(response).await?;
+
+    if !status.is_success() {
+        return Err(ProviderError::message(multimodal_http_error_message(
+            status,
+            &response_text,
+        )));
+    }
+
+    if content_type.to_ascii_lowercase().contains("text/html")
+        || super::multimodal_response::body_looks_like_html(&response_text)
+    {
+        return Err(ProviderError::message(
+            super::multimodal_response::html_instead_of_json_error(
+                &response_text,
+                Some(&endpoint.url),
+                Some(&content_type),
+            ),
+        ));
+    }
+
+    super::multimodal_response::parse_multimodal_description_body(&response_text)
+        .map_err(ProviderError::message)
+}
+
+fn multimodal_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(MULTIMODAL_CONNECT_TIMEOUT)
+        .timeout(MULTIMODAL_REQUEST_TIMEOUT)
+        // Match Antigravity: HTTP/1.1 + system proxy avoid flaky HTTP/2 / proxy body reads
+        // that surface as "error decoding response body".
+        .http1_only()
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+async fn read_multimodal_response_text(
+    response: reqwest::Response,
+) -> Result<String, ProviderError> {
+    let bytes = response.bytes().await.map_err(|error| {
+        ProviderError::message(format!(
+            "Failed to read multimodal response: {}. If the multimodal model is reached via a proxy (Clash/V2Ray), enable the system proxy or switch multimodal analysis to a Gemini model with Antigravity login.",
+            format_reqwest_error_chain(&error)
+        ))
+    })?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// Use Antigravity only when the *configured multimodal model* is Gemini + OAuth.
+/// (Split analysis itself should not run for Gemini chat primaries.)
+fn antigravity_model_for_image_describe(
+    settings: &crate::models::settings::AppSettings,
+    mm_model: &str,
+) -> Option<String> {
+    if crate::services::gemini_oauth::can_use_antigravity_for_model(settings, mm_model) {
+        Some(mm_model.to_string())
+    } else {
+        None
+    }
+}
+
+fn should_retry_multimodal_as_stream(error: &ProviderError) -> bool {
+    match error {
+        ProviderError::Cancelled => false,
+        ProviderError::Message(message) => {
+            let lower = message.to_ascii_lowercase();
+            // Retry stream only for empty/unparseable JSON bodies — not transport/decode failures.
+            (lower.contains("failed to extract")
+                || lower.contains("empty")
+                || lower.contains("parse")
+                || lower.contains("snippet"))
+                && !lower.contains("failed to read multimodal response")
+                && !lower.contains("timed out")
+                && !lower.contains("connection")
+                && !lower.contains("html")
+        }
+    }
+}
+
+fn wants_max_completion_tokens(model: &str) -> bool {
+    let lower = model.to_ascii_lowercase();
+    lower.starts_with("o1")
+        || lower.starts_with("o3")
+        || lower.starts_with("o4")
+        || lower.contains("gpt-5")
+}
+
+fn wants_max_tokens(model: &str) -> bool {
+    let lower = model.to_ascii_lowercase();
+    lower.contains("gpt-4") || lower.contains("gpt-3.5") || lower.contains("chatgpt")
+}
 
 async fn describe_image(
     client: &reqwest::Client,
@@ -1045,83 +1297,49 @@ async fn describe_image(
         settings.multimodal_model.trim().to_string()
     };
 
+    if let Some(ag_model) = antigravity_model_for_image_describe(&settings, &mm_model) {
+        return super::antigravity::describe_image_via_antigravity(app, &ag_model, image_payload)
+            .await;
+    }
+
     let endpoint = resolve_multimodal_endpoint(&settings, &mm_model)?;
 
     let b64_url = load_image_as_base64(image_payload)
-        .map_err(|e| ProviderError::message(format!("无法加载图片: {e}")))?;
+        .map_err(|e| ProviderError::message(format!("Failed to load image: {e}")))?;
 
-    let body = json!({
-        "model": mm_model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "你是一个专业的视觉助手。请详细分析并描述这张图片的所有内容。包括：图片中的所有文字（OCR精确提取）、图片的主体内容、图表或布局结构、关键信息和色彩样式。你的描述应当清晰、条理分明，不需要任何开场白或客套话，直接输出分析结果。"
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": b64_url
-                        }
-                    }
-                ]
-            }
-        ],
-        "stream": false
-    });
-
-    let mut last_error = ProviderError::message("多模态模型调用失败");
+    let mut last_error = ProviderError::message("Multimodal model call failed");
 
     for attempt in 0..MAX_MULTIMODAL_RETRIES {
         if attempt > 0 {
             tokio::time::sleep(RETRY_BACKOFF * attempt).await;
         }
 
-        let response = match client
-            .post(&endpoint.url)
-            .header("Authorization", format!("Bearer {}", endpoint.api_key))
-            .header("Content-Type", "application/json")
-            .timeout(MULTIMODAL_REQUEST_TIMEOUT)
-            .json(&body)
-            .send()
-            .await
+        match request_multimodal_image_description(
+            client,
+            &endpoint,
+            &mm_model,
+            &b64_url,
+            false,
+        )
+        .await
         {
-            Ok(response) => response,
-            Err(error) => {
-                last_error = ProviderError::message(multimodal_transport_error_message(&error));
-                if attempt + 1 < MAX_MULTIMODAL_RETRIES {
-                    continue;
-                }
-                return Err(last_error);
-            }
-        };
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response
-                .text()
+            Ok(description) => return Ok(description),
+            Err(error) if should_retry_multimodal_as_stream(&error) => {
+                match request_multimodal_image_description(
+                    client,
+                    &endpoint,
+                    &mm_model,
+                    &b64_url,
+                    true,
+                )
                 .await
-                .unwrap_or_else(|_| "unknown error".to_string());
-            last_error = ProviderError::message(multimodal_http_error_message(status, &text));
-            if attempt + 1 < MAX_MULTIMODAL_RETRIES && is_retryable_multimodal_status(status) {
-                continue;
+                {
+                    Ok(description) => return Ok(description),
+                    Err(stream_error) => last_error = stream_error,
+                }
             }
-            return Err(last_error);
+            Err(error) => last_error = error,
         }
-
-        let parsed: ApiNonStreamResponse = response.json().await.map_err(|error| {
-            ProviderError::message(format!("无法解析多模态模型返回数据: {error}"))
-        })?;
-
-        let description = parsed
-            .choices
-            .first()
-            .map(|choice| choice.message.content.clone())
-            .ok_or_else(|| ProviderError::message("多模态模型未返回任何结果"))?;
-
-        return Ok(description);
     }
 
     Err(last_error)
@@ -1170,6 +1388,7 @@ mod tests {
             true,
             ReasoningEffort::High,
             true,
+            true,
         );
         let obj = body.as_object().expect("object body");
         assert!(!obj.contains_key("temperature"));
@@ -1188,6 +1407,7 @@ mod tests {
             true,
             ReasoningEffort::High,
             true,
+            true,
         );
         let obj = body.as_object().expect("object body");
         assert_eq!(obj.get("thinking"), Some(&json!({ "type": "enabled" })));
@@ -1201,6 +1421,7 @@ mod tests {
             "deepseek-chat",
             true,
             ReasoningEffort::Disabled,
+            true,
             true,
         );
         let obj = body.as_object().expect("object body");
@@ -1216,6 +1437,7 @@ mod tests {
             "deepseek-reasoner",
             true,
             ReasoningEffort::High,
+            true,
             true,
         );
         let messages = body["messages"].as_array().expect("messages array");
@@ -1268,6 +1490,7 @@ mod tests {
                 id: "call-1".into(),
                 name: "read_file".into(),
                 arguments: r#"{"path":"README.md"}"#.into(),
+                thought_signature: None,
             }]),
             tool_call_id: None,
             name: None,
@@ -1312,6 +1535,7 @@ mod tests {
                 id: "call-1".into(),
                 name: "read_file".into(),
                 arguments: r#"{"path":"a.rs"}"#.into(),
+                thought_signature: None,
             }]),
             tool_call_id: None,
             name: None,
@@ -1339,6 +1563,7 @@ mod tests {
             true,
             ReasoningEffort::Disabled,
             true,
+            true,
         );
         assert!(body["tools"].is_array());
     }
@@ -1360,12 +1585,28 @@ mod tests {
     }
 
     #[test]
+    fn normalize_chat_completions_url_injects_v1_for_bare_host() {
+        assert_eq!(
+            normalize_chat_completions_url("https://www.micuapi.ai"),
+            "https://www.micuapi.ai/v1/chat/completions"
+        );
+        assert_eq!(
+            normalize_chat_completions_url("https://www.micuapi.ai/"),
+            "https://www.micuapi.ai/v1/chat/completions"
+        );
+        assert_eq!(
+            normalize_chat_completions_url("https://www.micuapi.ai/chat/completions"),
+            "https://www.micuapi.ai/v1/chat/completions"
+        );
+    }
+
+    #[test]
     fn resolve_multimodal_endpoint_requires_custom_provider() {
         let settings = crate::models::settings::AppSettings::default();
         let err = resolve_multimodal_endpoint(&settings, "gpt-4o").unwrap_err();
         match err {
             ProviderError::Message(msg) => {
-                assert!(msg.contains("未配置在自定义供应商"));
+                assert!(msg.contains("not configured under any custom provider"));
             }
             other => panic!("unexpected error: {other:?}"),
         }
@@ -1393,8 +1634,8 @@ mod tests {
             r#"{"error":"Bad gateway"}"#,
         );
         assert!(msg.contains("502"));
-        assert!(msg.contains("网关错误"));
-        assert!(msg.contains("图片过大") || msg.contains("上游"));
+        assert!(msg.contains("Bad gateway"));
+        assert!(msg.contains("oversized image") || msg.contains("upstream"));
         assert!(msg.contains("Bad gateway"));
         let facing = user_facing_stream_error(&ProviderError::message(msg.clone()));
         assert_eq!(facing, msg);
@@ -1402,7 +1643,6 @@ mod tests {
 
     #[test]
     fn multimodal_transport_error_message_explains_send_failure() {
-        // Construct via a guaranteed-failing request to capture real reqwest wording.
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -1419,9 +1659,36 @@ mod tests {
         });
         let msg = multimodal_transport_error_message(&err);
         assert!(
-            msg.contains("连接") || msg.contains("网络") || msg.contains("代理"),
+            msg.contains("Connection")
+                || msg.contains("network")
+                || msg.contains("proxy")
+                || msg.contains("could not be sent"),
             "unexpected message: {msg}"
         );
-        assert!(msg.contains("技术详情"));
+        assert!(msg.contains("Details:"));
+    }
+
+    #[test]
+    fn should_not_retry_stream_after_body_decode_failure() {
+        assert!(!should_retry_multimodal_as_stream(&ProviderError::message(
+            "Failed to read multimodal response: error decoding response body"
+        )));
+        assert!(should_retry_multimodal_as_stream(&ProviderError::message(
+            "Failed to extract an image description from the multimodal response. Debug: empty. Snippet: {}"
+        )));
+    }
+
+    #[test]
+    fn antigravity_describe_model_only_when_multimodal_is_gemini() {
+        let mut settings = crate::models::settings::AppSettings::default();
+        settings.chat_model = "gemini-3.5-flash-low".into();
+        settings.multimodal_model = "gpt-4o".into();
+        settings.gemini_oauth.refresh_token = "rt".into();
+        // Chat Gemini must not hijack multimodal describe — chat already sees images natively.
+        assert!(antigravity_model_for_image_describe(&settings, "gpt-4o").is_none());
+        assert_eq!(
+            antigravity_model_for_image_describe(&settings, "gemini-3-flash").as_deref(),
+            Some("gemini-3-flash")
+        );
     }
 }

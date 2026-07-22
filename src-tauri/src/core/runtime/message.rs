@@ -19,7 +19,6 @@ pub struct ToolActivity {
     pub status: String,
 }
 
-/// Peek 自有消息角色 — 不依赖任何 Provider SDK。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -39,7 +38,6 @@ pub enum MessageStatus {
     Cancelled,
 }
 
-/// Peek 对话消息 — Runtime 层的唯一消息模型。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {

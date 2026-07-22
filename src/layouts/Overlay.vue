@@ -46,8 +46,6 @@ const CHAT_HEIGHT = 420;
 const OVERLAY_MIN_HEIGHT_CHAT = 240;
 const SUGGESTION_ROW_HEIGHT = 30;
 const SUGGESTION_PADDING = 9;
-const PICKER_META_ROWS = 2;
-const PICKER_META_ROW_HEIGHT = 28;
 const PICKER_VISIBLE_ROWS = 8;
 const CONTEXT_PREVIEW_HEIGHT = 30;
 const INPUT_BAR_HEIGHT = INPUT_HEIGHT;
@@ -65,10 +63,9 @@ function computePickerHeight(rowCount: number) {
   if (rowCount <= 0) {
     return 0;
   }
-  const metaHeight = PICKER_META_ROWS * PICKER_META_ROW_HEIGHT;
-  const optionRows = Math.max(rowCount - PICKER_META_ROWS, 0);
-  const visibleRows = Math.min(optionRows, PICKER_VISIBLE_ROWS);
-  return SUGGESTION_PADDING + metaHeight + visibleRows * SUGGESTION_ROW_HEIGHT;
+  // rowCount is the total visible rows (options + optional status/meta rows).
+  const visibleRows = Math.min(rowCount, PICKER_VISIBLE_ROWS);
+  return SUGGESTION_PADDING + visibleRows * SUGGESTION_ROW_HEIGHT;
 }
 
 async function applySizeConstraints(
@@ -208,25 +205,32 @@ function handleLayoutChange(payload: {
   modelMenuHeight: number;
   askUserRowCount?: number;
   pickerRowCount?: number;
+  /** Measured/estimated picker height in design px — preferred over rowCount. */
+  pickerHeight?: number;
   hasContextPreview?: boolean;
   mode?: "input" | "chat";
   hasImages?: boolean;
+  hasFiles?: boolean;
 }) {
   const pickerHeight =
-    (payload.pickerRowCount ?? 0) > 0
-      ? computePickerHeight(payload.pickerRowCount ?? 0)
-      : payload.showSuggestions
-        ? SUGGESTION_PADDING + payload.suggestionCount * SUGGESTION_ROW_HEIGHT
-        : 0;
+    (payload.pickerHeight ?? 0) > 0
+      ? payload.pickerHeight!
+      : (payload.pickerRowCount ?? 0) > 0
+        ? computePickerHeight(payload.pickerRowCount ?? 0)
+        : payload.showSuggestions
+          ? SUGGESTION_PADDING + payload.suggestionCount * SUGGESTION_ROW_HEIGHT
+          : 0;
   const modeValue = payload.mode ?? mode.value;
-  // Floating model/approval menus are position:fixed — only the compact input
-  // window needs extra height so the menu isn't clipped. Chat mode already has
-  // room; resizing there just jumps the message panel.
+  // Chip menus are in-panel pickers now; height comes from pickerHeight.
+  // Keep modelMenuHeight only for any leftover floating chrome in input mode.
   const modelMenuHeight =
     modeValue === "input" && payload.showModelMenu ? payload.modelMenuHeight : 0;
   const contextHeight = payload.hasContextPreview ? CONTEXT_PREVIEW_HEIGHT : 0;
+  // Images (~52px thumbs) and file chips (~26px) each need vertical room in input mode.
   const imagesHeight = payload.hasImages ? 60 : 0;
-  const extraHeight = pickerHeight + modelMenuHeight + contextHeight + imagesHeight;
+  const filesHeight = payload.hasFiles ? 34 : 0;
+  const extraHeight =
+    pickerHeight + modelMenuHeight + contextHeight + imagesHeight + filesHeight;
 
   if (modeValue === "input") {
     chatWindowInitialized.value = false;
@@ -239,16 +243,20 @@ function handleLayoutChange(payload: {
 
   if (modeValue === "chat") {
     const deltaExtra = extraHeight - lastComposerExtraHeight.value;
-    lastComposerExtraHeight.value = extraHeight;
 
     if (!chatWindowInitialized.value) {
       chatWindowInitialized.value = true;
+      lastComposerExtraHeight.value = extraHeight;
       queueLayoutResize(() =>
         resizeWindow(PANEL_WIDTH, CHAT_HEIGHT + extraHeight, true),
       );
       return;
     }
 
+    if (Math.abs(deltaExtra) < 0.5) {
+      return;
+    }
+    lastComposerExtraHeight.value = extraHeight;
     queueLayoutResize(() => adjustWindowHeightBy(deltaExtra, true));
   }
 }

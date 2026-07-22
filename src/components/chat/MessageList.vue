@@ -21,21 +21,24 @@
       data-tauri-drag-region="false"
       @scroll="handleScroll"
     >
+      <div v-if="displayItems.length === 0" class="empty-thread">
+        {{ tr(settingStore.language, "emptyThread") }}
+      </div>
       <article
-        v-for="message in visibleMessages"
-        :key="message.id"
+        v-for="item in displayItems"
+        :key="item.key"
         class="message-item"
-        :class="messageRoleClass(message)"
-        :data-message-id="message.id"
+        :class="item.kind"
+        :data-message-id="item.message.id"
       >
-        <div v-if="isUserMessage(message)" class="user-turn">
+        <div v-if="item.kind === 'user'" class="user-turn">
           <div
-            v-if="userContent(message).images?.length"
+            v-if="userContent(item.message).images?.length"
             class="user-images"
             data-tauri-drag-region="false"
           >
             <button
-              v-for="(img, idx) in userContent(message).images"
+              v-for="(img, idx) in userContent(item.message).images"
               :key="idx"
               type="button"
               class="user-image-btn"
@@ -49,39 +52,66 @@
             </button>
           </div>
           <div
-            v-if="userContent(message).message || userContent(message).selection"
+            v-if="userContent(item.message).attachedFiles?.length"
+            class="user-attached-files"
+            data-tauri-drag-region="false"
+          >
+            <div
+              v-for="(file, idx) in userContent(item.message).attachedFiles"
+              :key="`${file.path}-${idx}`"
+              class="user-file-chip"
+              :class="{ skipped: Boolean(file.skipped) }"
+              :title="file.skipped ? `${file.path} (${file.skipped})` : file.path"
+            >
+              <File :size="12" :stroke-width="1.75" aria-hidden="true" />
+              <span class="user-file-name">{{ file.name }}</span>
+            </div>
+          </div>
+          <div
+            v-if="userContent(item.message).message || userContent(item.message).selection"
             class="user-bubble"
           >
-            <span v-if="userContent(message).message" class="user-message-text">{{ userContent(message).message }}</span>
-            <span v-if="userContent(message).selection" class="user-selection-quote">
-              {{ userContent(message).selection }}
+            <span v-if="userContent(item.message).message" class="user-message-text">{{ userContent(item.message).message }}</span>
+            <span v-if="userContent(item.message).selection" class="user-selection-quote">
+              {{ userContent(item.message).selection }}
             </span>
           </div>
           <button
-            v-if="checkpointFor(message)"
+            v-if="checkpointFor(item.message)"
             type="button"
             class="rewind-icon-btn"
             :disabled="rewindBusy"
             :aria-label="tr(settingStore.language, 'rewind')"
             :title="tr(settingStore.language, 'rewind')"
-            @click.stop="confirmRewind(message)"
+            @click.stop="confirmRewind(item.message)"
           >
             <Undo2 :size="14" :stroke-width="2" aria-hidden="true" />
           </button>
         </div>
         <div v-else class="assistant-bubble">
-          <AgentWorkDetails :message="message" :language="settingStore.language" />
-          <AskUserAnswerCard v-if="message.askUserAnswer?.length" :items="message.askUserAnswer" />
+          <AgentWorkDetails :message="item.message" :language="settingStore.language" />
+          <AskUserAnswerCard v-if="item.message.askUserAnswer?.length" :items="item.message.askUserAnswer" />
           <ImageAnalysisDetails
-            v-for="(analysis, idx) in imageAnalysesForAssistant(message)"
-            :key="`${message.id}-analysis-${idx}`"
+            v-for="(analysis, idx) in imageAnalysesForAssistant(item.message)"
+            :key="`${item.message.id}-analysis-${idx}`"
             :model="analysis.model"
             :text="analysis.text"
           />
-          <Markdown v-if="message.content" :content="message.content" />
+          <Markdown v-if="item.message.content" :content="item.message.content" />
+          <div v-if="item.injects.length" class="soft-inject-list">
+            <div
+              v-for="inject in item.injects"
+              :key="inject.id"
+              class="soft-inject-chip"
+              :data-message-id="inject.id"
+            >
+              <span class="soft-inject-label">{{ tr(settingStore.language, 'softInjected') }}</span>
+              <span class="soft-inject-text">{{ softInjectText(inject) }}</span>
+            </div>
+          </div>
           <AssistantActivityIndicator
-            v-if="activityLabel(message)"
-            :label="activityLabel(message)!"
+            v-if="activityLabel(item.message)"
+            :label="activityLabel(item.message)!"
           />
         </div>
       </article>
@@ -92,8 +122,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
-import { Undo2 } from "@lucide/vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { File, Undo2 } from "@lucide/vue";
 import AgentWorkDetails from "@/components/chat/AgentWorkDetails.vue";
 import AssistantActivityIndicator from "@/components/chat/AssistantActivityIndicator.vue";
 import AskUserAnswerCard from "@/components/chat/AskUserAnswerCard.vue";
@@ -104,7 +134,13 @@ import { rewindSession, openImagePreview } from "@/services/ipc";
 import { useSettingStore } from "@/stores/setting";
 import type { ChatMessage, CheckpointInfo } from "@/types/chat";
 import { parseSelectionAttachment } from "@/services/chat/selectionAttachment";
+import { isSoftInjectContent, stripSoftInjectMarker } from "@/services/chat/softInject";
 import { tr } from "@/services/i18n";
+import { gsapScrollContainerTo } from "@/services/motion/gsapPresets";
+
+type DisplayItem =
+  | { kind: "user"; key: string; message: ChatMessage }
+  | { kind: "assistant"; key: string; message: ChatMessage; injects: ChatMessage[] };
 function previewImage(url: string) {
   void openImagePreview(url).catch((error) => {
     console.error("openImagePreview failed:", error);
@@ -128,7 +164,45 @@ const visibleMessages = computed(() =>
     return role !== "system" && role !== "tool";
   }),
 );
-const userMessages = computed(() => visibleMessages.value.filter(isUserMessage));
+
+const displayItems = computed((): DisplayItem[] => {
+  const items: DisplayItem[] = [];
+  for (const message of visibleMessages.value) {
+    if (isUserMessage(message)) {
+      if (isSoftInjectMessage(message)) {
+        let folded = false;
+        for (let i = items.length - 1; i >= 0; i -= 1) {
+          const item = items[i];
+          if (item?.kind === "assistant") {
+            item.injects.push(message);
+            folded = true;
+            break;
+          }
+        }
+        // Mis-tagged first message (no prior assistant): show as a normal bubble.
+        if (!folded) {
+          items.push({ kind: "user", key: message.id, message });
+        }
+        continue;
+      }
+      items.push({ kind: "user", key: message.id, message });
+      continue;
+    }
+    items.push({
+      kind: "assistant",
+      key: message.id,
+      message,
+      injects: [],
+    });
+  }
+  return items;
+});
+
+const userMessages = computed(() =>
+  displayItems.value
+    .filter((item): item is Extract<DisplayItem, { kind: "user" }> => item.kind === "user")
+    .map((item) => item.message),
+);
 const listRef = ref<HTMLElement | null>(null);
 const stickToBottom = ref(true);
 const activeUserMessageId = ref("");
@@ -140,8 +214,14 @@ function normalizeRole(role: ChatMessage["role"] | string) {
 function isUserMessage(message: ChatMessage) {
   return normalizeRole(message.role) === "user";
 }
+function isSoftInjectMessage(message: ChatMessage) {
+  return message.injected === true || isSoftInjectContent(message.content);
+}
+function softInjectText(message: ChatMessage) {
+  return parseSelectionAttachment(stripSoftInjectMarker(message.content)).message;
+}
 function userContent(message: ChatMessage) {
-  return parseSelectionAttachment(message.content);
+  return parseSelectionAttachment(stripSoftInjectMarker(message.content));
 }
 
 /** Image analyses are persisted on the preceding user message; show them on the assistant turn. */
@@ -150,7 +230,7 @@ function precedingUserMessage(assistant: ChatMessage): ChatMessage | undefined {
   const index = list.findIndex((item) => item.id === assistant.id);
   if (index <= 0) return undefined;
   for (let i = index - 1; i >= 0; i -= 1) {
-    if (isUserMessage(list[i]!)) {
+    if (isUserMessage(list[i]!) && !isSoftInjectMessage(list[i]!)) {
       return list[i];
     }
   }
@@ -163,9 +243,6 @@ function imageAnalysesForAssistant(message: ChatMessage) {
   return userContent(user).imageAnalyses ?? [];
 }
 
-function messageRoleClass(message: ChatMessage) {
-  return isUserMessage(message) ? "user" : "assistant";
-}
 function checkpointFor(message: ChatMessage) {
   return (props.checkpoints ?? []).find((item) => item.userMessageId === message.id);
 }
@@ -205,8 +282,14 @@ function getFilename(path: string | undefined): string {
   return parts[parts.length - 1] || path;
 }
 
+function isWaitingForAskUser(message: ChatMessage) {
+  return (message.toolActivities ?? []).some(
+    (activity) => activity.toolName === "ask_user" && activity.status === "running",
+  );
+}
+
 function activityLabel(message: ChatMessage) {
-  if (!isPending(message) || message.askUserAnswer?.length) return "";
+  if (!isPending(message) || isWaitingForAskUser(message)) return "";
 
   // Prefer real reply progress over a stale analyzing label.
   if (
@@ -221,7 +304,9 @@ function activityLabel(message: ChatMessage) {
     .reverse()
     .find((activity) => activity.status === "running");
   if (running) {
-    if (running.toolName === "ask_user") return "";
+    if (running.toolName === "ask_user") {
+      return tr(settingStore.language, "waitingAnswer");
+    }
     
     const args = (running.arguments || {}) as Record<string, any>;
     
@@ -285,7 +370,12 @@ function activityLabel(message: ChatMessage) {
   return tr(settingStore.language, "thinking");
 }
 function isNearBottom(element: HTMLElement) {
-  return element.scrollHeight - element.scrollTop - element.clientHeight <= SCROLL_NEAR_BOTTOM_THRESHOLD;
+  const padBottom = Number.parseFloat(getComputedStyle(element).paddingBottom) || 0;
+  // Ignore composer clearance padding — it would otherwise make scrollTop=0
+  // look "not at bottom" on short threads and break stick-to-bottom.
+  const contentBottom = element.scrollHeight - padBottom;
+  const viewportBottom = element.scrollTop + element.clientHeight;
+  return contentBottom - viewportBottom <= SCROLL_NEAR_BOTTOM_THRESHOLD;
 }
 function handleScroll() {
   const element = listRef.value;
@@ -305,20 +395,74 @@ function updateActiveUserMessage() {
   activeUserMessageId.value = active;
 }
 function scrollToMessage(messageId: string) {
-  const node = listRef.value?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
-  if (!node) return;
+  const container = listRef.value;
+  const node = container?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
+  if (!container || !node) return;
   stickToBottom.value = false;
   activeUserMessageId.value = messageId;
-  node.scrollIntoView({ behavior: "smooth", block: "start" });
+  // Scroll the message list scroller only — not the overlay / window.
+  // Offset accounts for the absolute thread header overlay.
+  gsapScrollContainerTo(container, node, { offsetY: 42 });
 }
 function messagePreview(message: ChatMessage) {
-  const compact = userContent(message).message.replace(/\s+/g, " ").trim();
-  return compact.length > 72 ? `${compact.slice(0, 72)}...` : compact;
+  const parsed = userContent(message);
+  const compact = parsed.message.replace(/\s+/g, " ").trim();
+  if (compact) {
+    return compact.length > 72 ? `${compact.slice(0, 72)}...` : compact;
+  }
+  if (parsed.attachedFiles?.length) {
+    return parsed.attachedFiles.map((file) => file.name).join(", ");
+  }
+  if (parsed.images?.length) {
+    return parsed.images.length === 1 ? "image" : `${parsed.images.length} images`;
+  }
+  return "";
 }
+/**
+ * Keep the latest user turn on-screen.
+ *
+ * Absolute scroll-to-bottom fights the large composer `padding-bottom`: on short
+ * turns (especially while the overlay is still expanding) it scrolls the first
+ * user bubble above the viewport. If the turn still fits, pin to the user
+ * message (scrollTop 0 for the first turn); only follow the true bottom once
+ * the reply no longer fits with that user message.
+ */
 async function scrollToBottomIfNeeded() {
   await nextTick();
   const element = listRef.value;
-  if (!element || !stickToBottom.value) return;
+  if (!element) return;
+
+  if (!stickToBottom.value) {
+    updateActiveUserMessage();
+    return;
+  }
+
+  const padBottom = Number.parseFloat(getComputedStyle(element).paddingBottom) || 0;
+  const maxScroll = element.scrollHeight - element.clientHeight;
+  if (maxScroll <= 1) {
+    element.scrollTop = 0;
+    updateActiveUserMessage();
+    return;
+  }
+
+  const users = element.querySelectorAll<HTMLElement>(".message-item.user");
+  const lastUser = users[users.length - 1];
+  if (lastUser) {
+    const listTop = element.getBoundingClientRect().top;
+    const userTop =
+      lastUser.getBoundingClientRect().top - listTop + element.scrollTop;
+    const contentBottom = element.scrollHeight - padBottom;
+    const turnHeight = contentBottom - userTop;
+
+    // Whole turn still fits: keep the user bubble visible (top of thread for
+    // the first message; otherwise align that user message near the top).
+    if (turnHeight <= element.clientHeight - 4) {
+      element.scrollTop = users.length <= 1 ? 0 : Math.max(0, userTop - 8);
+      updateActiveUserMessage();
+      return;
+    }
+  }
+
   element.scrollTop = element.scrollHeight;
   updateActiveUserMessage();
 }
@@ -334,11 +478,36 @@ watch(
   () => void scrollToBottomIfNeeded(),
   { immediate: true },
 );
+
+let resizeObserver: ResizeObserver | null = null;
+onMounted(() => {
+  const element = listRef.value;
+  if (!element || typeof ResizeObserver === "undefined") return;
+  resizeObserver = new ResizeObserver(() => {
+    void scrollToBottomIfNeeded();
+  });
+  resizeObserver.observe(element);
+});
+onUnmounted(() => {
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+});
 </script>
 
 <style scoped>
 .message-list-shell { position: relative; display: flex; flex: 1; min-height: 0; }
 .message-list { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 12px 28px 10px 12px; display: flex; flex-direction: column; gap: 14px; scroll-padding-top: 12px; }
+.empty-thread {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  color: var(--peek-muted);
+  font-size: 13px;
+  text-align: center;
+  user-select: none;
+}
 .message-preview-rail { position: absolute; z-index: 4; top: 42px; right: 7px; bottom: 10px; display: flex; flex-direction: column; gap: 5px; width: 14px; overflow-y: auto; scrollbar-width: none; }
 .message-preview-rail::-webkit-scrollbar { display: none; }
 .message-preview-mark { position: relative; flex: none; width: 14px; height: 10px; padding: 0; border: 0; background: transparent; cursor: pointer; }
@@ -356,6 +525,37 @@ watch(
   gap: 8px;
   max-width: 100%;
   padding: 1px;
+}
+.user-attached-files {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+.user-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(220px, 100%);
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--peek-border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--peek-user-bubble-bg) 88%, var(--peek-surface));
+  color: var(--peek-user-bubble-text);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+}
+.user-file-chip.skipped {
+  opacity: 0.55;
+}
+.user-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .user-image-btn {
   display: block;
@@ -446,5 +646,42 @@ watch(
   width: 100%;
   max-width: none;
   box-sizing: border-box;
+}
+
+.soft-inject-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+  max-width: 100%;
+}
+
+.soft-inject-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px dashed color-mix(in srgb, var(--peek-accent) 35%, var(--peek-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--peek-accent) 8%, transparent);
+  color: var(--peek-text);
+}
+
+.soft-inject-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--peek-accent) 75%, var(--peek-muted));
+}
+
+.soft-inject-text {
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: color-mix(in srgb, var(--peek-text) 88%, var(--peek-muted));
 }
 </style>

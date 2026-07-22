@@ -47,7 +47,9 @@ pub fn analysis_after_image(content: &str, image_markdown: &str) -> Option<Image
 /// Failed analyses must not be treated as cached successes (they should be retried).
 pub fn is_usable_analysis(text: &str) -> bool {
     let trimmed = text.trim();
-    !trimmed.is_empty() && !trimmed.starts_with("分析失败:")
+    !trimmed.is_empty()
+        && !trimmed.starts_with("Analysis failed:")
+        && !trimmed.starts_with("分析失败:")
 }
 
 /// Like [`analysis_after_image`], but ignores failed analysis placeholders.
@@ -106,7 +108,7 @@ pub fn insert_analysis_after_image(
     out
 }
 
-/// Replace each image (+ optional trailing analysis tag) with `[图片分析结果:…]` for the main model.
+/// Replace each image (+ optional trailing analysis tag) with `[Image analysis:…]` for the main model.
 pub fn replace_images_with_analysis_text(content: &str) -> String {
     let mut result = String::new();
     let mut last = 0usize;
@@ -125,14 +127,14 @@ pub fn replace_images_with_analysis_text(content: &str) -> String {
             let desc = if is_usable_analysis(&block.text) {
                 block.text
             } else {
-                "(图片分析失败，请重新发送)".to_string()
+                "(Image analysis failed, please resend)".to_string()
             };
             (desc, after_img + matched.end())
         } else {
-            ("(无分析结果)".to_string(), full.end())
+            ("(No analysis result)".to_string(), full.end())
         };
 
-        result.push_str(&format!("\n[图片分析结果:\n{}\n]\n", desc.trim()));
+        result.push_str(&format!("\n[Image analysis:\n{}\n]\n", desc.trim()));
         last = consume_end;
     }
     result.push_str(&content[last..]);
@@ -146,6 +148,102 @@ fn strip_orphan_analysis_tags(content: &str) -> String {
     )
     .expect("strip regex");
     re.replace_all(content, "").into_owned()
+}
+
+/// Remove persisted `<peek-image-analysis>` blocks before sending native image bytes upstream.
+pub fn strip_image_analysis_tags(content: &str) -> String {
+    strip_orphan_analysis_tags(content)
+}
+
+/// Segment of user message content for multimodal assembly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageContentSegment {
+    Text(String),
+    ImagePayload(String),
+}
+
+/// Split user content into alternating text and `![image](payload)` segments.
+pub fn split_image_content(content: &str) -> Vec<ImageContentSegment> {
+    let mut segments = Vec::new();
+    if !content.contains("![image](") {
+        let cleaned = strip_image_analysis_tags(content);
+        if !cleaned.trim().is_empty() {
+            segments.push(ImageContentSegment::Text(cleaned));
+        }
+        return segments;
+    }
+
+    let mut last = 0usize;
+    for caps in image_regex().captures_iter(content) {
+        let full = caps.get(0).expect("full match");
+        let before = strip_image_analysis_tags(&content[last..full.start()]);
+        if !before.trim().is_empty() {
+            segments.push(ImageContentSegment::Text(before));
+        }
+
+        if let Some(payload) = caps.get(1) {
+            segments.push(ImageContentSegment::ImagePayload(payload.as_str().to_string()));
+        }
+
+        let mut end = full.end();
+        if let Some(matched) = analysis_open_regex().find(&content[end..]) {
+            end += matched.end();
+        }
+        last = end;
+    }
+
+    let after = strip_image_analysis_tags(&content[last..]);
+    if !after.trim().is_empty() {
+        segments.push(ImageContentSegment::Text(after));
+    }
+    segments
+}
+
+/// Decode `![image](...)` payload into Gemini `inlineData` fields `(mime_type, base64)`.
+pub fn decode_image_inline_payload(payload: &str) -> Result<(String, String), String> {
+    let payload = payload.trim();
+    if payload.is_empty() {
+        return Err("Image path is empty".into());
+    }
+
+    if payload.starts_with("data:") {
+        let rest = payload
+            .strip_prefix("data:")
+            .ok_or_else(|| "Invalid image data URL".to_string())?;
+        let (meta, data) = rest
+            .split_once(',')
+            .ok_or_else(|| "Invalid image data URL: missing base64 payload".to_string())?;
+        let mime_type = meta
+            .split(';')
+            .next()
+            .unwrap_or("image/png")
+            .trim()
+            .to_string();
+        if data.trim().is_empty() {
+            return Err("Image data URL contains no base64 payload".into());
+        }
+        return Ok((mime_type, data.trim().to_string()));
+    }
+
+    let bytes = std::fs::read(payload)
+        .map_err(|error| format!("Failed to read image file {payload}: {error}"))?;
+    if bytes.is_empty() {
+        return Err("Image file is empty".into());
+    }
+
+    let mime_type = if payload.ends_with(".jpg") || payload.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if payload.ends_with(".gif") {
+        "image/gif"
+    } else if payload.ends_with(".webp") {
+        "image/webp"
+    } else {
+        "image/png"
+    }
+    .to_string();
+
+    use base64::{engine::general_purpose, Engine as _};
+    Ok((mime_type, general_purpose::STANDARD.encode(bytes)))
 }
 
 #[cfg(test)]
@@ -174,7 +272,7 @@ mod tests {
         let api = replace_images_with_analysis_text(&stored);
         assert!(!api.contains("![image]("));
         assert!(!api.contains("peek-image-analysis"));
-        assert!(api.contains("[图片分析结果:\na cat\n]"));
+        assert!(api.contains("[Image analysis:\na cat\n]"));
     }
 
     #[test]
@@ -185,7 +283,10 @@ mod tests {
 
     #[test]
     fn failed_analysis_is_not_usable() {
-        assert!(!is_usable_analysis("分析失败: 多模态模型接口返回错误 502: Bad Gateway"));
+        assert!(!is_usable_analysis(
+            "Analysis failed: Multimodal API returned 502: Bad Gateway"
+        ));
+        assert!(!is_usable_analysis("分析失败: 502"));
         assert!(!is_usable_analysis(""));
         assert!(is_usable_analysis("a cat sitting on a mat"));
     }
@@ -194,7 +295,7 @@ mod tests {
     fn usable_analysis_after_image_skips_failures() {
         let img = "![image](data:image/png;base64,abc)";
         let content = format!(
-            "{img}\n\n<peek-image-analysis model=\"gpt-4o\">\n分析失败: 502\n</peek-image-analysis>\n"
+            "{img}\n\n<peek-image-analysis model=\"gpt-4o\">\nAnalysis failed: 502\n</peek-image-analysis>\n"
         );
         assert!(usable_analysis_after_image(&content, img).is_none());
         assert!(analysis_after_image(&content, img).is_some());
@@ -204,7 +305,7 @@ mod tests {
     fn remove_failed_analysis_allows_reinsert() {
         let img = "![image](data:image/png;base64,abc)";
         let content = format!(
-            "hi\n{img}\n\n<peek-image-analysis model=\"gpt-4o\">\n分析失败: 502\n</peek-image-analysis>\nmore"
+            "hi\n{img}\n\n<peek-image-analysis model=\"gpt-4o\">\nAnalysis failed: 502\n</peek-image-analysis>\nmore"
         );
         let cleaned = remove_analysis_after_image(&content, img);
         assert!(!cleaned.contains("peek-image-analysis"));
@@ -212,5 +313,29 @@ mod tests {
         assert!(cleaned.contains("more"));
         let restored = insert_analysis_after_image(&cleaned, img, "gpt-4o", "ok desc");
         assert!(restored.contains("ok desc"));
+    }
+
+    #[test]
+    fn split_image_content_skips_analysis_tags() {
+        let img = "![image](data:image/png;base64,abc)";
+        let content = format!(
+            "描述它\n{img}\n\n<peek-image-analysis model=\"gpt-4o\">\nwrong desc\n</peek-image-analysis>"
+        );
+        let segments = split_image_content(&content);
+        assert_eq!(
+            segments,
+            vec![
+                ImageContentSegment::Text("描述它\n".to_string()),
+                ImageContentSegment::ImagePayload("data:image/png;base64,abc".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn decode_image_inline_payload_parses_data_url() {
+        let (mime, data) =
+            decode_image_inline_payload("data:image/jpeg;base64,/9j/abc").expect("decode");
+        assert_eq!(mime, "image/jpeg");
+        assert_eq!(data, "/9j/abc");
     }
 }

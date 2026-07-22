@@ -25,6 +25,8 @@ export interface ChatMessage {
   askUserAnswer?: AskUserAnswerItem[];
   /** Ephemeral UI status from backend (not persisted). e.g. "analyzing_images" */
   activityStatus?: string;
+  /** Soft-inject into an in-flight assistant turn (not a new unanswered user turn). */
+  injected?: boolean;
   status: MessageStatus;
   timestamp: number;
 }
@@ -149,11 +151,21 @@ export interface ListChatSessionsResponse {
   sessions: ChatSessionSummary[];
 }
 
+export interface ModelThinkingVariant {
+  id: string;
+  label: string;
+  recommended?: boolean;
+}
+
 export interface ChatModelInfo {
   id: string;
   ownedBy: string;
   /** Stable provider key for UI icons (e.g. `"deepseek"`). */
   provider: string;
+  /** Human-readable label for pickers (e.g. Gemini 3.1 Pro High). */
+  displayName?: string;
+  /** Alternate thinking tiers for the same model family (High / Low / Agent). */
+  thinkingVariants?: ModelThinkingVariant[];
 }
 
 export interface AskUserOption {

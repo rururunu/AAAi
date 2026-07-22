@@ -73,6 +73,12 @@ const panelExpanded = ref(true);
 const streaming = computed(
   () => props.message.status === "pending" || props.message.status === "streaming",
 );
+const waitingForAskUser = computed(
+  () =>
+    props.message.toolActivities?.some(
+      (activity) => activity.toolName === "ask_user" && activity.status === "running",
+    ) ?? false,
+);
 const visibleActivities = computed(() =>
   (props.message.toolActivities ?? []).filter(
     (activity) =>
@@ -151,6 +157,12 @@ const panelMeta = computed(() => {
 
 function shouldAutoCollapse(message: ChatMessage) {
   if (!hasWork.value) return false;
+  if (
+    message.askUserAnswer?.length &&
+    (message.status === "pending" || message.status === "streaming")
+  ) {
+    return false;
+  }
   if (message.askUserAnswer?.length) return true;
   return message.status === "done" || message.status === "error" || message.status === "cancelled";
 }
@@ -164,7 +176,7 @@ watch(
   ],
   () => {
     if (userToggled.value) return;
-    if (streaming.value && !props.message.askUserAnswer?.length) {
+    if (streaming.value && !waitingForAskUser.value) {
       panelExpanded.value = true;
       return;
     }

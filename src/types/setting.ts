@@ -18,6 +18,22 @@ export function isLightColorScheme(scheme: ColorScheme): boolean {
     return LIGHT_COLOR_SCHEMES.has(scheme);
 }
 
+/** Default accent color applied on fresh installs and after reset. */
+/** Soft off-white — reads as white without pure #fff glare on dark UI. */
+export const DEFAULT_ACCENT_COLOR = "#e8ecf2";
+
+export function normalizeAccentColor(value: string | undefined | null): string {
+    const trimmed = (value ?? "").trim();
+    if (/^#[0-9a-f]{6}$/i.test(trimmed)) {
+        return trimmed.toLowerCase();
+    }
+    return DEFAULT_ACCENT_COLOR;
+}
+
+export function isDefaultAccentColor(value: string | undefined | null): boolean {
+    return normalizeAccentColor(value) === DEFAULT_ACCENT_COLOR;
+}
+
 export type AppLanguage = "zh-CN" | "en-US" | "ja-JP" | "ru-RU" | "de-DE" | "fr-FR" | "ko-KR";
 
 export type ReasoningEffort = "disabled" | "high" | "max";
@@ -50,7 +66,6 @@ export interface McpServerConfig {
     enabled?: boolean;
 }
 
-/** Configuration for a custom OpenAI-compatible provider. */
 export interface CustomProviderConfig {
     id: string;
     name: string;
@@ -60,11 +75,46 @@ export interface CustomProviderConfig {
     models: string;
 }
 
+export interface GeminiOAuthSettings {
+    clientId: string;
+    clientSecret: string;
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number;
+    email: string;
+    projectId: string;
+}
+
+export interface GeminiAuthStatus {
+    loggedIn: boolean;
+    email: string;
+    hasClientSecret: boolean;
+    clientId: string;
+}
+
+export const DEFAULT_GEMINI_OAUTH_CLIENT_ID =
+    "YOUR_GOOGLE_OAUTH_CLIENT_ID";
+
+export const DEFAULT_GEMINI_OAUTH_CLIENT_SECRET = "YOUR_GOOGLE_OAUTH_CLIENT_SECRET";
+
+export function defaultGeminiOAuthSettings(): GeminiOAuthSettings {
+    return {
+        clientId: DEFAULT_GEMINI_OAUTH_CLIENT_ID,
+        clientSecret: DEFAULT_GEMINI_OAUTH_CLIENT_SECRET,
+        accessToken: "",
+        refreshToken: "",
+        expiresAt: 0,
+        email: "",
+        projectId: "",
+    };
+}
+
 export interface AppSettings {
     colorScheme: ColorScheme;
     customAccentColor: string;
     language: AppLanguage;
     deepseekApiKey: string;
+    geminiOauth: GeminiOAuthSettings;
     memoryEnabled: boolean;
     mem0ApiKey: string;
     mem0UserId: string;
@@ -98,6 +148,7 @@ export interface AppSettingsPatch {
     customAccentColor?: string;
     language?: AppLanguage;
     deepseekApiKey?: string;
+    geminiOauth?: GeminiOAuthSettings;
     memoryEnabled?: boolean;
     mem0ApiKey?: string;
     mem0UserId?: string;

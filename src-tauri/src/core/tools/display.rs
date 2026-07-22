@@ -111,6 +111,18 @@ fn build_title(tool_name: &str, args: &Value) -> String {
             "执行命令：{}",
             truncate(args["command"].as_str().unwrap_or(""), 120)
         ),
+        "wait_for_shell" => format!(
+            "等待命令：{}",
+            args["job_id"].as_str().unwrap_or("job")
+        ),
+        "read_shell_output" => format!(
+            "读取输出：{}",
+            args["job_id"].as_str().unwrap_or("job")
+        ),
+        "stop_shell" => format!(
+            "停止命令：{}",
+            args["job_id"].as_str().unwrap_or("job")
+        ),
         "write_file" => format!("创建/写入文件：{}", path_arg(args)),
         "apply_patch" => {
             let input = args["input"].as_str().or_else(|| args["patch"].as_str()).unwrap_or("");

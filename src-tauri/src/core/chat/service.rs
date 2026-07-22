@@ -73,6 +73,16 @@ impl ChatService {
         Arc::clone(&self.path_permission_store)
     }
 
+    /// Resolve the AI provider from current settings on every turn.
+    /// Startup-time provider is only a fallback for tests without an AppHandle —
+    /// otherwise switching Gemini ↔ DeepSeek would keep the wrong backend until restart.
+    fn active_provider(&self) -> Arc<dyn AIProvider> {
+        match &self.app_handle {
+            Some(app) => crate::core::ai::resolve_provider(app.clone()),
+            None => Arc::clone(&self.provider),
+        }
+    }
+
     pub async fn send(
         &self,
         session_id: Option<String>,
@@ -86,6 +96,14 @@ impl ChatService {
         let workspace = self.workspace_manager.current();
 
         let session_id = session_id.unwrap_or_else(|| DEFAULT_SESSION_ID.to_string());
+
+        // Mid-turn soft inject: queue into the active agent loop (tool boundary).
+        if let Some(assistant_message_id) =
+            self.stream_manager.active_assistant_for_session(&session_id)
+        {
+            return self.soft_inject(&session_id, content, &assistant_message_id);
+        }
+
         let is_new_session = self.conversation.messages(&session_id).is_empty();
         if is_new_session && workspace.is_some() {
             let workspace = workspace.as_ref().expect("workspace checked above");
@@ -141,8 +159,9 @@ impl ChatService {
             .unwrap_or(true);
         let context_window = context_window_tokens(large_context);
         let max_turn_tokens = max_turn_tokens_for(large_context);
+        let provider = self.active_provider();
         let summarizer =
-            crate::core::chat::compact::ProviderSummarizer::new(Arc::clone(&self.provider));
+            crate::core::chat::compact::ProviderSummarizer::new(Arc::clone(&provider));
         let compact = compact::prepare_history_for_prompt(
             &history,
             &context,
@@ -178,7 +197,7 @@ impl ChatService {
             &context,
             task_rules.project_rules.as_deref(),
             task_rules.recalled_memories.as_deref(),
-            Some(self.provider.id().to_string()),
+            Some(provider.id().to_string()),
             &prompt_preferences,
         );
 
@@ -205,8 +224,15 @@ impl ChatService {
             Arc::clone(&self.tools)
         };
 
+        let model = self
+            .app_handle
+            .as_ref()
+            .and_then(|app| crate::services::settings_store::get_settings(app).ok())
+            .map(|settings| settings.chat_model)
+            .unwrap_or_default();
+
         self.stream_manager.spawn(
-            self.provider.clone(),
+            provider,
             tools,
             self.event_bus.clone(),
             Arc::clone(&self.conversation),
@@ -218,12 +244,38 @@ impl ChatService {
             assistant_message.id.clone(),
             session_id.clone(),
             max_turn_tokens,
+            model,
         );
 
         Ok(ChatSendResult {
             session_id,
             user_message_id: user_message.id,
             assistant_message_id: assistant_message.id,
+        })
+    }
+
+    fn soft_inject(
+        &self,
+        session_id: &str,
+        content: String,
+        assistant_message_id: &str,
+    ) -> Result<ChatSendResult, ChatError> {
+        // Marker persists soft-inject identity across history reload (UI folds these
+        // into the preceding assistant turn instead of an unanswered user bubble).
+        const SOFT_INJECT_MARKER: &str = "<!--peek:soft-inject-->\n";
+        let stored = format!("{SOFT_INJECT_MARKER}{content}");
+        let user_message =
+            create_message(session_id, Role::User, stored, MessageStatus::Done);
+        self.conversation.append(session_id, user_message.clone());
+        // Agent queue gets plain text (no HTML marker).
+        self.stream_manager.soft_inject(session_id, content)?;
+
+        // Do not emit ChatStarted: that would re-project the assistant bubble and can
+        // wipe in-flight streamed content. Frontend already staged the user message.
+        Ok(ChatSendResult {
+            session_id: session_id.to_string(),
+            user_message_id: user_message.id,
+            assistant_message_id: assistant_message_id.to_string(),
         })
     }
 

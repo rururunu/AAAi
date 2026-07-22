@@ -5,17 +5,18 @@
       <span>{{ tr(language, "planModeHint") }}</span>
     </div>
     <div class="plan-actions">
-      <button type="button" class="btn ghost" :disabled="busy" @click="emit('cancel')">
+      <Button type="button" variant="ghost" size="sm" :disabled="busy" @click="emit('cancel')">
         {{ tr(language, "planModeCancel") }}
-      </button>
-      <button type="button" class="btn primary" :disabled="busy" @click="emit('approve')">
+      </Button>
+      <Button type="button" variant="default" size="sm" :disabled="busy" @click="emit('approve')">
         {{ tr(language, "planModeApprove") }}
-      </button>
+      </Button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { Button } from "@/components/ui/button";
 import { tr } from "@/services/i18n";
 import type { AppLanguage } from "@/types/setting";
 
@@ -40,8 +41,8 @@ const emit = defineEmits<{
   margin: 0 12px 8px;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, #f39c12 40%, transparent);
-  background: color-mix(in srgb, #f39c12 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--peek-warning) 40%, transparent);
+  background: color-mix(in srgb, var(--peek-warning) 14%, transparent);
 }
 
 .plan-copy {
@@ -64,27 +65,5 @@ const emit = defineEmits<{
   display: flex;
   gap: 8px;
   flex-shrink: 0;
-}
-
-.btn {
-  border: 0;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  color: inherit;
-}
-
-.btn.ghost {
-  background: color-mix(in srgb, #fff 10%, transparent);
-}
-
-.btn.primary {
-  background: color-mix(in srgb, #f39c12 45%, transparent);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 </style>

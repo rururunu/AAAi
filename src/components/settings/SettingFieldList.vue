@@ -11,10 +11,15 @@
     <article
       v-for="item in group.items"
       :key="item.id"
-      class="grid grid-cols-[minmax(0,1fr)_220px] items-start gap-4 border-t border-border px-4 py-3.5"
+      class="border-t border-border px-4 py-3.5"
+      :class="
+        item.type === 'custom-color'
+          ? 'grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] lg:items-start'
+          : 'grid grid-cols-[minmax(0,1fr)_220px] items-start gap-4'
+      "
     >
       <div class="space-y-1">
-        <p class="text-muted-foreground text-[11px]">AltAltAi › {{ item.path }}</p>
+        <p class="text-muted-foreground text-[11px]">AAAi › {{ item.path }}</p>
         <h3 class="text-sm font-medium">{{ item.title }}</h3>
         <p class="text-muted-foreground text-xs leading-relaxed">{{ item.description }}</p>
       </div>
@@ -96,63 +101,83 @@
           </SelectContent>
         </Select>
 
-        <div v-else-if="item.type === 'custom-color'" class="flex items-center gap-2">
-          <input
-            type="color"
-            class="h-8 w-10 cursor-pointer rounded border border-border bg-transparent p-1"
-            :value="effectiveAccentColor"
-            :aria-label="fieldTitle(item)"
-            @change="(e) => emit('custom-accent-change', e)"
-          />
-          <code class="flex-1 text-xs text-muted-foreground">
-            {{ settingStore.customAccentColor || effectiveAccentColor }}
-          </code>
-          <button
-            v-if="settingStore.customAccentColor"
-            type="button"
-            class="inline-flex size-8 items-center justify-center rounded hover:bg-accent"
-            :title="resetAccentLabel"
-            :aria-label="resetAccentLabel"
-            @click="emit('reset-custom-accent')"
-          >
-            <RotateCcw :size="14" />
-          </button>
-        </div>
+        <AccentColorField
+          v-else-if="item.type === 'custom-color'"
+          :model-value="settingStore.customAccentColor"
+          @update:model-value="(value) => emit('custom-accent-change', value)"
+          @reset="emit('reset-custom-accent')"
+        />
 
         <div v-else-if="item.type === 'select-model'" class="space-y-1.5">
+          <div class="flex items-center gap-1.5">
+            <Select
+              :model-value="resolveModelSelectValue(item.id === 'multimodalModel' ? settingStore.multimodalModel : settingStore.chatModel)"
+              :disabled="chatModelStore.loading || availableModelOptions.length === 0"
+              @update:model-value="(v) => item.id === 'multimodalModel' ? emit('multimodal-model-change', v) : emit('default-model-change', v)"
+            >
+              <SelectTrigger class="w-full">
+                <SelectValue :placeholder="modelStatusText">
+                  <span
+                    v-if="selectedModelOption(item.id)"
+                    class="inline-flex min-w-0 items-center gap-1.5"
+                  >
+                    <component
+                      :is="selectedModelOption(item.id)?.icon"
+                      v-if="selectedModelOption(item.id)?.icon"
+                      class="size-3.5 shrink-0 text-muted-foreground"
+                    />
+                    <span class="truncate">{{ selectedModelOption(item.id)?.label }}</span>
+                  </span>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="option in availableModelOptions"
+                  :key="option.value"
+                  :value="option.value"
+                  :text-value="option.label"
+                >
+                  <template v-if="option.icon" #leading>
+                    <component
+                      :is="option.icon"
+                      class="size-3.5 shrink-0 text-muted-foreground"
+                    />
+                  </template>
+                  {{ option.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              class="size-8 shrink-0"
+              :disabled="chatModelStore.loading || chatModelStore.refreshing"
+              :title="refreshModelsLabel"
+              :aria-label="refreshModelsLabel"
+              @click="refreshModelList"
+            >
+              <RefreshCw
+                class="size-3.5"
+                :class="{ 'animate-spin': chatModelStore.refreshing }"
+              />
+            </Button>
+          </div>
           <Select
+            v-if="selectedModelThinkingTierOptions(item.id).length > 1"
             :model-value="item.id === 'multimodalModel' ? settingStore.multimodalModel : settingStore.chatModel"
-            :disabled="chatModelStore.loading || availableModelOptions.length === 0"
+            :disabled="chatModelStore.loading"
             @update:model-value="(v) => item.id === 'multimodalModel' ? emit('multimodal-model-change', v) : emit('default-model-change', v)"
           >
             <SelectTrigger class="w-full">
-              <SelectValue :placeholder="modelStatusText">
-                <span
-                  v-if="selectedModelOption(item.id)"
-                  class="inline-flex min-w-0 items-center gap-1.5"
-                >
-                  <component
-                    :is="selectedModelOption(item.id)?.icon"
-                    v-if="selectedModelOption(item.id)?.icon"
-                    class="size-3.5 shrink-0 text-muted-foreground"
-                  />
-                  <span class="truncate">{{ selectedModelOption(item.id)?.label }}</span>
-                </span>
-              </SelectValue>
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem
-                v-for="option in availableModelOptions"
+                v-for="option in selectedModelThinkingTierOptions(item.id)"
                 :key="option.value"
                 :value="option.value"
-                :text-value="option.label"
               >
-                <template v-if="option.icon" #leading>
-                  <component
-                    :is="option.icon"
-                    class="size-3.5 shrink-0 text-muted-foreground"
-                  />
-                </template>
                 {{ option.label }}
               </SelectItem>
             </SelectContent>
@@ -301,7 +326,9 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { RotateCcw } from "@lucide/vue";
+import { RefreshCw } from "@lucide/vue";
+import AccentColorField from "@/components/settings/AccentColorField.vue";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SecretInput } from "@/components/ui/secret-input";
 import HotkeyRecordField from "@/components/settings/HotkeyRecordField.vue";
@@ -314,7 +341,12 @@ import {
 } from "@/components/ui/select";
 import { useSettingStore } from "@/stores/setting";
 import { useChatModelStore } from "@/stores/chatModel";
-import { getProviderIcon, formatModelDisplayName, isDeepSeekProvider } from "@/lib/providerIcons";
+import { getProviderIcon, getModelDisplayLabel, isDeepSeekProvider, isGeminiProvider } from "@/lib/providerIcons";
+import {
+  findModelEntry,
+  isModelEntrySelected,
+  localizeThinkingTierLabel,
+} from "@/lib/modelThinking";
 import { tr } from "@/services/i18n";
 import type { SettingDefinition } from "@/pages/Settings/settingsDefinitions";
 import {
@@ -326,7 +358,6 @@ import {
   webSearchProviderOptions,
   toolApprovalModeOptions,
   zoomOptions,
-  type ColorScheme,
 } from "@/types/setting";
 
 const props = defineProps<{
@@ -352,7 +383,7 @@ const emit = defineEmits<{
   "web-search-provider-change": [value: unknown];
   "default-model-change": [value: unknown];
   "multimodal-model-change": [value: unknown];
-  "custom-accent-change": [event: Event];
+  "custom-accent-change": [value: string];
   "reset-custom-accent": [];
   "update:apiKeyDraft": [value: string];
   "save-api-key": [];
@@ -383,10 +414,6 @@ const groups = computed(() => {
     items: groupItems,
   }));
 });
-
-function fieldTitle(item: SettingDefinition) {
-  return item.title;
-}
 
 const colorSchemeSelectOptions = computed(() =>
   colorSchemeOptions.map((option) => ({
@@ -437,35 +464,22 @@ const zoomSelectOptions = computed(() =>
   })),
 );
 
-const themeAccentColors: Record<ColorScheme, string> = {
-  "blue-black": "#6ea8e0",
-  dark: "#3794ff",
-  light: "#0066bf",
-  midnight: "#a78bfa",
-  forest: "#5ecf8a",
-  rose: "#f08aa0",
-  ocean: "#4db8e8",
-  cream: "#c07a3a",
-  graphite: "#b7d36b",
-  ember: "#ee7868",
-  frost: "#287f91",
-  teal: "#54c7b3",
-};
-const effectiveAccentColor = computed(
-  () => settingStore.customAccentColor || themeAccentColors[settingStore.colorScheme],
-);
-const resetAccentLabel = computed(() => tr(settingStore.language, "resetThemeColor"));
-
 const availableModelOptions = computed(() => {
   const models = [...chatModelStore.models];
   const current = settingStore.chatModel.trim();
-  if (current && !models.some((model) => model.id === current)) {
+  if (
+    current &&
+    models.length > 0 &&
+    !models.some((model) => isModelEntrySelected(model, current))
+  ) {
     models.unshift({ id: current, ownedBy: "", provider: "" });
   }
   return models.map((model) => {
-    const name = formatModelDisplayName(model.id, model.provider);
+    const name = getModelDisplayLabel(model);
     const showOwner =
-      !!model.ownedBy && !isDeepSeekProvider(model.provider);
+      !!model.ownedBy &&
+      !isDeepSeekProvider(model.provider) &&
+      !isGeminiProvider(model.provider);
     return {
       value: model.id,
       label: showOwner ? `${name} · ${model.ownedBy}` : name,
@@ -474,12 +488,34 @@ const availableModelOptions = computed(() => {
   });
 });
 
+function resolveModelSelectValue(variantOrDefaultId: string) {
+  const entry = findModelEntry(chatModelStore.models, variantOrDefaultId);
+  return entry?.id ?? variantOrDefaultId;
+}
+
+function selectedModelThinkingTierOptions(itemId: string) {
+  const selectedId =
+    itemId === "multimodalModel"
+      ? settingStore.multimodalModel
+      : settingStore.chatModel;
+  const entry = findModelEntry(chatModelStore.models, selectedId);
+  if (!entry?.thinkingVariants?.length) {
+    return [];
+  }
+  return entry.thinkingVariants.map((variant) => ({
+    value: variant.id,
+    label: localizeThinkingTierLabel(variant.label, settingStore.language),
+  }));
+}
+
 function selectedModelOption(itemId: string) {
   const selectedId =
     itemId === "multimodalModel"
       ? settingStore.multimodalModel
       : settingStore.chatModel;
-  return availableModelOptions.value.find((option) => option.value === selectedId) ?? null;
+  const entry = findModelEntry(chatModelStore.models, selectedId);
+  const optionValue = entry?.id ?? selectedId;
+  return availableModelOptions.value.find((option) => option.value === optionValue) ?? null;
 }
 
 const modelStatusText = computed(() => {
@@ -488,6 +524,14 @@ const modelStatusText = computed(() => {
   }
   return tr(settingStore.language, "noModels");
 });
+
+const refreshModelsLabel = computed(() =>
+  tr(settingStore.language, "refreshModels"),
+);
+
+async function refreshModelList() {
+  await chatModelStore.reload();
+}
 
 function toggleActive(id: string) {
   if (id === "memoryEnabled") return settingStore.memoryEnabled;

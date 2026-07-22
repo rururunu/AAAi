@@ -118,7 +118,6 @@ function curatedPypi(
   };
 }
 
-/** Popular stdio packages that work well with Peek's current MCP client. */
 export const CURATED_MCP_CATALOG: CatalogEntry[] = [
   curatedNpm(
     "filesystem",
@@ -262,7 +261,7 @@ function shortIdFromName(name: string) {
 
 function pickStdioPackage(server: RegistryServer): RegistryPackage | null {
   const packages = server.packages ?? [];
-  // Peek only supports local stdio over npm / PyPI (npx / uvx). Skip remote,
+  // AAAi only supports local stdio over npm / PyPI (npx / uvx). Skip remote,
   // OCI, and other transports so they never appear as "installable".
   const installable = packages.filter((pkg) => {
     if (!pkg.identifier) return false;
@@ -315,7 +314,6 @@ export function packageToInstall(
     };
   }
 
-  // npm (default)
   const runtimeArgs = (pkg.runtimeArguments ?? [])
     .map((arg) => arg.value)
     .filter((value): value is string => Boolean(value));
@@ -461,7 +459,6 @@ export function entryRuntimeKind(entry: CatalogEntry): "npm" | "pypi" | "other" 
   return "other";
 }
 
-/** Hide catalog rows Peek cannot one-click install on this machine. */
 export function isEntryInstallable(entry: CatalogEntry, support: McpRuntimeSupport): boolean {
   // Next version: guide users through required API keys / env vars.
   if ((entry.requiredEnv ?? []).length > 0) return false;

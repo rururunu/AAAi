@@ -114,7 +114,6 @@ fn default_true() -> bool {
     true
 }
 
-/// A single custom OpenAI-compatible provider configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomProviderConfig {
@@ -128,6 +127,56 @@ pub struct CustomProviderConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct GeminiOAuthSettings {
+    #[serde(default = "default_gemini_oauth_client_id")]
+    pub client_id: String,
+    #[serde(default = "default_gemini_oauth_client_secret")]
+    pub client_secret: String,
+    #[serde(default)]
+    pub access_token: String,
+    #[serde(default)]
+    pub refresh_token: String,
+    /// Unix timestamp (seconds) when `access_token` expires.
+    #[serde(default)]
+    pub expires_at: i64,
+    #[serde(default)]
+    pub email: String,
+    /// Cloud Code companion project from `loadCodeAssist`.
+    #[serde(default)]
+    pub project_id: String,
+}
+
+impl Default for GeminiOAuthSettings {
+    fn default() -> Self {
+        Self {
+            client_id: default_gemini_oauth_client_id(),
+            client_secret: default_gemini_oauth_client_secret(),
+            access_token: String::new(),
+            refresh_token: String::new(),
+            expires_at: 0,
+            email: String::new(),
+            project_id: String::new(),
+        }
+    }
+}
+
+impl GeminiOAuthSettings {
+    pub fn is_logged_in(&self) -> bool {
+        !self.access_token.trim().is_empty() || !self.refresh_token.trim().is_empty()
+    }
+}
+
+fn default_gemini_oauth_client_id() -> String {
+    // Antigravity Desktop OAuth client (public, safe to embed).
+    "YOUR_GOOGLE_OAUTH_CLIENT_ID".into()
+}
+
+fn default_gemini_oauth_client_secret() -> String {
+    "YOUR_GOOGLE_OAUTH_CLIENT_SECRET".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub color_scheme: ColorScheme,
     #[serde(default = "default_custom_accent_color")]
@@ -135,6 +184,8 @@ pub struct AppSettings {
     pub language: AppLanguage,
     #[serde(default)]
     pub deepseek_api_key: String,
+    #[serde(default)]
+    pub gemini_oauth: GeminiOAuthSettings,
     #[serde(default = "default_memory_enabled")]
     pub memory_enabled: bool,
     #[serde(default)]
@@ -185,13 +236,12 @@ pub struct AppSettings {
     /// Secondary overlay shortcut, e.g. `Ctrl+Alt+Space` (recorded in Settings).
     #[serde(default = "default_secondary_hotkey")]
     pub secondary_hotkey: String,
-    /// List of custom OpenAI-compatible providers.
     #[serde(default)]
     pub custom_providers: Vec<CustomProviderConfig>,
 }
 
 fn default_chat_model() -> String {
-    "deepseek-chat".to_string()
+    String::new()
 }
 
 fn default_multimodal_model() -> String {
@@ -199,7 +249,7 @@ fn default_multimodal_model() -> String {
 }
 
 fn default_custom_accent_color() -> String {
-    String::new()
+    "#e8ecf2".to_string()
 }
 
 fn default_zoom() -> u32 {
@@ -231,6 +281,7 @@ pub struct AppSettingsPatch {
     pub custom_accent_color: Option<String>,
     pub language: Option<AppLanguage>,
     pub deepseek_api_key: Option<String>,
+    pub gemini_oauth: Option<GeminiOAuthSettings>,
     pub memory_enabled: Option<bool>,
     pub mem0_api_key: Option<String>,
     pub mem0_user_id: Option<String>,
@@ -264,6 +315,7 @@ impl Default for AppSettings {
             custom_accent_color: default_custom_accent_color(),
             language: AppLanguage::ZhCn,
             deepseek_api_key: String::new(),
+            gemini_oauth: GeminiOAuthSettings::default(),
             memory_enabled: default_memory_enabled(),
             mem0_api_key: String::new(),
             mem0_user_id: default_mem0_user_id(),
@@ -322,6 +374,9 @@ impl AppSettings {
             deepseek_api_key: patch
                 .deepseek_api_key
                 .unwrap_or_else(|| self.deepseek_api_key.clone()),
+            gemini_oauth: patch
+                .gemini_oauth
+                .unwrap_or_else(|| self.gemini_oauth.clone()),
             memory_enabled: patch.memory_enabled.unwrap_or(self.memory_enabled),
             mem0_api_key: patch
                 .mem0_api_key

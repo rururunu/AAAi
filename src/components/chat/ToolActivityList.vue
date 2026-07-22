@@ -249,7 +249,7 @@ function shouldStartOpen(activity: ToolActivity) {
   background: color-mix(in srgb, var(--peek-accent) 7%, transparent);
 }
 .tool-activity-card.error {
-  background: color-mix(in srgb, #ef4444 8%, transparent);
+  background: color-mix(in srgb, var(--destructive) 8%, transparent);
 }
 .tool-activity-header {
   display: flex;
@@ -291,9 +291,9 @@ function shouldStartOpen(activity: ToolActivity) {
 .fuzzy-badge { flex: none; font-size: 9px; padding: 0 5px; border-radius: 999px; background: color-mix(in srgb, #eab308 22%, transparent); color: #eab308; font-weight: 650; }
 .change-stats { display: inline-flex; align-items: center; gap: 4px; flex: none; font-family: var(--font-mono); font-size: 10px; font-weight: 650; }
 .change-stats .added { color: #22c55e; }
-.change-stats .removed { color: #ef4444; }
+.change-stats .removed { color: var(--destructive); }
 .tool-activity-status { flex: none; color: var(--peek-muted); font-size: 10px; }
-.tool-activity-status.error { color: #f87171; }
+.tool-activity-status.error { color: var(--destructive); }
 .tool-activity-detail {
   padding: 2px 6px 8px 28px;
   font-size: 11px;
@@ -317,11 +317,11 @@ function shouldStartOpen(activity: ToolActivity) {
 .structured-diff :deep(.hljs-number), .structured-diff :deep(.hljs-symbol) { color: #f78c6c; }
 .structured-diff :deep(.hljs-title), .structured-diff :deep(.hljs-section), .structured-diff :deep(.hljs-built_in) { color: #82aaff; }
 .structured-diff :deep(.hljs-variable), .structured-diff :deep(.hljs-params) { color: #f07178; }
-.diff-line.deletion { background: color-mix(in srgb, #ef4444 19%, transparent); color: color-mix(in srgb, #fecaca 88%, var(--peek-text)); }
+.diff-line.deletion { background: color-mix(in srgb, var(--destructive) 19%, transparent); color: color-mix(in srgb, #fecaca 88%, var(--peek-text)); }
 .diff-line.addition { background: color-mix(in srgb, #22c55e 19%, transparent); color: color-mix(in srgb, #bbf7d0 88%, var(--peek-text)); }
 :global([data-theme="light"]) .diff-line.deletion, :global([data-theme="cream"]) .diff-line.deletion { color: #991b1b; }
 :global([data-theme="light"]) .diff-line.addition, :global([data-theme="cream"]) .diff-line.addition { color: #166534; }
 .tool-activity-card.create .tool-activity-icon { background: color-mix(in srgb, #22c55e 15%, transparent); color: #22c55e; }
 .tool-activity-card.edit .tool-activity-icon { background: color-mix(in srgb, #eab308 15%, transparent); color: #eab308; }
-.tool-activity-card.delete .tool-activity-icon { background: color-mix(in srgb, #ef4444 15%, transparent); color: #ef4444; }
+.tool-activity-card.delete .tool-activity-icon { background: color-mix(in srgb, var(--destructive) 15%, transparent); color: var(--destructive); }
 </style>

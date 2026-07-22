@@ -184,7 +184,7 @@ defineEmits<{
 
 .workspace-error {
   margin: 0;
-  color: #f87171;
+  color: var(--destructive);
   font-size: 10px;
   line-height: 1.4;
 }

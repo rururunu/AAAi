@@ -13,7 +13,7 @@ impl Tool for ContextTool {
         "get_context"
     }
     fn description(&self) -> &str {
-        "Return the current selected text, selected files, clipboard text, active window, and workspace captured by Peek."
+        "Return the current selected text, selected files, clipboard text, active window, and workspace captured by AAAi."
     }
     fn parameters_schema(&self) -> Value {
         json!({ "type": "object", "properties": {} })

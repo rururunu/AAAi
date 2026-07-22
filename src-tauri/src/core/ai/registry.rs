@@ -2,15 +2,28 @@ use std::sync::Arc;
 
 use tauri::AppHandle;
 
+use super::antigravity::AntigravityProvider;
 use super::deepseek::DeepSeekProvider;
 use super::provider::AIProvider;
+use crate::models::settings::ReasoningEffort;
+use crate::services::gemini_oauth;
 use crate::services::settings_store;
 
 /// Resolve the AI provider to use for a request.
-/// If the currently selected model belongs to the custom provider,
-/// a DeepSeekProvider pointed at the custom base URL is returned.
-/// Otherwise the standard DeepSeek provider is returned.
+/// Priority: Antigravity (Gemini OAuth, when logged in) → custom provider → DeepSeek.
+///
+/// Gemini models always prefer Antigravity when OAuth is available, even if the same
+/// model id also appears under a custom OpenAI-compatible provider. Routing Gemini
+/// through that OpenAI path breaks native vision and triggers a fragile multimodal
+/// fallback (`Failed to read multimodal response: error decoding response body`).
 pub fn resolve_provider(app: AppHandle) -> Arc<dyn AIProvider> {
+    let settings = settings_store::get_settings(&app).unwrap_or_default();
+    let model = settings.chat_model.trim().to_string();
+
+    if gemini_oauth::is_gemini_model(&model) && settings.gemini_oauth.is_logged_in() {
+        return Arc::new(AntigravityProvider::new(app));
+    }
+
     let resolve_api_key = {
         let app = app.clone();
         Arc::new(move || {
@@ -45,7 +58,7 @@ pub fn resolve_provider(app: AppHandle) -> Arc<dyn AIProvider> {
         Arc::new(move || {
             settings_store::get_settings(&app)
                 .map(|settings| settings.reasoning_effort)
-                .unwrap_or_default()
+                .unwrap_or(ReasoningEffort::Disabled)
         })
     };
 
@@ -58,7 +71,6 @@ pub fn resolve_provider(app: AppHandle) -> Arc<dyn AIProvider> {
         })
     };
 
-    // Resolver for a custom base URL (None = use default DeepSeek endpoint).
     let resolve_base_url = {
         let app = app.clone();
         Arc::new(move || -> Option<String> {
@@ -90,5 +102,5 @@ pub fn resolve_provider(app: AppHandle) -> Arc<dyn AIProvider> {
 }
 
 fn default_chat_model() -> String {
-    "deepseek-chat".to_string()
+    String::new()
 }

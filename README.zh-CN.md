@@ -1,9 +1,13 @@
-# AltAltAi
-
-Windows 上的 Overlay 编码助手——**双击 Alt**，把当前选区、文件和工作区交给 AI（DeepSeek）。
+# AAAi
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" alt="AltAltAi" width="96" height="96" />
+  <img src="src-tauri/icons/icon.png" alt="AAAi" width="112" height="112" />
+</p>
+
+<h2 align="center">在 Windows 上随时唤出的 AI 对话与编码助手</h2>
+
+<p align="center">
+  双击 <kbd>Alt</kbd>，将当前文本选区、资源管理器选中文件，或手动附加的图片和文件带入对话。
 </p>
 
 <p align="center">
@@ -12,92 +16,93 @@ Windows 上的 Overlay 编码助手——**双击 Alt**，把当前选区、文�
 </p>
 
 <p align="center">
-  <img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?style=flat-square" />
-  <img alt="tauri" src="https://img.shields.io/badge/Tauri-2-FFC131?style=flat-square" />
-  <img alt="vue" src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square" />
-  <img alt="rust" src="https://img.shields.io/badge/Rust-backend-DEA584?style=flat-square" />
-  <img alt="ai" src="https://img.shields.io/badge/AI-DeepSeek-4D6BFE?style=flat-square" />
+  <img alt="platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" />
+  <img alt="release" src="https://img.shields.io/badge/version-v0.1.2-4D6BFE?style=flat-square" />
+  <img alt="license" src="https://img.shields.io/badge/license-Unlicense-3DA639?style=flat-square" />
 </p>
 
-AltAltAi 是本机运行的 Windows 桌面 Overlay：从前台应用捕获上下文，再交给 DeepSeek Agent 读写文件、跑 Shell、调 MCP、搜网页——不用离开你正在用的窗口。
+## 上下文与附件
 
----
+唤出时，AAAi 会尝试读取当前应用中的文本选区，或资源管理器中选中的文件。图片、文本和文本文件也可直接在输入框中粘贴或拖拽附加。
 
-## 快速开始
+<p align="center">
+  <img src="./docs/image/select_text_recognition.webp" alt="选中文本后唤出 AAAi 并识别上下文" width="720" />
+</p>
 
-### 安装包
+<p align="center">
+  <img src="./docs/image/select_image_recognition.webp" alt="选中图片后唤出 AAAi 并附加图片上下文" width="720" />
+</p>
 
-1. 从 [Releases](../../releases) 下载 MSI  
-2. 托盘打开 **设置**，填入 DeepSeek API Key  
-3. 任意应用里 **双击 Alt** → 输入 → 回车  
+工作区不会自动识别；请通过设置或 `/work` 手动选择。未选中的剪贴板文本和活动窗口标题不会自动加入消息。
 
-### 从源码运行
+## 使用方式
 
-需要 Node 18+、pnpm、Rust stable、VS C++ Build Tools、WebView2。
+### 一按即达
+
+在任何应用中双击 <kbd>Alt</kbd>，即可显示或隐藏悬浮窗口。默认备用快捷键是 <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd>，可在设置中修改。
+
+### Ask 与 Agent
+
+- **Ask**：可使用读文件、搜索、LSP 和已配置的只读工具，但不能修改文件、执行 Shell 命令或运行 Git 操作。
+- **Agent**：默认模式；可读写文件、执行 PowerShell、使用 Git、Skills、MCP 和子 Agent。工具审批行为由设置决定。
+- 输入 `/plan` 进入 Plan Mode；该模式会阻止写入类操作，适合先讨论方案。
+
+<p align="center">
+  <img src="./docs/image/set_code.png" alt="Agent 执行文件修改并展示变更内容" width="720" />
+</p>
+
+### 模型服务商
+
+- DeepSeek：使用 API Key。
+- Gemini：使用 Google 账号登录 Antigravity OAuth。
+- 自定义服务商：填写 OpenAI 兼容接口的 Base URL、API Key 与模型列表。
+
+主模型不支持图片时，需要在设置中配置视觉模型，或启用多模态分拆分析。
+
+### 可选能力
+
+- 网页搜索：需在设置中启用并配置 Serper 或 Tavily API Key。
+- MCP：需在设置中添加 MCP Server。
+- LSP：需在设置中启用。
+- 跨会话记忆：可使用本地记忆；启用 mem0 云同步时会访问对应服务。
+
+输入栏会显示上下文用量；你也可以选择模型与思考档位，并在对话中查看工具执行过程。
+
+## 安装与开始使用
+
+1. 从 [Releases](../../releases) 下载并安装 MSI。
+2. 点击系统托盘中的 AAAi 图标，打开 **设置**，配置模型服务商。
+3. 回到任意应用，双击 <kbd>Alt</kbd>，输入问题后按 <kbd>Enter</kbd>。
+
+| 快捷键 | 作用 |
+| --- | --- |
+| 双击 <kbd>Alt</kbd> | 显示或隐藏悬浮窗口 |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> | 备用唤出快捷键 |
+| <kbd>Enter</kbd> | 发送消息 |
+| <kbd>/</kbd> | 打开斜杠命令 |
+| <kbd>Esc</kbd> | 清空输入；部分场景下关闭窗口 |
+
+## 数据与隐私
+
+API Key、OAuth 令牌、设置和聊天记录默认保存在本机。选区和文件采集也在本地完成；只有发送消息后，消息及其附带上下文才会发往你配置的模型服务商。
+
+启用网页搜索、MCP 或 mem0 云同步时，相关内容还会发送给对应的第三方服务。请根据所用服务的隐私政策决定是否启用。
+
+## 从源码运行
+
+需要 Node.js 18+、pnpm、Rust stable、VS C++ Build Tools 与 WebView2。
 
 ```bash
 pnpm install
 pnpm tauri dev
 ```
 
-打包 MSI：
+构建 MSI：
 
 ```bash
 pnpm tauri build
-# → src-tauri/target/release/bundle/msi/
 ```
 
-### 日常操作
+安装包输出至 `src-tauri/target/release/bundle/msi/`。
 
-| 快捷键 | 作用 |
-|--------|------|
-| 双击 `Alt` | 显示 / 隐藏 Overlay |
-| 回车 | 发送（附带捕获的上下文） |
-| `/` | 斜杠命令 |
-
----
-
-## 能力概览
-
-- **Overlay 唤出** — 鼠标附近的透明面板  
-- **自动上下文** — 选区、资源管理器文件、活动窗口、可选工作区  
-- **编码 Agent** — 文件、Shell、Git、Skills、MCP、子 Agent，以及可选 LSP / 网页搜索  
-- **可控** — 工具审批、Plan Mode、Checkpoint / 撤回、路径沙箱  
-- **本机优先** — 设置与对话默认落在本地  
-
----
-
-## 仓库结构
-
-| 路径 | 职责 |
-|------|------|
-| `src/` | Overlay、聊天 UI、设置 |
-| `src-tauri/src/commands/` | Tauri IPC |
-| `src-tauri/src/core/` | AI、聊天、上下文、工具、MCP、checkpoint |
-| `src-tauri/src/runtime/` | 搜索、浏览器、Git 辅助 |
-| `src-tauri/prompts/` | System / 工具提示词 |
-
----
-
-## 文档
-
-- [使用指南](./docs/user-guide.md) — 安装、唤出、聊天与设置  
-- [维护文档](./docs/maintenance.md) — 开发、测试与发版  
-
----
-
-## 隐私
-
-API Key 与设置保存在本机应用数据目录。聊天默认本地存储。工作区文件仅在你发起对话时发往已配置的 DeepSeek 端点。
-
----
-
-## 致谢
-
-部分思路参考了 [DeepSeek-Reasonix](https://github.com/DeepSeek-Reasonix)。
-
-基于 Tauri、Vue、Rust 与 DeepSeek 构建。
-
-## 许可协议
-
-本仓库采用 [Unlicense](./LICENSE)，相当于公共领域，几乎无限制使用、修改与分发。
+本项目采用 [Unlicense](./LICENSE)，相当于公共领域，几乎无限制使用、修改与分发。

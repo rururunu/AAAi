@@ -25,7 +25,7 @@ import type {
   RewindSessionResponse,
 } from "@/types/chat";
 import { IPC_COMMANDS } from "@/types/ipc";
-import type { AppSettings, AppSettingsPatch } from "@/types/setting";
+import type { AppSettings, AppSettingsPatch, GeminiAuthStatus } from "@/types/setting";
 import { invoke } from "@tauri-apps/api/core";
 
 export function ipcInvoke<TResponse>(
@@ -65,6 +65,22 @@ export function getAppSettings() {
 
 export function setAppSettings(patch: AppSettingsPatch) {
   return ipcInvoke<AppSettings>(IPC_COMMANDS.setAppSettings, { patch });
+}
+
+export function geminiAuthStatus() {
+  return ipcInvoke<GeminiAuthStatus>(IPC_COMMANDS.geminiAuthStatus);
+}
+
+export function geminiOauthLogin() {
+  return ipcInvoke<GeminiAuthStatus>(IPC_COMMANDS.geminiOauthLogin);
+}
+
+export function geminiOauthLogout() {
+  return ipcInvoke<GeminiAuthStatus>(IPC_COMMANDS.geminiOauthLogout);
+}
+
+export function geminiImportClientSecrets(path: string) {
+  return ipcInvoke<GeminiAuthStatus>(IPC_COMMANDS.geminiImportClientSecrets, { path });
 }
 
 export function getAppInfo() {

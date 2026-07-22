@@ -28,6 +28,7 @@ pub struct ConversationManager {
     sessions: Arc<Mutex<HashMap<String, Vec<ChatMessage>>>>,
     session_workspaces: Arc<Mutex<HashMap<String, String>>>,
     db_pool: sqlx::SqlitePool,
+    journal: super::journal::SessionJournal,
 }
 
 impl ConversationManager {
@@ -40,6 +41,8 @@ impl ConversationManager {
                     .expect("Failed to initialize SQLite database")
             }
         });
+
+        let journal = super::journal::SessionJournal::new(db_pool.clone());
 
         // Load all existing messages into sessions map
         let all_messages = block_on_compat({
@@ -57,6 +60,35 @@ impl ConversationManager {
                 .entry(msg.session_id.clone())
                 .or_insert_with(Vec::new)
                 .push(msg);
+        }
+
+        // Rebuild partial streaming content from journal before settling orphans.
+        {
+            let pool = db_pool.clone();
+            let mut flat: Vec<ChatMessage> = sessions.values().flatten().cloned().collect();
+            let flat = block_on_compat({
+                let pool = pool.clone();
+                async move {
+                    let _ = super::journal::hydrate_orphaned_from_journal(&pool, &mut flat).await;
+                    flat
+                }
+            });
+            // Write hydrated content back into the session map.
+            let by_id: HashMap<String, ChatMessage> =
+                flat.into_iter().map(|m| (m.id.clone(), m)).collect();
+            for messages in sessions.values_mut() {
+                for message in messages.iter_mut() {
+                    if let Some(hydrated) = by_id.get(&message.id) {
+                        if matches!(
+                            message.status,
+                            MessageStatus::Pending | MessageStatus::Streaming
+                        ) {
+                            message.content = hydrated.content.clone();
+                            message.reasoning = hydrated.reasoning.clone();
+                        }
+                    }
+                }
+            }
         }
 
         // Crash / force-quit can leave pending/streaming messages and running tools.
@@ -86,7 +118,12 @@ impl ConversationManager {
             sessions: Arc::new(Mutex::new(sessions)),
             session_workspaces: Arc::new(Mutex::new(session_workspaces)),
             db_pool,
+            journal,
         }
+    }
+
+    pub fn journal(&self) -> &super::journal::SessionJournal {
+        &self.journal
     }
 
     pub fn inner(&self) -> Arc<Mutex<HashMap<String, Vec<ChatMessage>>>> {
@@ -411,7 +448,7 @@ fn session_preview(messages: &[ChatMessage]) -> String {
         if matches!(message.role, Role::User) {
             let trimmed = super::selection::visible_user_text(&message.content);
             if !trimmed.is_empty() {
-                return truncate_preview(trimmed);
+                return truncate_preview(&trimmed);
             }
         }
     }

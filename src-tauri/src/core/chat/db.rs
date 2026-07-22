@@ -62,6 +62,7 @@ pub async fn init_db(db_path: &Path) -> Result<SqlitePool, String> {
     .map_err(|e| e.to_string())?;
 
     init_chat_session_schema(&pool).await?;
+    crate::core::chat::journal::init_journal_schema(&pool).await?;
 
     Ok(pool)
 }

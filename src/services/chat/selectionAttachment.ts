@@ -1,3 +1,6 @@
+import type { AttachedFileDisplay } from "@/services/chat/attachFiles";
+import { extractAttachedFiles } from "@/services/chat/attachFiles";
+
 const SELECTION_OPEN = /\n\n<peek-selection lines="(\d+)">\n/;
 const SELECTION_CLOSE = "\n</peek-selection>";
 const ANALYSIS_TAG_RE =
@@ -14,6 +17,7 @@ export interface SelectionAttachment {
   lineCount?: number;
   images?: string[];
   imageAnalyses?: ImageAnalysis[];
+  attachedFiles?: AttachedFileDisplay[];
 }
 
 export function selectionLineCount(selection: string) {
@@ -67,7 +71,9 @@ export function parseSelectionAttachment(content: string): SelectionAttachment {
     .replace(new RegExp(ANALYSIS_TAG_RE.source, "g"), "")
     .replace(imageRegex, "")
     .trim();
-  messageText = messageText.replace(/\n\n+/g, "\n\n").trim();
+
+  const extracted = extractAttachedFiles(messageText);
+  messageText = extracted.text.replace(/\n\n+/g, "\n\n").trim();
 
   return {
     message: messageText,
@@ -75,5 +81,6 @@ export function parseSelectionAttachment(content: string): SelectionAttachment {
     lineCount,
     images: images.length > 0 ? images : undefined,
     imageAnalyses: imageAnalyses.length > 0 ? imageAnalyses : undefined,
+    attachedFiles: extracted.attachedFiles.length > 0 ? extracted.attachedFiles : undefined,
   };
 }

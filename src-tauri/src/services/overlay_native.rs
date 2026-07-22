@@ -8,8 +8,8 @@ mod imp {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, IsIconic, IsWindowVisible, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-        GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST, SW_MINIMIZE, SW_RESTORE, SWP_FRAMECHANGED,
-        SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOMOVE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+        GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST, SW_MINIMIZE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+        SWP_NOSIZE, SWP_NOMOVE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
     };
 
     static OVERLAY_NATIVE_MINIMIZED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -56,14 +56,6 @@ mod imp {
         unsafe { minimize_hwnd(hwnd) }
     }
 
-    pub fn restore_window(window: &WebviewWindow) -> Result<(), String> {
-        let hwnd = local_hwnd(window)?;
-        unsafe {
-            restore_hwnd(hwnd);
-        }
-        Ok(())
-    }
-
     pub fn reapply_toolwindow_style(window: &WebviewWindow) {
         let Ok(hwnd) = local_hwnd(window) else {
             return;
@@ -82,11 +74,6 @@ mod imp {
         apply_appwindow_style(hwnd);
         let _ = ShowWindow(hwnd, SW_MINIMIZE);
         Ok(())
-    }
-
-    unsafe fn restore_hwnd(hwnd: HWND) {
-        let _ = ShowWindow(hwnd, SW_RESTORE);
-        apply_toolwindow_style(hwnd);
     }
 
     unsafe fn apply_appwindow_style(hwnd: HWND) {
@@ -153,10 +140,6 @@ mod imp {
 
     pub fn minimize_window(window: &WebviewWindow) -> Result<(), String> {
         window.minimize().map_err(|error| error.to_string())
-    }
-
-    pub fn restore_window(window: &WebviewWindow) -> Result<(), String> {
-        window.unminimize().map_err(|error| error.to_string())
     }
 }
 

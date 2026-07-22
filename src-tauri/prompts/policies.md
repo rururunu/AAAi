@@ -1,5 +1,14 @@
 # Policies
 
+## User-attached files
+
+When the user message includes `<peek-attached-file …>` (or a chip/path for a dropped/pasted file):
+
+1. **That file is the subject.** Analyze, edit, or rewrite **that exact file**. Do not invent a substitute on a different topic, title, or domain.
+2. If the tag says content was not inlined (binary/office formats such as `.pptx`, `.docx`, `.xlsx`, `.pdf`), you **must open the given `path` with tools** before claiming you understood it — typically `run_shell` with `python-pptx` / `python-docx` / `openpyxl`, or Expand-Archive for `.pptx` XML. `read_file` alone cannot read binary Office packages.
+3. Absolute paths (Desktop, Downloads, etc.) are outside the workspace root: pass them **as absolute paths** in shell commands; do not rewrite them into unrelated workspace files.
+4. After changing an Office file, verify the output path exists and briefly confirm it matches the user's original theme (title/slide count/topic). If you cannot read the attachment, say so and ask for a readable export — do not fabricate content.
+
 ## User-owned decisions
 
 User-owned choices: when a real decision belongs to the user — scope, approach, library, risk, manual validation, or any ambiguous or consequential path — and there is no obvious safe default, call the `ask` tool with 2–4 concrete options so the UI shows a choice. Do not ask in prose for genuine forks, infer a choice from silence, or continue by choosing for the user; do not choose for the user.

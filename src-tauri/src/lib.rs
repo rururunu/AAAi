@@ -18,7 +18,7 @@ use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 use app_state::AppState;
-use commands::{app, ask, chat, harness, mcp, permission, settings, skills, window, workspace};
+use commands::{app, ask, chat, gemini, harness, mcp, permission, settings, skills, window, workspace};
 use services::settings_store::{load_settings, SettingsState};
 use services::overlay_native::clear_minimize_pending;
 use services::window::{
@@ -39,7 +39,6 @@ fn is_alt_key(key: Key) -> bool {
     matches!(key, Key::Alt | Key::AltGr)
 }
 
-/// 即时获取鼠标物理坐标
 fn cursor_pos() -> Option<(i32, i32)> {
     let mut pt = POINT::default();
     unsafe { GetCursorPos(&mut pt).ok().map(|_| (pt.x, pt.y)) }
@@ -192,7 +191,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     TrayIconBuilder::new()
         .icon(icon)
         .menu(&menu)
-        .tooltip("AltAltAi")
+        .tooltip("AAAi")
         .on_menu_event(|app, event| match event.id.as_ref() {
             "settings" => show_settings_window(app),
             "quit" => app.exit(0),
@@ -208,7 +207,19 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                show_settings_window(&handle);
+            });
+        }))
         .setup(|app| {
+            let config_dir = app
+                .path()
+                .app_config_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            crate::core::chat::telemetry::init_logging(&config_dir);
+
             let settings = load_settings(app.handle());
             crate::core::tools::memory::shared_memory_store().configure(&settings);
             crate::runtime::search::shared_search_runtime().configure(&settings);
@@ -236,7 +247,6 @@ pub fn run() {
         .on_window_event(|window, event| {
             let label = window.label().to_string();
 
-            // 窗口销毁时清理状态
             if let tauri::WindowEvent::Destroyed = event {
                 if is_overlay_label(&label) {
                     cleanup_overlay_state(&label);
@@ -289,6 +299,10 @@ pub fn run() {
             window::get_preview_image,
             settings::get_app_settings,
             settings::set_app_settings,
+            gemini::gemini_auth_status,
+            gemini::gemini_oauth_login,
+            gemini::gemini_oauth_logout,
+            gemini::gemini_import_client_secrets,
             skills::list_skills,
             skills::install_skill,
             skills::uninstall_skill,

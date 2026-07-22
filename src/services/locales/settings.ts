@@ -20,6 +20,18 @@ export type SettingsI18nKey =
   | "settings.searchPlaceholder" | "settings.apiKeyPlaceholder" | "settings.empty"
   | "settings.hotkey.record" | "settings.hotkey.recording" | "settings.hotkey.reset"
   | "settings.provider.deepseek"
+  | "settings.provider.gemini"
+  | "settings.provider.geminiDescription"
+  | "settings.provider.geminiClientId"
+  | "settings.provider.geminiClientSecret"
+  | "settings.provider.geminiClientSecretHint"
+  | "settings.provider.geminiAccount"
+  | "settings.provider.geminiLogin"
+  | "settings.provider.geminiLogout"
+  | "settings.provider.geminiLoggingIn"
+  | "settings.provider.geminiSignedIn"
+  | "settings.provider.geminiSignedOut"
+  | "settings.provider.geminiImportCredentials"
   | "settings.provider.custom"
   | "settings.provider.title"
   | "settings.provider.description"
@@ -55,9 +67,21 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.hotkey.reset": "Restore default",
 
   "settings.provider.deepseek": "DeepSeek Provider",
+  "settings.provider.gemini": "Gemini Provider",
+  "settings.provider.geminiDescription": "Sign in with Google via Antigravity to use Gemini models (Cloud Code).",
+  "settings.provider.geminiClientId": "OAuth Client ID",
+  "settings.provider.geminiClientSecret": "OAuth Client Secret",
+  "settings.provider.geminiClientSecretHint": "From Google Cloud → Credentials → your Desktop OAuth client. Kept on this device only.",
+  "settings.provider.geminiAccount": "Google account",
+  "settings.provider.geminiLogin": "Sign in with Google",
+  "settings.provider.geminiLogout": "Sign out",
+  "settings.provider.geminiLoggingIn": "Waiting for browser…",
+  "settings.provider.geminiSignedIn": "Signed in",
+  "settings.provider.geminiSignedOut": "Not signed in",
+  "settings.provider.geminiImportCredentials": "Import client_secret JSON",
   "settings.provider.custom": "Custom Provider",
   "settings.provider.title": "Provider Configurations",
-  "settings.provider.description": "Configure DeepSeek API or custom OpenAI-compatible providers.",
+  "settings.provider.description": "Configure DeepSeek, Gemini (Antigravity), or custom OpenAI-compatible providers.",
   "settings.provider.apiKey": "API Key",
   "settings.provider.baseUrl": "Base URL",
   "settings.provider.modelsList": "Model List",
@@ -103,13 +127,13 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.fields.deepseekApiKey.title": "API Key",
   "settings.fields.deepseekApiKey.description": "Used for DeepSeek chat requests. Stored locally only.",
   "settings.fields.customAccentColor.title": "Custom Accent Color",
-  "settings.fields.customAccentColor.description": "Override the active theme accent color, or reset to its default.",
+  "settings.fields.customAccentColor.description": "Choose the app accent color. Default is soft white (#e8ecf2).",
   "settings.fields.defaultModel.title": "Default model",
   "settings.fields.defaultModel.description": "The model used for new chats. Available models are loaded from the DeepSeek API.",
   "settings.fields.multimodalModel.title": "Multimodal model",
-  "settings.fields.multimodalModel.description": "The model used automatically when handling vision or multimodal inputs (e.g. gpt-4o).",
+  "settings.fields.multimodalModel.description": "Fallback vision model used only when the primary chat model cannot see images (e.g. DeepSeek-R1). Gemini / GPT-4o already see images natively and ignore this.",
   "settings.fields.multimodalSplitAnalysis.title": "Split multimodal analysis",
-  "settings.fields.multimodalSplitAnalysis.description": "When enabled, the multimodal model only transcribes/describes the image, and the main model generates the final answer and executes tools (highly recommended for pure-text reasoning models like DeepSeek-R1).",
+  "settings.fields.multimodalSplitAnalysis.description": "For text-only primary models: the multimodal model describes the image, then the primary model answers and runs tools. Not used when the primary model already supports vision (e.g. Gemini).",
   "settings.fields.largeContextEnabled.title": "1M context window",
   "settings.fields.largeContextEnabled.description": "When enabled, use a 1,000,000-token context window for history compaction and turn budgets. When disabled, fall back to 64k.",
   "settings.fields.reasoningEffort.title": "Reasoning Effort",
@@ -195,9 +219,21 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.categories.provider": "提供商",
 
     "settings.provider.deepseek": "DeepSeek 提供商",
+    "settings.provider.gemini": "Gemini 提供商",
+    "settings.provider.geminiDescription": "通过 Antigravity 使用 Google 账号登录后即可调用 Gemini（Cloud Code）。",
+    "settings.provider.geminiClientId": "OAuth Client ID",
+    "settings.provider.geminiClientSecret": "OAuth Client Secret",
+    "settings.provider.geminiClientSecretHint": "来自 Google Cloud → 凭据 → Desktop OAuth 客户端，仅保存在本机。",
+    "settings.provider.geminiAccount": "Google 账号",
+    "settings.provider.geminiLogin": "使用 Google 登录",
+    "settings.provider.geminiLogout": "退出登录",
+    "settings.provider.geminiLoggingIn": "等待浏览器授权…",
+    "settings.provider.geminiSignedIn": "已登录",
+    "settings.provider.geminiSignedOut": "未登录",
+    "settings.provider.geminiImportCredentials": "导入 client_secret JSON",
     "settings.provider.custom": "自定义提供商",
     "settings.provider.title": "模型提供商配置",
-    "settings.provider.description": "配置 DeepSeek API 或自定义 OpenAI 兼容的模型提供商。",
+    "settings.provider.description": "配置 DeepSeek、Gemini（Antigravity）或自定义 OpenAI 兼容提供商。",
     "settings.provider.apiKey": "API Key",
     "settings.provider.baseUrl": "Base URL",
     "settings.provider.modelsList": "模型列表",
@@ -231,13 +267,13 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.deepseekApiKey.title": "API Key",
     "settings.fields.deepseekApiKey.description": "DeepSeek API Key",
     "settings.fields.customAccentColor.title": "自定义主题色",
-    "settings.fields.customAccentColor.description": "覆盖当前主题的强调色；重置后使用主题默认颜色。",
+    "settings.fields.customAccentColor.description": "选择应用强调色，默认为柔和白（#e8ecf2）。",
     "settings.fields.defaultModel.title": "默认模型",
     "settings.fields.defaultModel.description": "新对话默认使用的模型，列表通过 DeepSeek API 获取。",
     "settings.fields.multimodalModel.title": "多模态模型",
-    "settings.fields.multimodalModel.description": "当对话中包含图片等文件输入时，系统将自动切换为该模型执行请求（例如 gpt-4o）。",
+    "settings.fields.multimodalModel.description": "仅当主模型本身不能看图时（如 DeepSeek-R1）才用作视觉回退；Gemini / GPT-4o 等原生识图模型不会走此路径。",
     "settings.fields.multimodalSplitAnalysis.title": "多模态分步分析",
-    "settings.fields.multimodalSplitAnalysis.description": "开启后，多模态模型仅用于提取和分析图片中的内容，而最终回答与工具调用仍由主模型（如 DeepSeek-R1 等纯文本推理模型）来完成（推荐）。",
+    "settings.fields.multimodalSplitAnalysis.description": "面向无视觉能力的主模型：多模态模型先描述图片，再由主模型作答与调用工具。主模型已支持识图（如 Gemini）时不会启用。",
     "settings.fields.largeContextEnabled.title": "1M 上下文",
     "settings.fields.largeContextEnabled.description": "开启后使用约 100 万 token 的上下文窗口（历史压缩与单轮预算）；关闭则回退到 64k。",
     "settings.fields.reasoningEffort.title": "Reasoning Effort",

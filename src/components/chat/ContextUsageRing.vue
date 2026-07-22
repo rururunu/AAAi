@@ -120,6 +120,6 @@ const tone = computed(() => {
 }
 
 .context-usage-ring.critical .progress {
-  stroke: #ef4444;
+  stroke: var(--destructive);
 }
 </style>

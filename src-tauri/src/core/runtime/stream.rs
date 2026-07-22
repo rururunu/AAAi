@@ -7,6 +7,9 @@ pub struct ToolCallPayload {
     pub id: String,
     pub name: String,
     pub arguments: String,
+    /// Gemini 3 / Cloud Code thought signature; replay on later turns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thought_signature: Option<String>,
 }
 
 /// 统一流式事件 — 所有 Provider 必须映射到此枚举。

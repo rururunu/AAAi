@@ -27,7 +27,7 @@ impl ContextManager {
             Err(error) => return ContextCaptureOutcome::Failed(error),
         };
 
-        if window.process_name.eq_ignore_ascii_case("peek.exe") {
+        if window.process_name.eq_ignore_ascii_case("AAAi.exe") {
             return ContextCaptureOutcome::Empty;
         }
 
