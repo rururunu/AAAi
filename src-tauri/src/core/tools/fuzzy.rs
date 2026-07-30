@@ -101,14 +101,15 @@ pub fn apply_old_string_edit(
 }
 
 fn match_line_endings(content: &str, old: &str, new: &str) -> (String, String) {
+    let replacement = match_replacement_line_endings(content, new);
     if content.contains(old) || !content.contains("\r\n") {
-        return (old.to_string(), new.to_string());
+        return (old.to_string(), replacement);
     }
     let old_crlf = to_crlf(old);
     if content.contains(&old_crlf) {
-        return (old_crlf, to_crlf(new));
+        return (old_crlf, replacement);
     }
-    (old.to_string(), new.to_string())
+    (old.to_string(), replacement)
 }
 
 fn to_crlf(s: &str) -> String {
@@ -262,7 +263,12 @@ fn fuzzy_window_end(content_last: &LineSegment, old_last: &LineSegment) -> usize
     end
 }
 
-fn normalize_fuzzy_line(line: &str, include_newline: bool, mode: FuzzyMode, strip_read: bool) -> String {
+fn normalize_fuzzy_line(
+    line: &str,
+    include_newline: bool,
+    mode: FuzzyMode,
+    strip_read: bool,
+) -> String {
     let mut body = line.strip_suffix('\n').unwrap_or(line).to_string();
     if strip_read {
         if let Some(stripped) = strip_read_file_line_prefix(&body) {
@@ -338,7 +344,8 @@ mod tests {
     #[test]
     fn fuzzy_trailing_whitespace() {
         let content = "fn main() {  \n";
-        let result = apply_old_string_edit(content, "fn main() {\n", "fn main() {\n    // hi\n", false);
+        let result =
+            apply_old_string_edit(content, "fn main() {\n", "fn main() {\n    // hi\n", false);
         assert!(result.fuzzy);
         assert_eq!(result.applied, 1);
         assert!(result.updated.contains("// hi"));
@@ -350,5 +357,13 @@ mod tests {
         let result = apply_old_string_edit(content, "aa\n", "bb\n", false);
         assert_eq!(result.applied, 0);
         assert!(result.matches >= 2);
+    }
+
+    #[test]
+    fn exact_replacement_preserves_crlf_for_inserted_lines() {
+        let content = "before\r\ntarget\r\nafter\r\n";
+        let result = apply_old_string_edit(content, "target", "first\nsecond", false);
+        assert_eq!(result.updated, "before\r\nfirst\r\nsecond\r\nafter\r\n");
+        assert!(!result.updated.replace("\r\n", "").contains('\n'));
     }
 }

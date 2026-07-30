@@ -1,17 +1,18 @@
 import type { AppLanguage } from "@/types/setting";
 
 export const settingsFieldIds = [
-  "colorScheme", "language", "zoom", "opacity", "secondaryHotkey", "deepseekApiKey", "customAccentColor",
-  "defaultModel", "multimodalModel", "multimodalSplitAnalysis", "largeContextEnabled", "reasoningEffort", "reasoningLanguage", "passToolReasoning",
+  "colorScheme", "language", "zoom", "opacity", "primaryHotkey", "secondaryHotkey", "deepseekApiKey",
+  "defaultModel", "multimodalModel", "multimodalSplitAnalysis", "largeContextEnabled", "reasoningEffort", "reasoningLanguage", "showReasoning", "passToolReasoning",
   "memoryEnabled", "mem0ApiKey", "mem0UserId", "mem0BaseUrl",
   "webSearchEnabled", "webSearchProvider", "serperApiKey", "tavilyApiKey",
-  "toolApprovalMode", "lspEnabled",
+  "toolApprovalMode", "lspEnabled", "multiModelCollaboration",
+  "pixpinPinAiEnabled", "snipastePinAiEnabled",
   "appName", "appVersion", "appIdentifier",
 ] as const;
 export type SettingFieldId = typeof settingsFieldIds[number];
 
-type CategoryKey = "appearance" | "ai" | "memory" | "search" | "agent" | "mcp" | "skills" | "workspace" | "history" | "about" | "provider";
-type GroupKey = "appearance" | "ai" | "memory" | "search" | "agent" | "about";
+type CategoryKey = "appearance" | "ai" | "memory" | "search" | "agent" | "mcp" | "skills" | "plugins" | "workspace" | "history" | "about" | "provider";
+type GroupKey = "appearance" | "ai" | "memory" | "search" | "agent" | "plugins" | "about";
 type HistoryKey = "search" | "title" | "selectAll" | "deleteSelected" | "clearAll" | "empty" | "deleteGroup" | "messages" | "open" | "publicGroup" | "yesterday" | "cancel" | "deleteLabel";
 type HistoryConfirmKey = "deleteTitle" | "deleteSelectedDesc" | "deleteGroupTitle" | "deleteGroupDesc" | "deleteSingleDesc" | "clearTitle" | "clearDesc" | "deleteAllLabel";
 
@@ -102,6 +103,7 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.categories.agent": "Agent",
   "settings.categories.mcp": "MCP",
   "settings.categories.skills": "Skills",
+  "settings.categories.plugins": "Pin tools",
   "settings.categories.workspace": "Space",
   "settings.categories.history": "History",
   "settings.categories.about": "About",
@@ -112,22 +114,23 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.groups.memory": "mem0",
   "settings.groups.search": "Web Search",
   "settings.groups.agent": "Coding harness",
+  "settings.groups.plugins": "PixPin / Snipaste",
   "settings.groups.about": "Application",
 
   "settings.fields.colorScheme.title": "Color Scheme",
-  "settings.fields.colorScheme.description": "Choose the overall color theme for the app.",
+  "settings.fields.colorScheme.description": "Choose a built-in theme or any theme installed as a VS Code extension.",
   "settings.fields.language.title": "Language",
   "settings.fields.language.description": "Choose the display language for the interface.",
   "settings.fields.zoom.title": "Interface Zoom",
   "settings.fields.zoom.description": "Adjust the scale of interface elements and fonts for high-DPI displays.",
   "settings.fields.opacity.title": "Opacity",
   "settings.fields.opacity.description": "Adjust window opacity and enable frosted glass background.",
+  "settings.fields.primaryHotkey.title": "Primary shortcut",
+  "settings.fields.primaryHotkey.description": "Record the modifier key to double-tap for opening AAAi. Default: double Alt.",
   "settings.fields.secondaryHotkey.title": "Secondary shortcut",
   "settings.fields.secondaryHotkey.description": "Record a backup shortcut for apps that steal double-Alt (e.g. IDEA). Default: Ctrl+Alt+Space.",
   "settings.fields.deepseekApiKey.title": "API Key",
   "settings.fields.deepseekApiKey.description": "Used for DeepSeek chat requests. Stored locally only.",
-  "settings.fields.customAccentColor.title": "Custom Accent Color",
-  "settings.fields.customAccentColor.description": "Choose the app accent color. Default is soft white (#e8ecf2).",
   "settings.fields.defaultModel.title": "Default model",
   "settings.fields.defaultModel.description": "The model used for new chats. Available models are loaded from the DeepSeek API.",
   "settings.fields.multimodalModel.title": "Multimodal model",
@@ -140,6 +143,8 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.fields.reasoningEffort.description": "Controls DeepSeek thinking depth; disabled omits reasoning_effort.",
   "settings.fields.reasoningLanguage.title": "Reasoning Language",
   "settings.fields.reasoningLanguage.description": "Preferences for visible reasoning and final answer language (transient injection).",
+  "settings.fields.showReasoning.title": "Show reasoning process",
+  "settings.fields.showReasoning.description": "Show model reasoning in chat when the provider supplies it.",
   "settings.fields.passToolReasoning.title": "Pass tool-turn reasoning",
   "settings.fields.passToolReasoning.description": "Include reasoning_content on assistant turns with tool_calls (required by DeepSeek thinking + tools; turning off may cause 400 errors).",
   "settings.fields.memoryEnabled.title": "Enable memory",
@@ -162,6 +167,12 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.fields.toolApprovalMode.description": "Ask / Auto / Always allow. Always allow still blocks dangerous shell via rules.",
   "settings.fields.lspEnabled.title": "Enable LSP",
   "settings.fields.lspEnabled.description": "Expose lsp_diagnostics / lsp_definition when language servers are available.",
+  "settings.fields.multiModelCollaboration.title": "Multi-model collaboration",
+  "settings.fields.multiModelCollaboration.description": "Allow the main Agent to delegate suitable tasks to child Agents using the selected available models.",
+  "settings.fields.pixpinPinAiEnabled.title": "PixPin pin badge",
+  "settings.fields.pixpinPinAiEnabled.description": "When a PixPin pin is on screen, show a small AI badge at its bottom-right. Click to open AAAi with that image attached.",
+  "settings.fields.snipastePinAiEnabled.title": "Snipaste pin badge",
+  "settings.fields.snipastePinAiEnabled.description": "When a Snipaste pin is on screen, show a small AI badge at its bottom-right. Click to open AAAi with that image attached.",
   "settings.fields.appName.title": "Application Name",
   "settings.fields.appName.description": "The installed application name.",
   "settings.fields.appVersion.title": "Version",
@@ -213,6 +224,7 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.categories.agent": "代理",
     "settings.categories.mcp": "插件",
     "settings.categories.skills": "技能",
+    "settings.categories.plugins": "贴图工具",
     "settings.categories.workspace": "工作",
     "settings.categories.history": "历史",
     "settings.categories.about": "关于",
@@ -252,22 +264,23 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.groups.memory": "mem0",
     "settings.groups.search": "联网搜索",
     "settings.groups.agent": "编码助手",
+    "settings.groups.plugins": "PixPin / Snipaste",
     "settings.groups.about": "应用信息",
 
     "settings.fields.colorScheme.title": "Color Scheme",
-    "settings.fields.colorScheme.description": "配色方案。",
+    "settings.fields.colorScheme.description": "选择内置亮色、暗色，或本机已安装的 VS Code 主题插件。",
     "settings.fields.language.title": "Language",
     "settings.fields.language.description": "界面语言。",
     "settings.fields.zoom.title": "界面缩放",
     "settings.fields.zoom.description": "调整软件界面大小。",
     "settings.fields.opacity.title": "透明度",
     "settings.fields.opacity.description": "调整窗口背景透明度与毛玻璃效果。",
+    "settings.fields.primaryHotkey.title": "主快捷键",
+    "settings.fields.primaryHotkey.description": "录制用于打开 AAAi 的双击修饰键。默认：双击 Alt。",
     "settings.fields.secondaryHotkey.title": "副快捷键",
     "settings.fields.secondaryHotkey.description": "为会抢走双击 Alt 的应用（如 IDEA）录制备用快捷键。默认：Ctrl+Alt+Space。",
     "settings.fields.deepseekApiKey.title": "API Key",
     "settings.fields.deepseekApiKey.description": "DeepSeek API Key",
-    "settings.fields.customAccentColor.title": "自定义主题色",
-    "settings.fields.customAccentColor.description": "选择应用强调色，默认为柔和白（#e8ecf2）。",
     "settings.fields.defaultModel.title": "默认模型",
     "settings.fields.defaultModel.description": "新对话默认使用的模型，列表通过 DeepSeek API 获取。",
     "settings.fields.multimodalModel.title": "多模态模型",
@@ -280,6 +293,8 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.reasoningEffort.description": "DeepSeek 思考深度",
     "settings.fields.reasoningLanguage.title": "Reasoning Language",
     "settings.fields.reasoningLanguage.description": "推理文本与回答语言偏好",
+    "settings.fields.showReasoning.title": "显示思考过程",
+    "settings.fields.showReasoning.description": "模型提供推理内容时，在聊天中显示思考过程。",
     "settings.fields.passToolReasoning.title": "工具轮次回传推理",
     "settings.fields.passToolReasoning.description": "开启后，含 tool_calls 的 assistant 轮次会把 reasoning_content 带回 API（DeepSeek Thinking + 工具所必需；关闭可能导致 400）。",
     "settings.fields.memoryEnabled.title": "启用记忆",
@@ -302,6 +317,12 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.toolApprovalMode.description": "询问 / 自动 / 一律允许。一律允许仍会拦截危险 shell。",
     "settings.fields.lspEnabled.title": "启用 LSP",
     "settings.fields.lspEnabled.description": "启用后可使用 lsp_diagnostics / lsp_definition 等工具。",
+    "settings.fields.multiModelCollaboration.title": "多模型协同",
+    "settings.fields.multiModelCollaboration.description": "允许主 Agent 将适合的任务交给使用所选模型的子 Agent。",
+    "settings.fields.pixpinPinAiEnabled.title": "PixPin 贴图角标",
+    "settings.fields.pixpinPinAiEnabled.description": "检测到 PixPin 贴图时，在其右下角显示 AI 角标。点击后打开 AAAi 并将该图片附加到消息中。",
+    "settings.fields.snipastePinAiEnabled.title": "Snipaste 贴图角标",
+    "settings.fields.snipastePinAiEnabled.description": "检测到 Snipaste 贴图时，在其右下角显示 AI 角标。点击后打开 AAAi 并将该图片附加到消息中。",
     "settings.fields.appName.title": "Application Name",
     "settings.fields.appName.description": "应用名称",
     "settings.fields.appVersion.title": "Version",
@@ -385,8 +406,6 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.opacity.description": "ウィンドウの透明度とすりガラス効果を調整します。",
     "settings.fields.deepseekApiKey.title": "API キー",
     "settings.fields.deepseekApiKey.description": "DeepSeek のチャットリクエストに使用し、ローカルにのみ保存されます。",
-    "settings.fields.customAccentColor.title": "カスタムアクセントカラー",
-    "settings.fields.customAccentColor.description": "現在のテーマのアクセントカラーを上書きします。",
     "settings.fields.defaultModel.title": "既定のモデル",
     "settings.fields.defaultModel.description": "新しいチャットで使用するモデルです。一覧は DeepSeek API から取得します。",
     "settings.fields.multimodalModel.title": "マルチモーダルモデル",
@@ -500,8 +519,6 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.opacity.description": "Настройте прозрачность окна и эффект матового стекла.",
     "settings.fields.deepseekApiKey.title": "Ключ API",
     "settings.fields.deepseekApiKey.description": "Используется для запросов DeepSeek и хранится только локально.",
-    "settings.fields.customAccentColor.title": "Цвет акцента",
-    "settings.fields.customAccentColor.description": "Переопределяет цвет акцента текущей темы.",
     "settings.fields.defaultModel.title": "Модель по умолчанию",
     "settings.fields.defaultModel.description": "Модель для новых чатов. Список загружается через API DeepSeek.",
     "settings.fields.multimodalModel.title": "Мультимодальная модель",
@@ -615,8 +632,6 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.opacity.description": "Passen Sie Fenstertransparenz und Milchglaseffekt an.",
     "settings.fields.deepseekApiKey.title": "API-Schlüssel",
     "settings.fields.deepseekApiKey.description": "Wird für DeepSeek-Anfragen verwendet und nur lokal gespeichert.",
-    "settings.fields.customAccentColor.title": "Eigene Akzentfarbe",
-    "settings.fields.customAccentColor.description": "Überschreibt die Akzentfarbe des aktuellen Designs.",
     "settings.fields.defaultModel.title": "Standardmodell",
     "settings.fields.defaultModel.description": "Modell für neue Chats. Die Liste wird über die DeepSeek-API geladen.",
     "settings.fields.multimodalModel.title": "Multimodales Modell",
@@ -730,8 +745,6 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.opacity.description": "Ajustez la transparence et l\u2019effet de verre dépoli.",
     "settings.fields.deepseekApiKey.title": "Clé API",
     "settings.fields.deepseekApiKey.description": "Utilisée pour les requêtes DeepSeek et stockée uniquement en local.",
-    "settings.fields.customAccentColor.title": "Couleur d\u2019accentuation",
-    "settings.fields.customAccentColor.description": "Remplace la couleur d\u2019accentuation du thème actuel.",
     "settings.fields.defaultModel.title": "Modèle par défaut",
     "settings.fields.defaultModel.description": "Modèle utilisé pour les nouvelles discussions. La liste vient de l\u2019API DeepSeek.",
     "settings.fields.multimodalModel.title": "Modèle multimodal",
@@ -845,8 +858,6 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.opacity.description": "창 투명도와 반투명 유리 효과를 조정합니다.",
     "settings.fields.deepseekApiKey.title": "API 키",
     "settings.fields.deepseekApiKey.description": "DeepSeek 요청에 사용하며 로컬에만 저장됩니다.",
-    "settings.fields.customAccentColor.title": "사용자 지정 강조색",
-    "settings.fields.customAccentColor.description": "현재 테마의 강조색을 재정의합니다.",
     "settings.fields.defaultModel.title": "기본 모델",
     "settings.fields.defaultModel.description": "새 채팅에 사용할 모델입니다. 목록은 DeepSeek API에서 가져옵니다.",
     "settings.fields.multimodalModel.title": "멀티모달 모델",
@@ -912,21 +923,22 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
 // `path` breadcrumbs and search `keywords` were only ever authored for zh-CN/en-US;
 // other languages fell back to the (translated) field title / the en-US keywords verbatim.
 // Preserved here exactly as the original computed `t` in Settings/index.vue behaved.
-const settingsFieldPaths: Record<"zh-CN" | "en-US", Record<SettingFieldId, string>> = {
+const settingsFieldPaths: Record<"zh-CN" | "en-US", Partial<Record<SettingFieldId, string>>> = {
   "en-US": {
     colorScheme: "Appearance › Color Scheme",
     language: "Appearance › Language",
     zoom: "Appearance › Interface Zoom",
     opacity: "Appearance › Opacity",
+    primaryHotkey: "Appearance › Primary shortcut",
     secondaryHotkey: "Appearance › Secondary shortcut",
     deepseekApiKey: "AI › DeepSeek › API Key",
-    customAccentColor: "Appearance › Custom Accent Color",
     defaultModel: "AI / DeepSeek / Default Model",
     multimodalModel: "AI / DeepSeek / Multimodal Model",
     multimodalSplitAnalysis: "AI / DeepSeek / Split Multimodal Analysis",
     largeContextEnabled: "AI / Context / 1M Context Window",
     reasoningEffort: "AI › DeepSeek › Reasoning Effort",
     reasoningLanguage: "AI › DeepSeek › Reasoning Language",
+    showReasoning: "AI › Chat › Reasoning Display",
     passToolReasoning: "AI › DeepSeek › Tool Reasoning",
     memoryEnabled: "Memory / mem0 / Enabled",
     mem0ApiKey: "Memory / mem0 / API Key",
@@ -938,6 +950,9 @@ const settingsFieldPaths: Record<"zh-CN" | "en-US", Record<SettingFieldId, strin
     tavilyApiKey: "Web Search / Tavily API Key",
     toolApprovalMode: "Agent / Tool Approval",
     lspEnabled: "Agent / Language Server",
+    multiModelCollaboration: "Agent / Multi-model collaboration",
+    pixpinPinAiEnabled: "Plugins / PixPin pin AI",
+    snipastePinAiEnabled: "Plugins / Snipaste pin AI",
     appName: "About › Application Name",
     appVersion: "About › Version",
     appIdentifier: "About › Identifier",
@@ -947,15 +962,16 @@ const settingsFieldPaths: Record<"zh-CN" | "en-US", Record<SettingFieldId, strin
     language: "Appearance › Language",
     zoom: "Appearance › Interface Zoom",
     opacity: "Appearance › Opacity",
+    primaryHotkey: "外观 › 主快捷键",
     secondaryHotkey: "外观 › 副快捷键",
     deepseekApiKey: "AI › DeepSeek › API Key",
-    customAccentColor: "Appearance › Custom Accent Color",
     defaultModel: "AI / DeepSeek / 默认模型",
     multimodalModel: "AI / DeepSeek / 多模态模型",
     multimodalSplitAnalysis: "AI / DeepSeek / 多模态分步分析",
     largeContextEnabled: "AI / 上下文 / 1M 上下文",
     reasoningEffort: "AI › DeepSeek › Reasoning Effort",
     reasoningLanguage: "AI › DeepSeek › Reasoning Language",
+    showReasoning: "AI › 聊天 › 思考过程显示",
     passToolReasoning: "AI › DeepSeek › Tool Reasoning",
     memoryEnabled: "记忆 / mem0 / 启用",
     mem0ApiKey: "记忆 / mem0 / API Key",
@@ -967,27 +983,30 @@ const settingsFieldPaths: Record<"zh-CN" | "en-US", Record<SettingFieldId, strin
     tavilyApiKey: "联网搜索 / Tavily API Key",
     toolApprovalMode: "Agent / 工具审批",
     lspEnabled: "Agent / 语言服务",
+    pixpinPinAiEnabled: "插件 / PixPin 贴图 AI",
+    snipastePinAiEnabled: "插件 / Snipaste 贴图 AI",
     appName: "About › Application Name",
     appVersion: "About › Version",
     appIdentifier: "About › Identifier",
   },
 };
 
-const settingsFieldKeywords: Record<"zh-CN" | "en-US", Record<SettingFieldId, string[]>> = {
+const settingsFieldKeywords: Record<"zh-CN" | "en-US", Partial<Record<SettingFieldId, string[]>>> = {
   "en-US": {
-    colorScheme: ["theme", "color", "scheme"],
+    colorScheme: ["theme", "color", "scheme", "vscode", "extension", "plugin"],
     language: ["language", "locale"],
     zoom: ["zoom", "scale", "size", "font"],
     opacity: ["opacity", "transparent", "glass", "blur", "acrylic", "appearance"],
+    primaryHotkey: ["hotkey", "shortcut", "primary", "double", "alt", "ctrl", "shift", "meta"],
     secondaryHotkey: ["hotkey", "shortcut", "secondary", "ctrl", "alt", "space", "record"],
     deepseekApiKey: ["deepseek", "api", "key", "ai"],
-    customAccentColor: ["custom", "theme", "accent", "color"],
     defaultModel: ["default", "model", "deepseek", "api"],
     multimodalModel: ["multimodal", "model", "vision", "image"],
     multimodalSplitAnalysis: ["multimodal", "split", "analysis", "vision", "image", "deepseek", "r1"],
     largeContextEnabled: ["context", "window", "1m", "million", "token", "compact"],
     reasoningEffort: ["reasoning", "effort", "thinking", "deepseek"],
     reasoningLanguage: ["reasoning", "language", "response"],
+    showReasoning: ["reasoning", "thinking", "display", "chat"],
     passToolReasoning: ["reasoning", "tool", "passthrough", "thinking", "deepseek"],
     memoryEnabled: ["memory", "enabled", "mem0"],
     mem0ApiKey: ["memory", "mem0", "api", "key"],
@@ -999,24 +1018,28 @@ const settingsFieldKeywords: Record<"zh-CN" | "en-US", Record<SettingFieldId, st
     tavilyApiKey: ["web", "search", "tavily", "api", "key"],
     toolApprovalMode: ["approval", "ask", "auto", "alwaysAllow"],
     lspEnabled: ["lsp", "diagnostics", "definition"],
+    multiModelCollaboration: ["agent", "model", "collaboration", "subagent"],
+    pixpinPinAiEnabled: ["pixpin", "pin", "screenshot", "image", "ai", "button", "plugin"],
+    snipastePinAiEnabled: ["snipaste", "pin", "screenshot", "image", "ai", "button", "plugin"],
     appName: ["app", "name"],
     appVersion: ["version"],
     appIdentifier: ["identifier", "bundle"],
   },
   "zh-CN": {
-    colorScheme: ["配色", "主题", "颜色", "theme", "color"],
+    colorScheme: ["配色", "主题", "颜色", "vscode", "扩展", "插件", "theme", "color"],
     language: ["语言", "language", "locale"],
     zoom: ["缩放", "放大", "大小", "字体", "zoom", "scale"],
     opacity: ["透明", "透明度", "毛玻璃", "blur", "opacity", "glass", "acrylic", "外观"],
+    primaryHotkey: ["快捷键", "主快捷键", "双击", "hotkey", "shortcut", "alt", "ctrl"],
     secondaryHotkey: ["快捷键", "副快捷键", "录制", "hotkey", "shortcut", "ctrl", "alt"],
     deepseekApiKey: ["deepseek", "api", "key", "密钥", "ai"],
-    customAccentColor: ["自定义", "主题色", "强调色", "颜色", "accent", "color"],
     defaultModel: ["默认模型", "模型", "deepseek", "model", "api"],
     multimodalModel: ["多模态模型", "图片", "视觉", "multimodal", "vision", "image"],
     multimodalSplitAnalysis: ["多模态分步分析", "分步", "分析", "图片", "视觉", "deepseek", "r1"],
     largeContextEnabled: ["上下文", "1m", "百万", "token", "压缩", "context", "window"],
     reasoningEffort: ["reasoning", "effort", "思考", "推理", "deepseek"],
     reasoningLanguage: ["reasoning", "language", "推理语言", "回答语言"],
+    showReasoning: ["思考过程", "推理", "显示", "reasoning", "thinking"],
     passToolReasoning: ["reasoning", "tool", "工具", "回传", "thinking", "deepseek"],
     memoryEnabled: ["记忆", "启用", "memory", "mem0"],
     mem0ApiKey: ["记忆", "mem0", "api", "key", "密钥"],
@@ -1028,6 +1051,8 @@ const settingsFieldKeywords: Record<"zh-CN" | "en-US", Record<SettingFieldId, st
     tavilyApiKey: ["联网", "搜索", "tavily", "api", "key", "密钥"],
     toolApprovalMode: ["审批", "ask", "auto", "一律允许", "approval"],
     lspEnabled: ["lsp", "语言服务", "diagnostics"],
+    pixpinPinAiEnabled: ["pixpin", "贴图", "截图", "图片", "ai", "按钮", "插件"],
+    snipastePinAiEnabled: ["snipaste", "贴图", "截图", "图片", "ai", "按钮", "插件"],
     appName: ["应用", "名称"],
     appVersion: ["版本", "version"],
     appIdentifier: ["标识", "identifier"],
@@ -1036,14 +1061,14 @@ const settingsFieldKeywords: Record<"zh-CN" | "en-US", Record<SettingFieldId, st
 
 export function getSettingFieldPath(language: AppLanguage, id: SettingFieldId, translatedTitle: string): string {
   if (language === "zh-CN" || language === "en-US") {
-    return settingsFieldPaths[language][id];
+    return settingsFieldPaths[language][id] ?? settingsFieldPaths["en-US"][id] ?? translatedTitle;
   }
   return translatedTitle;
 }
 
 export function getSettingFieldKeywords(language: AppLanguage, id: SettingFieldId): string[] {
   if (language === "zh-CN") {
-    return settingsFieldKeywords["zh-CN"][id];
+    return settingsFieldKeywords["zh-CN"][id] ?? settingsFieldKeywords["en-US"][id] ?? [];
   }
-  return settingsFieldKeywords["en-US"][id];
+  return settingsFieldKeywords["en-US"][id] ?? [];
 }

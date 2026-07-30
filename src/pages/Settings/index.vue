@@ -33,14 +33,15 @@
     <div class="flex min-h-0 flex-1 overflow-hidden">
     <SidebarProvider class="h-full min-h-0 w-full [&_[data-slot=sidebar-wrapper]]:h-full [&_[data-slot=sidebar-wrapper]]:min-h-0">
       <Sidebar collapsible="none" class="settings-nav border-r">
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel>{{ t.sidebarLabel }}</SidebarGroupLabel>
+        <SidebarContent class="settings-nav-content peek-scrollbar">
+          <SidebarGroup v-for="section in categorySections" :key="section.id" class="settings-nav-group">
+            <SidebarGroupLabel class="settings-section-label">{{ section.label }}</SidebarGroupLabel>
             <SidebarMenu>
-              <SidebarMenuItem v-for="category in categories" :key="category.id">
+              <SidebarMenuItem v-for="category in section.categories" :key="category.id">
                 <SidebarMenuButton
                   class="settings-nav-item"
                   :is-active="activeCategory === category.id"
+                  :title="category.label"
                   @click="activeCategory = category.id"
                 >
                   <component :is="category.icon" class="size-4 shrink-0" />
@@ -116,8 +117,6 @@
               @web-search-provider-change="onWebSearchProviderChange"
               @default-model-change="onDefaultModelChange"
               @multimodal-model-change="onMultimodalModelChange"
-              @custom-accent-change="onCustomAccentChange"
-              @reset-custom-accent="resetCustomAccent"
               @save-api-key="saveApiKey"
               @save-memory-settings="saveMemorySettings"
               @save-web-search-settings="saveWebSearchSettings"
@@ -135,7 +134,7 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { Bot, BrainCircuit, Plug, Shield, Folders, Globe2, History, Info, Minus, Palette, Search, Server, Settings2, Sparkles, X } from "@lucide/vue";
+import { Bot, BrainCircuit, Plug, Shield, Folders, Globe2, History, Info, Minus, Palette, Pin, Search, Server, Settings2, Sparkles, X } from "@lucide/vue";
 import WorkspaceSettings from "@/components/workspace/WorkspaceSettings.vue";
 import McpSettings from "@/components/settings/McpSettings.vue";
 import SkillsSettings from "@/components/settings/SkillsSettings.vue";
@@ -173,14 +172,13 @@ import type {
   WebSearchProvider,
   ToolApprovalMode,
 } from "@/types/setting";
-import { DEFAULT_ACCENT_COLOR, normalizeAccentColor } from "@/types/setting";
 
 const settingStore = useSettingStore();
 const chatModelStore = useChatModelStore();
 const appWindow = getCurrentWebviewWindow();
 
-const SETTINGS_BASE_WIDTH = 700;
-const SETTINGS_BASE_HEIGHT = 520;
+const SETTINGS_BASE_WIDTH = 880;
+const SETTINGS_BASE_HEIGHT = 620;
 
 async function resizeSettingsWindow() {
   const zoom = (settingStore.zoom || 100) / 100;
@@ -237,6 +235,7 @@ const t = computed(() => {
       agent: tr(language, "settings.categories.agent"),
       mcp: tr(language, "settings.categories.mcp"),
       skills: tr(language, "settings.categories.skills"),
+      plugins: tr(language, "settings.categories.plugins"),
       workspace: tr(language, "settings.categories.workspace"),
       history: tr(language, "settings.categories.history"),
       about: tr(language, "settings.categories.about"),
@@ -253,11 +252,32 @@ const categories = computed(() => [
   { id: "history" as const, label: t.value.categories.history, icon: History },
   { id: "mcp" as const, label: t.value.categories.mcp, icon: Plug },
   { id: "skills" as const, label: t.value.categories.skills, icon: Sparkles },
+  { id: "plugins" as const, label: t.value.categories.plugins, icon: Pin },
   { id: "memory" as const, label: t.value.categories.memory, icon: BrainCircuit },
   { id: "search" as const, label: t.value.categories.search, icon: Globe2 },
   { id: "appearance" as const, label: t.value.categories.appearance, icon: Palette },
   { id: "about" as const, label: t.value.categories.about, icon: Info },
 ]);
+
+const categorySections = computed(() => {
+  const byId = new Map(categories.value.map((category) => [category.id, category]));
+  const section = (id: string, label: string, ids: CategoryId[]) => ({
+    id,
+    label,
+    categories: ids.flatMap((categoryId) => {
+      const category = byId.get(categoryId);
+      return category ? [category] : [];
+    }),
+  });
+  const language = settingStore.language;
+  return [
+    section("general", tr(language, "settings.sections.general"), ["appearance", "workspace"]),
+    section("intelligence", tr(language, "settings.sections.intelligence"), ["ai", "provider", "agent", "memory", "search"]),
+    section("extensions", tr(language, "settings.sections.extensions"), ["mcp", "skills", "plugins"]),
+    section("data", tr(language, "settings.sections.data"), ["history"]),
+    section("system", tr(language, "settings.sections.system"), ["about"]),
+  ];
+});
 
 const settingDefinitions = computed<SettingDefinition[]>(() =>
   buildSettingDefinitions(settingStore.language, {
@@ -305,7 +325,14 @@ function onColorSchemeChange(value: unknown) {
   if (typeof value !== "string") {
     return;
   }
-  void settingStore.update({ colorScheme: value as ColorScheme });
+  if (value.startsWith("vscode:")) {
+    void settingStore.update({ vscodeTheme: value.slice("vscode:".length) });
+    return;
+  }
+  const scheme = value.slice("builtin:".length);
+  if (scheme === "dark" || scheme === "light") {
+    void settingStore.update({ colorScheme: scheme as ColorScheme, vscodeTheme: "" });
+  }
 }
 
 function onLanguageChange(value: unknown) {
@@ -354,14 +381,6 @@ async function saveApiKey() {
   await chatModelStore.refresh();
 }
 
-function onCustomAccentChange(value: string) {
-  void settingStore.update({ customAccentColor: normalizeAccentColor(value) });
-}
-
-function resetCustomAccent() {
-  void settingStore.update({ customAccentColor: DEFAULT_ACCENT_COLOR });
-}
-
 function onDefaultModelChange(value: unknown) {
   if (typeof value !== "string" || !value.trim()) return;
   void settingStore.update({ chatModel: value });
@@ -389,11 +408,20 @@ function onToggle(id: string) {
   if (id === "passToolReasoning") {
     void settingStore.update({ passToolReasoning: !settingStore.passToolReasoning });
   }
+  if (id === "showReasoning") {
+    void settingStore.update({ showReasoning: !settingStore.showReasoning });
+  }
   if (id === "multimodalSplitAnalysis") {
     void settingStore.update({ multimodalSplitAnalysis: !settingStore.multimodalSplitAnalysis });
   }
   if (id === "largeContextEnabled") {
     void settingStore.update({ largeContextEnabled: !settingStore.largeContextEnabled });
+  }
+  if (id === "pixpinPinAiEnabled") {
+    void settingStore.update({ pixpinPinAiEnabled: !settingStore.pixpinPinAiEnabled });
+  }
+  if (id === "snipastePinAiEnabled") {
+    void settingStore.update({ snipastePinAiEnabled: !settingStore.snipastePinAiEnabled });
   }
 }
 
@@ -462,14 +490,34 @@ watch(
 
 <style scoped>
 .settings-nav {
-  width: 8.75rem;
+  width: 10rem;
+  min-width: 10rem;
+  transition: width 160ms ease, min-width 160ms ease;
+}
+
+.settings-nav-content {
+  overflow-y: auto;
+  padding: 5px 4px 8px;
+}
+
+.settings-nav-group {
+  padding: 0 4px 4px;
+}
+
+.settings-section-label {
+  height: 25px;
+  padding: 0 8px;
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-weight: 650;
+  text-transform: uppercase;
 }
 
 .settings-nav :deep([data-slot="sidebar-menu-button"]),
 .settings-nav-item {
   gap: 0.55rem;
   font-size: 13px;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
 .settings-nav-label {
@@ -504,5 +552,34 @@ watch(
 .titlebar-btn.close:hover {
   background: #e81123;
   color: #fff;
+}
+
+@media (max-width: 620px) {
+  .settings-nav {
+    width: 3.5rem;
+    min-width: 3.5rem;
+  }
+
+  .settings-nav-group {
+    padding-inline: 3px;
+  }
+
+  .settings-section-label,
+  .settings-nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .settings-nav :deep([data-slot="sidebar-menu-button"]),
+  .settings-nav-item {
+    justify-content: center;
+    gap: 0;
+    padding-inline: 0;
+  }
 }
 </style>

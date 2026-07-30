@@ -95,22 +95,29 @@ impl CheckpointStore {
         let Some(turn) = active.get_mut(session_id) else {
             return Ok(());
         };
-        if turn.snapped.contains_key(&preview.path) {
-            return Ok(());
-        }
-        let abs = workspace_root.join(&preview.path);
-        let content = if abs.exists() {
-            Some(fs::read_to_string(&abs)?)
+        let paths = if preview.affected_paths.is_empty() {
+            std::slice::from_ref(&preview.path)
         } else {
-            None
+            preview.affected_paths.as_slice()
         };
-        turn.snapped.insert(
-            preview.path.clone(),
-            FileSnap {
-                path: preview.path.clone(),
-                content,
-            },
-        );
+        for path in paths {
+            if turn.snapped.contains_key(path) {
+                continue;
+            }
+            let abs = workspace_root.join(path);
+            let content = if abs.exists() {
+                Some(fs::read_to_string(&abs)?)
+            } else {
+                None
+            };
+            turn.snapped.insert(
+                path.clone(),
+                FileSnap {
+                    path: path.clone(),
+                    content,
+                },
+            );
+        }
         Ok(())
     }
 
@@ -227,4 +234,67 @@ pub fn shared_checkpoint_store() -> &'static CheckpointStore {
         let _ = fs::create_dir_all(&root);
         CheckpointStore::new(root)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::tools::preview::ChangeKind;
+
+    #[test]
+    fn snapshots_and_restores_every_affected_path() {
+        let base = std::env::temp_dir().join(format!("peek-checkpoint-{}", uuid::Uuid::new_v4()));
+        let workspace = base.join("workspace");
+        let store = CheckpointStore::new(base.join("checkpoints"));
+        fs::create_dir_all(&workspace).unwrap();
+        fs::write(workspace.join("one.txt"), "old one\n").unwrap();
+        fs::write(workspace.join("two.txt"), "old two\n").unwrap();
+
+        store.begin_turn("session", 1, "edit both", Some("user-1".into()));
+        store
+            .snapshot_preview(
+                "session",
+                &workspace,
+                &ToolPreview {
+                    path: "one.txt".into(),
+                    affected_paths: vec!["one.txt".into(), "two.txt".into(), "new.txt".into()],
+                    kind: ChangeKind::Modify,
+                    old_text: None,
+                    new_text: None,
+                    unified_diff: String::new(),
+                },
+            )
+            .unwrap();
+        store.finish_turn("session").unwrap();
+
+        fs::write(workspace.join("one.txt"), "new one\n").unwrap();
+        fs::write(workspace.join("two.txt"), "new two\n").unwrap();
+        fs::write(workspace.join("new.txt"), "created\n").unwrap();
+
+        assert_eq!(store.restore_code("session", 1, &workspace).unwrap(), 3);
+        assert_eq!(
+            fs::read_to_string(workspace.join("one.txt")).unwrap(),
+            "old one\n"
+        );
+        assert_eq!(
+            fs::read_to_string(workspace.join("two.txt")).unwrap(),
+            "old two\n"
+        );
+        assert!(!workspace.join("new.txt").exists());
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn legacy_preview_path_remains_supported() {
+        let preview: ToolPreview = serde_json::from_value(serde_json::json!({
+            "path": "legacy.txt",
+            "kind": "modify",
+            "oldText": "old",
+            "newText": "new",
+            "unifiedDiff": ""
+        }))
+        .unwrap();
+        assert!(preview.affected_paths.is_empty());
+    }
 }

@@ -30,11 +30,12 @@ const IMAGE_DESCRIBE_PROMPT: &str = "You are a professional visual analyst. Prov
 
 pub struct AntigravityProvider {
     app: tauri::AppHandle,
+    model_override: Option<String>,
 }
 
 impl AntigravityProvider {
-    pub fn new(app: tauri::AppHandle) -> Self {
-        Self { app }
+    pub fn for_model(app: tauri::AppHandle, model: String) -> Self {
+        Self { app, model_override: Some(model) }
     }
 }
 
@@ -57,9 +58,8 @@ impl AIProvider for AntigravityProvider {
 
         let settings = crate::services::settings_store::get_settings(&self.app)
             .map_err(ProviderError::message)?;
-        let model = gemini_oauth::resolve_antigravity_model_id(
-            settings.chat_model.trim(),
-        );
+        let selected_model = self.model_override.as_deref().unwrap_or(settings.chat_model.trim());
+        let model = gemini_oauth::resolve_antigravity_model_id(selected_model);
         if model.is_empty() {
             return emit_error(
                 &tx,

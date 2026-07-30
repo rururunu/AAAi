@@ -14,6 +14,7 @@ pub struct Workspace {
     pub name: String,
     pub root: PathBuf,
     pub description: Option<String>,
+    pub source: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -76,6 +77,7 @@ impl WorkspaceManager {
             name: workspace_name(&root),
             root,
             description: None,
+            source: None,
             created_at: Utc::now(),
         };
         let should_select = self.current().is_none();
@@ -117,6 +119,93 @@ impl WorkspaceManager {
         }
 
         Ok(workspace)
+    }
+
+    pub async fn remember_from_ide(
+        &self,
+        root: PathBuf,
+        ide: &str,
+    ) -> Result<(Workspace, bool), String> {
+        validate_root(&root)?;
+        let source = normalize_ide_source(ide)
+            .ok_or_else(|| "IDE workspace source must not be empty".to_string())?;
+        let id = root.to_string_lossy().to_string();
+
+        if let Some(mut existing) = self.list().into_iter().find(|workspace| workspace.id == id) {
+            if existing.source.as_deref() == Some(source.as_str()) {
+                return Ok((existing, false));
+            }
+
+            sqlx::query("UPDATE workspace SET source = ? WHERE id = ?")
+                .bind(&source)
+                .bind(&id)
+                .execute(&self.db_pool)
+                .await
+                .map_err(|error| error.to_string())?;
+
+            existing.source = Some(source);
+            let mut workspaces = self
+                .workspaces
+                .write()
+                .map_err(|_| "Workspace lock is poisoned".to_string())?;
+            if let Some(workspace) = workspaces.iter_mut().find(|workspace| workspace.id == id) {
+                *workspace = existing.clone();
+            }
+            drop(workspaces);
+            if self.current().is_some_and(|workspace| workspace.id == id) {
+                *self
+                    .current
+                    .write()
+                    .map_err(|_| "Workspace lock is poisoned".to_string())? =
+                    Some(existing.clone());
+            }
+            return Ok((existing, true));
+        }
+
+        let workspace = Workspace {
+            id,
+            name: workspace_name(&root),
+            root,
+            description: None,
+            source: Some(source),
+            created_at: Utc::now(),
+        };
+        sqlx::query(
+            "INSERT INTO workspace (id, name, root, description, source, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&workspace.id)
+        .bind(&workspace.name)
+        .bind(workspace.root.to_string_lossy().to_string())
+        .bind(&workspace.description)
+        .bind(&workspace.source)
+        .bind(workspace.created_at.to_rfc3339())
+        .execute(&self.db_pool)
+        .await
+        .map_err(map_workspace_write_error)?;
+
+        self.workspaces
+            .write()
+            .map_err(|_| "Workspace lock is poisoned".to_string())?
+            .push(workspace.clone());
+        Ok((workspace, true))
+    }
+
+    pub async fn select_known_ide_workspace(
+        &self,
+        root: &Path,
+    ) -> Result<Option<Workspace>, String> {
+        let Some(workspace) = self.list().into_iter().find(|workspace| {
+            workspace.source.is_some() && workspace_roots_equal(&workspace.root, root)
+        }) else {
+            return Ok(None);
+        };
+        if self
+            .current()
+            .is_some_and(|current| current.id == workspace.id)
+        {
+            return Ok(None);
+        }
+        self.switch(workspace.id.clone()).await.map(Some)
     }
 
     pub async fn switch(&self, id: WorkspaceId) -> Result<Workspace, String> {
@@ -218,6 +307,30 @@ fn workspace_name(root: &Path) -> String {
         .unwrap_or_else(|| root.display().to_string())
 }
 
+fn normalize_ide_source(ide: &str) -> Option<String> {
+    let ide = ide.trim();
+    if ide.is_empty() {
+        return None;
+    }
+    Some(match ide.to_ascii_lowercase().as_str() {
+        "visual studio code" | "vs code" | "vscode" => "vscode".to_string(),
+        "idea" | "intellij" | "intellij idea" => "idea".to_string(),
+        _ => ide.chars().take(64).collect(),
+    })
+}
+
+fn workspace_roots_equal(left: &Path, right: &Path) -> bool {
+    let left = std::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
+    let right = std::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
+    if cfg!(windows) {
+        left.to_string_lossy()
+            .trim_end_matches(['\\', '/'])
+            .eq_ignore_ascii_case(right.to_string_lossy().trim_end_matches(['\\', '/']))
+    } else {
+        left == right
+    }
+}
+
 async fn init_schema(pool: &SqlitePool) -> Result<(), String> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS workspace (
@@ -225,12 +338,27 @@ async fn init_schema(pool: &SqlitePool) -> Result<(), String> {
             name TEXT NOT NULL,
             root TEXT NOT NULL UNIQUE,
             description TEXT,
+            source TEXT,
             created_at TEXT NOT NULL
         )",
     )
     .execute(pool)
     .await
     .map_err(|error| error.to_string())?;
+
+    let columns = sqlx::query("PRAGMA table_info(workspace)")
+        .fetch_all(pool)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !columns
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "source")
+    {
+        sqlx::query("ALTER TABLE workspace ADD COLUMN source TEXT")
+            .execute(pool)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS workspace_state (
             singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
@@ -267,10 +395,11 @@ async fn init_schema(pool: &SqlitePool) -> Result<(), String> {
 }
 
 async fn load_state(pool: &SqlitePool) -> Result<(Vec<Workspace>, Option<Workspace>), String> {
-    let rows = sqlx::query("SELECT id, root, created_at FROM workspace ORDER BY created_at ASC")
-        .fetch_all(pool)
-        .await
-        .map_err(|error| error.to_string())?;
+    let rows =
+        sqlx::query("SELECT id, root, source, created_at FROM workspace ORDER BY created_at ASC")
+            .fetch_all(pool)
+            .await
+            .map_err(|error| error.to_string())?;
     let workspaces = rows
         .into_iter()
         .map(workspace_from_row)
@@ -301,6 +430,7 @@ fn workspace_from_row(row: sqlx::sqlite::SqliteRow) -> Result<Workspace, String>
         name: workspace_name(&root),
         root,
         description: None,
+        source: row.get::<Option<String>, _>("source"),
         created_at,
     })
 }
@@ -407,6 +537,106 @@ mod tests {
         assert_eq!(workspaces[0].id, root_string);
         assert_eq!(workspaces[0].name, "legacy-project");
         assert!(workspaces[0].description.is_none());
+        assert!(workspaces[0].source.is_none());
         assert_eq!(current.unwrap().id, workspaces[0].id);
+    }
+
+    #[tokio::test]
+    async fn adds_source_column_to_existing_workspace_database() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE workspace (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                root TEXT NOT NULL UNIQUE,
+                description TEXT,
+                created_at TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        init_schema(&pool).await.unwrap();
+
+        let columns = sqlx::query("PRAGMA table_info(workspace)")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert!(columns
+            .iter()
+            .any(|row| row.get::<String, _>("name") == "source"));
+    }
+
+    #[tokio::test]
+    async fn remembers_ide_workspace_source_without_switching_current_workspace() {
+        let manager = manager().await;
+        let current = manager.create(std::env::temp_dir()).await.unwrap();
+        let ide_root = std::env::current_dir().unwrap();
+
+        let (remembered, changed) = manager
+            .remember_from_ide(ide_root.clone(), "visual studio code")
+            .await
+            .unwrap();
+
+        assert!(changed);
+        assert_eq!(remembered.root, ide_root);
+        assert_eq!(remembered.source.as_deref(), Some("vscode"));
+        assert_eq!(manager.current().unwrap().id, current.id);
+
+        let (persisted, persisted_current) = load_state(&manager.db_pool).await.unwrap();
+        assert_eq!(
+            persisted
+                .iter()
+                .find(|workspace| workspace.id == remembered.id)
+                .and_then(|workspace| workspace.source.as_deref()),
+            Some("vscode")
+        );
+        assert_eq!(persisted_current.unwrap().id, current.id);
+
+        let (_, changed_again) = manager.remember_from_ide(ide_root, "vscode").await.unwrap();
+        assert!(!changed_again);
+    }
+
+    #[tokio::test]
+    async fn selects_a_previously_remembered_ide_workspace_on_report() {
+        let manager = manager().await;
+        let current = manager.create(std::env::temp_dir()).await.unwrap();
+        let ide_root = std::env::current_dir().unwrap();
+        let (remembered, _) = manager
+            .remember_from_ide(ide_root.clone(), "idea")
+            .await
+            .unwrap();
+        assert_eq!(manager.current().unwrap().id, current.id);
+
+        let selected = manager
+            .select_known_ide_workspace(&ide_root)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(selected.id, remembered.id);
+        assert_eq!(manager.current().unwrap().id, remembered.id);
+        assert!(manager
+            .select_known_ide_workspace(&ide_root)
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn does_not_auto_select_a_manually_added_workspace() {
+        let manager = manager().await;
+        let current = manager.create(std::env::temp_dir()).await.unwrap();
+        let manual_root = std::env::current_dir().unwrap();
+        let manual = manager.create(manual_root.clone()).await.unwrap();
+        assert!(manual.source.is_none());
+
+        assert!(manager
+            .select_known_ide_workspace(&manual_root)
+            .await
+            .unwrap()
+            .is_none());
+        assert_eq!(manager.current().unwrap().id, current.id);
     }
 }

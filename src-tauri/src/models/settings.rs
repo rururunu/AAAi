@@ -3,19 +3,23 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ColorScheme {
-    #[serde(rename = "blue-black")]
-    BlueBlack,
+    #[serde(
+        rename = "dark",
+        alias = "nocturne",
+        alias = "blue-black",
+        alias = "dark",
+        alias = "midnight",
+        alias = "forest",
+        alias = "rose",
+        alias = "ocean",
+        alias = "graphite",
+        alias = "ember",
+        alias = "teal",
+        alias = "ghost-pastel"
+    )]
     Dark,
+    #[serde(rename = "light", alias = "paper", alias = "cream", alias = "frost")]
     Light,
-    Midnight,
-    Forest,
-    Rose,
-    Ocean,
-    Cream,
-    Graphite,
-    Ember,
-    Frost,
-    Teal,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -167,20 +171,20 @@ impl GeminiOAuthSettings {
 }
 
 fn default_gemini_oauth_client_id() -> String {
-    // Antigravity Desktop OAuth client (public, safe to embed).
-    "YOUR_GOOGLE_OAUTH_CLIENT_ID".into()
+    String::new()
 }
 
 fn default_gemini_oauth_client_secret() -> String {
-    "YOUR_GOOGLE_OAUTH_CLIENT_SECRET".into()
+    String::new()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub color_scheme: ColorScheme,
-    #[serde(default = "default_custom_accent_color")]
-    pub custom_accent_color: String,
+    /// Stable VS Code extension theme id. Empty uses the built-in color scheme.
+    #[serde(default)]
+    pub vscode_theme: String,
     pub language: AppLanguage,
     #[serde(default)]
     pub deepseek_api_key: String,
@@ -226,6 +230,14 @@ pub struct AppSettings {
     /// in subsequent API history (required by DeepSeek thinking + tools).
     #[serde(default = "default_true")]
     pub pass_tool_reasoning: bool,
+    /// Controls whether reasoning supplied by the model is rendered in chat.
+    #[serde(default = "default_true")]
+    pub show_reasoning: bool,
+    /// Allow the main agent to delegate work to user-selected models.
+    #[serde(default)]
+    pub multi_model_collaboration: bool,
+    #[serde(default)]
+    pub collaboration_models: Vec<String>,
     #[serde(default = "default_true")]
     pub multimodal_split_analysis: bool,
     /// When true, use a 1M-token context window for compaction / turn budgets.
@@ -233,11 +245,20 @@ pub struct AppSettings {
     pub large_context_enabled: bool,
     #[serde(default = "default_zoom")]
     pub zoom: u32,
+    /// Primary overlay shortcut modifier, activated by a double tap.
+    #[serde(default = "default_primary_hotkey")]
+    pub primary_hotkey: String,
     /// Secondary overlay shortcut, e.g. `Ctrl+Alt+Space` (recorded in Settings).
     #[serde(default = "default_secondary_hotkey")]
     pub secondary_hotkey: String,
     #[serde(default)]
     pub custom_providers: Vec<CustomProviderConfig>,
+    /// Show an AI button on PixPin pin windows (bottom-right).
+    #[serde(default = "default_true")]
+    pub pixpin_pin_ai_enabled: bool,
+    /// Show an AI button on Snipaste pin windows (bottom-right).
+    #[serde(default = "default_true")]
+    pub snipaste_pin_ai_enabled: bool,
 }
 
 fn default_chat_model() -> String {
@@ -246,10 +267,6 @@ fn default_chat_model() -> String {
 
 fn default_multimodal_model() -> String {
     "gpt-4o".to_string()
-}
-
-fn default_custom_accent_color() -> String {
-    "#e8ecf2".to_string()
 }
 
 fn default_zoom() -> u32 {
@@ -274,11 +291,15 @@ fn default_secondary_hotkey() -> String {
     crate::services::hotkey::DEFAULT_SECONDARY_HOTKEY.to_string()
 }
 
+fn default_primary_hotkey() -> String {
+    crate::services::hotkey::DEFAULT_PRIMARY_HOTKEY.to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettingsPatch {
     pub color_scheme: Option<ColorScheme>,
-    pub custom_accent_color: Option<String>,
+    pub vscode_theme: Option<String>,
     pub language: Option<AppLanguage>,
     pub deepseek_api_key: Option<String>,
     pub gemini_oauth: Option<GeminiOAuthSettings>,
@@ -301,18 +322,24 @@ pub struct AppSettingsPatch {
     pub reasoning_effort: Option<ReasoningEffort>,
     pub reasoning_language: Option<ReasoningLanguage>,
     pub pass_tool_reasoning: Option<bool>,
+    pub show_reasoning: Option<bool>,
+    pub multi_model_collaboration: Option<bool>,
+    pub collaboration_models: Option<Vec<String>>,
     pub multimodal_split_analysis: Option<bool>,
     pub large_context_enabled: Option<bool>,
     pub zoom: Option<u32>,
+    pub primary_hotkey: Option<String>,
     pub secondary_hotkey: Option<String>,
     pub custom_providers: Option<Vec<CustomProviderConfig>>,
+    pub pixpin_pin_ai_enabled: Option<bool>,
+    pub snipaste_pin_ai_enabled: Option<bool>,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            color_scheme: ColorScheme::BlueBlack,
-            custom_accent_color: default_custom_accent_color(),
+            color_scheme: ColorScheme::Dark,
+            vscode_theme: String::new(),
             language: AppLanguage::ZhCn,
             deepseek_api_key: String::new(),
             gemini_oauth: GeminiOAuthSettings::default(),
@@ -335,11 +362,17 @@ impl Default for AppSettings {
             reasoning_effort: ReasoningEffort::default(),
             reasoning_language: ReasoningLanguage::default(),
             pass_tool_reasoning: true,
+            show_reasoning: true,
+            multi_model_collaboration: false,
+            collaboration_models: Vec::new(),
             multimodal_split_analysis: true,
             large_context_enabled: true,
             zoom: 100,
+            primary_hotkey: default_primary_hotkey(),
             secondary_hotkey: default_secondary_hotkey(),
             custom_providers: Vec::new(),
+            pixpin_pin_ai_enabled: true,
+            snipaste_pin_ai_enabled: true,
         }
     }
 }
@@ -355,7 +388,12 @@ fn default_lsp_servers() -> Vec<LspServerConfig> {
         },
         LspServerConfig {
             id: "typescript".into(),
-            languages: vec!["typescript".into(), "javascript".into(), "tsx".into(), "jsx".into()],
+            languages: vec![
+                "typescript".into(),
+                "javascript".into(),
+                "tsx".into(),
+                "jsx".into(),
+            ],
             command: "typescript-language-server".into(),
             args: vec!["--stdio".into()],
             enabled: true,
@@ -367,9 +405,9 @@ impl AppSettings {
     pub fn merge(&self, patch: AppSettingsPatch) -> Self {
         Self {
             color_scheme: patch.color_scheme.unwrap_or(self.color_scheme),
-            custom_accent_color: patch
-                .custom_accent_color
-                .unwrap_or_else(|| self.custom_accent_color.clone()),
+            vscode_theme: patch
+                .vscode_theme
+                .unwrap_or_else(|| self.vscode_theme.clone()),
             language: patch.language.unwrap_or(self.language),
             deepseek_api_key: patch
                 .deepseek_api_key
@@ -387,9 +425,7 @@ impl AppSettings {
             mem0_base_url: patch
                 .mem0_base_url
                 .unwrap_or_else(|| self.mem0_base_url.clone()),
-            web_search_enabled: patch
-                .web_search_enabled
-                .unwrap_or(self.web_search_enabled),
+            web_search_enabled: patch.web_search_enabled.unwrap_or(self.web_search_enabled),
             web_search_provider: patch
                 .web_search_provider
                 .unwrap_or(self.web_search_provider),
@@ -399,9 +435,7 @@ impl AppSettings {
             tavily_api_key: patch
                 .tavily_api_key
                 .unwrap_or_else(|| self.tavily_api_key.clone()),
-            tool_approval_mode: patch
-                .tool_approval_mode
-                .unwrap_or(self.tool_approval_mode),
+            tool_approval_mode: patch.tool_approval_mode.unwrap_or(self.tool_approval_mode),
             chat_mode: patch.chat_mode.unwrap_or(self.chat_mode),
             lsp_enabled: patch.lsp_enabled.unwrap_or(self.lsp_enabled),
             lsp_servers: patch
@@ -420,6 +454,13 @@ impl AppSettings {
             pass_tool_reasoning: patch
                 .pass_tool_reasoning
                 .unwrap_or(self.pass_tool_reasoning),
+            show_reasoning: patch.show_reasoning.unwrap_or(self.show_reasoning),
+            multi_model_collaboration: patch
+                .multi_model_collaboration
+                .unwrap_or(self.multi_model_collaboration),
+            collaboration_models: patch
+                .collaboration_models
+                .unwrap_or_else(|| self.collaboration_models.clone()),
             multimodal_split_analysis: patch
                 .multimodal_split_analysis
                 .unwrap_or(self.multimodal_split_analysis),
@@ -427,6 +468,10 @@ impl AppSettings {
                 .large_context_enabled
                 .unwrap_or(self.large_context_enabled),
             zoom: patch.zoom.unwrap_or(self.zoom),
+            primary_hotkey: patch
+                .primary_hotkey
+                .map(|value| crate::services::hotkey::normalize_primary_hotkey(&value))
+                .unwrap_or_else(|| self.primary_hotkey.clone()),
             secondary_hotkey: patch
                 .secondary_hotkey
                 .map(|value| crate::services::hotkey::normalize_hotkey(&value))
@@ -434,6 +479,59 @@ impl AppSettings {
             custom_providers: patch
                 .custom_providers
                 .unwrap_or_else(|| self.custom_providers.clone()),
+            pixpin_pin_ai_enabled: patch
+                .pixpin_pin_ai_enabled
+                .unwrap_or(self.pixpin_pin_ai_enabled),
+            snipaste_pin_ai_enabled: patch
+                .snipaste_pin_ai_enabled
+                .unwrap_or(self.snipaste_pin_ai_enabled),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AppSettings, AppSettingsPatch, ColorScheme};
+
+    #[test]
+    fn legacy_settings_default_to_showing_reasoning() {
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "colorScheme": "blue-black",
+            "language": "zh-CN"
+        }))
+        .expect("legacy settings should deserialize");
+
+        assert_eq!(settings.color_scheme, ColorScheme::Dark);
+        assert!(settings.vscode_theme.is_empty());
+        assert!(settings.show_reasoning);
+        assert!(!settings.multi_model_collaboration);
+        assert!(settings.collaboration_models.is_empty());
+    }
+
+    #[test]
+    fn legacy_light_palette_migrates_without_custom_accent() {
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "colorScheme": "frost",
+            "customAccentColor": "#ff00ff",
+            "language": "zh-CN"
+        }))
+        .expect("legacy palette should deserialize");
+
+        assert_eq!(settings.color_scheme, ColorScheme::Light);
+        let serialized = serde_json::to_value(settings).expect("settings should serialize");
+        assert_eq!(serialized["colorScheme"], "light");
+        assert!(serialized.get("customAccentColor").is_none());
+    }
+
+    #[test]
+    fn show_reasoning_patch_is_optional_and_mergeable() {
+        let settings = AppSettings::default();
+        assert!(settings.merge(AppSettingsPatch::default()).show_reasoning);
+
+        let patch = AppSettingsPatch {
+            show_reasoning: Some(false),
+            ..AppSettingsPatch::default()
+        };
+        assert!(!settings.merge(patch).show_reasoning);
     }
 }

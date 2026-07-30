@@ -1,5 +1,5 @@
 <template>
-  <div v-if="hasWork" class="agent-work">
+  <div v-if="hasWork" class="agent-work" :class="{ 'has-running-subagent': hasRunningSubagent }">
     <button
       type="button"
       class="agent-work-toggle"
@@ -24,24 +24,33 @@
           <ToolActivityList
             v-else
             :activities="group.activities"
+            :all-activities="visibleActivities"
             :operations="group.type === 'operations'"
+            @inspect-subagent="emit('inspectSubagent', $event)"
           />
         </template>
       </template>
 
       <template v-else>
         <ReasoningBlock
-          v-if="message.reasoning"
-          :reasoning="message.reasoning"
+          v-if="hasReasoning"
+          :reasoning="message.reasoning ?? ''"
           :streaming="streaming"
           :language="language"
           embedded
         />
-        <ToolActivityList v-if="executionActivities.length" :activities="executionActivities" />
+        <ToolActivityList
+          v-if="executionActivities.length"
+          :activities="executionActivities"
+          :all-activities="visibleActivities"
+          @inspect-subagent="emit('inspectSubagent', $event)"
+        />
         <ToolActivityList
           v-if="operationActivities.length"
           :activities="operationActivities"
+          :all-activities="visibleActivities"
           operations
+          @inspect-subagent="emit('inspectSubagent', $event)"
         />
       </template>
     </div>
@@ -60,13 +69,27 @@ import { tr } from "@/services/i18n";
 const props = defineProps<{
   message: ChatMessage;
   language?: AppLanguage;
+  showReasoning?: boolean;
 }>();
+const emit = defineEmits<{ inspectSubagent: [activityId: string] }>();
 
 type TimelineGroup =
   | { type: "reasoning"; id: string; content: string }
   | { type: "execution" | "operations"; id: string; activities: ToolActivity[] };
 
 const FILE_OPERATION_KINDS = new Set(["create", "edit", "delete", "move"]);
+const SUBAGENT_TOOLS = new Set([
+  "run_subagent",
+  "run_readonly_subagent",
+  "run_parallel_subagents",
+  "run_skill",
+  "run_readonly_skill",
+  "explore_codebase",
+  "research_topic",
+  "review_code",
+  "review_security",
+  "generate_word",
+]);
 const userToggled = ref(false);
 const panelExpanded = ref(true);
 
@@ -82,20 +105,37 @@ const waitingForAskUser = computed(
 const visibleActivities = computed(() =>
   (props.message.toolActivities ?? []).filter(
     (activity) =>
-      activity.kind !== "read" &&
+      (activity.kind !== "read" || Boolean(activity.parentActivityId)) &&
       !(activity.toolName === "ask_user" && activity.status !== "running"),
   ),
 );
 const activityById = computed(
-  () => new Map(visibleActivities.value.map((activity) => [activity.id, activity])),
+  () =>
+    new Map(
+      visibleActivities.value
+        .filter((activity) => !activity.parentActivityId)
+        .map((activity) => [activity.id, activity]),
+    ),
+);
+const topLevelActivities = computed(() =>
+  visibleActivities.value.filter((activity) => !activity.parentActivityId),
 );
 const operationActivities = computed(() =>
-  visibleActivities.value.filter((activity) => FILE_OPERATION_KINDS.has(activity.kind)),
+  topLevelActivities.value.filter((activity) => FILE_OPERATION_KINDS.has(activity.kind)),
 );
 const executionActivities = computed(() =>
-  visibleActivities.value.filter((activity) => !FILE_OPERATION_KINDS.has(activity.kind)),
+  topLevelActivities.value.filter((activity) => !FILE_OPERATION_KINDS.has(activity.kind)),
 );
-const hasReasoning = computed(() => Boolean(props.message.reasoning?.trim()));
+const hasRunningSubagent = computed(() =>
+  topLevelActivities.value.some(
+    (activity) =>
+      activity.status === "running" &&
+      SUBAGENT_TOOLS.has(activity.toolName),
+  ),
+);
+const hasReasoning = computed(
+  () => props.showReasoning !== false && Boolean(props.message.reasoning?.trim()),
+);
 const hasExecutionWork = computed(
   () => hasReasoning.value || executionActivities.value.length > 0,
 );
@@ -104,7 +144,7 @@ const timelineGroups = computed<TimelineGroup[]>(() => {
   const groups: TimelineGroup[] = [];
   for (const item of props.message.workTimeline ?? []) {
     if (item.type === "reasoning") {
-      if (item.content.trim()) groups.push(item);
+      if (props.showReasoning !== false && item.content.trim()) groups.push(item);
       continue;
     }
     const activity = activityById.value.get(item.toolActivityId);
@@ -135,7 +175,7 @@ const reasoningCount = computed(() => {
   return hasReasoning.value ? 1 : 0;
 });
 
-const toolCount = computed(() => visibleActivities.value.length);
+const toolCount = computed(() => topLevelActivities.value.length);
 
 const panelLabel = computed(() => tr(props.language, "processSummary"));
 
@@ -225,6 +265,8 @@ function togglePanel() {
   color: var(--peek-text);
   background: color-mix(in srgb, var(--peek-text) 4%, transparent);
 }
+
+.agent-work.has-running-subagent > .agent-work-toggle { color: var(--peek-text); }
 
 .agent-work-chevron {
   flex: none;

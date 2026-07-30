@@ -7,6 +7,127 @@ export type MessageStatus =
   | "error"
   | "cancelled";
 
+export type AgentState =
+  | "created"
+  | "contextLoading"
+  | "planning"
+  | "executing"
+  | "waitingTool"
+  | "observing"
+  | "reflecting"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type AgentPlanStepStatus = "planned" | "running" | "completed" | "failed";
+
+export interface AgentPlanStep {
+  id: string;
+  action: string;
+  tool?: string;
+  description: string;
+  status: AgentPlanStepStatus;
+}
+
+export interface AgentPlan {
+  steps: AgentPlanStep[];
+}
+
+export type AgentEvent =
+  | { type: "userMessage"; data: { input: string } }
+  | { type: "stateChanged"; data: { from: AgentState; to: AgentState } }
+  | {
+      type: "contextCollected";
+      data: { hasWorkspace: boolean; hasActiveFile: boolean; ide?: string };
+    }
+  | { type: "planCreated"; data: { plan: AgentPlan } }
+  | {
+      type: "toolCalled";
+      data: { callId: string; tool: string; description: string };
+    }
+  | {
+      type: "toolResult";
+      data: { callId: string; tool: string; success: boolean; result: string };
+    }
+  | { type: "fileChanged"; data: { path: string } }
+  | { type: "error"; data: { message: string } }
+  | { type: "completed" };
+
+export interface AgentEventRecord {
+  runId: string;
+  sequence: number;
+  timestampMs: number;
+  event: AgentEvent;
+}
+
+export type AgentDebugEvent =
+  | { type: "runCreated"; data: { runId: string; state: AgentState } }
+  | {
+      type: "contextSnapshot";
+      data: { runId: string; context: CapturedContext };
+    }
+  | { type: "runtimeEvent"; data: { record: AgentEventRecord } }
+  | {
+      type: "toolCall";
+      data: {
+        runId: string;
+        callId: string;
+        tool: string;
+        description: string;
+        arguments: Record<string, unknown>;
+      };
+    }
+  | {
+      type: "subagentStarted";
+      data: {
+        runId: string;
+        subagentId: string;
+        parentSubagentId?: string;
+        description: string;
+        readOnly: boolean;
+        depth: number;
+        timestampMs: number;
+      };
+    }
+  | {
+      type: "subagentProgress";
+      data: { runId: string; subagentId: string; kind: string; content: string; timestampMs: number };
+    }
+  | {
+      type: "subagentToolCall";
+      data: {
+        runId: string;
+        subagentId: string;
+        callId: string;
+        tool: string;
+        description: string;
+        arguments: Record<string, unknown>;
+        timestampMs: number;
+      };
+    }
+  | {
+      type: "subagentToolResult";
+      data: {
+        runId: string;
+        subagentId: string;
+        callId: string;
+        tool: string;
+        success: boolean;
+        result: string;
+        timestampMs: number;
+      };
+    }
+  | {
+      type: "subagentFinished";
+      data: {
+        runId: string;
+        subagentId: string;
+        success: boolean;
+        summary: string;
+        timestampMs: number;
+      };
+    };
+
 export interface AskUserAnswerItem {
   header?: string;
   selected: string[];
@@ -27,8 +148,12 @@ export interface ChatMessage {
   activityStatus?: string;
   /** Soft-inject into an in-flight assistant turn (not a new unanswered user turn). */
   injected?: boolean;
+  /** UI-only structured payload used by the local /context diagnostic message. */
+  environmentContext?: CapturedContext;
   status: MessageStatus;
   timestamp: number;
+  /** UI-side completion time used to freeze the processing duration. */
+  completedAt?: number;
 }
 
 export type WorkTimelineItem =
@@ -46,14 +171,33 @@ export interface CapturedContext {
   selectedFiles?: string[];
   selectedImages?: string[];
   activeWindow?: string;
+  activeFile?: string;
   workspace?: { name: string; root: string };
   clipboard?: string;
+  gitStatus?: string;
+  lastShellExecution?: string;
+  ideContext?: IDEContext;
+}
+
+export interface CursorPosition {
+  line: number;
+  column: number;
+}
+
+export interface IDEContext {
+  ide: string;
+  activeFile?: string;
+  workspace?: string;
+  language?: string;
+  selection?: string;
+  cursor?: CursorPosition;
 }
 
 export interface ChatSendResponse {
   sessionId: string;
   userMessageId: string;
   assistantMessageId: string;
+  agentRunId?: string;
 }
 
 export interface ChatCancelRequest {
@@ -218,6 +362,7 @@ export type ToolApprovalDecision = "allow_once" | "allow_session" | "deny";
 
 export interface ToolPreviewPayload {
   path: string;
+  affectedPaths?: string[];
   kind: string;
   oldText?: string | null;
   newText?: string | null;
@@ -275,18 +420,25 @@ export interface ToolActivityEvent {
   sessionId: string;
   messageId: string;
   activityId: string;
+  subagentId?: string;
+  parentActivityId?: string;
   toolName: string;
   title: string;
   kind: string;
   detail?: string;
   arguments?: Record<string, unknown>;
   result?: string;
+  preview?: ToolPreviewPayload | null;
   success?: boolean;
   status: "running" | "done" | "error" | string;
 }
 
 export interface ToolActivity {
   id: string;
+  /** Child agent identity, when this tool was executed by a sub-agent. */
+  subagentId?: string;
+  /** Parent run_subagent activity used to render child work as one execution card. */
+  parentActivityId?: string;
   toolName: string;
   title: string;
   kind: string;

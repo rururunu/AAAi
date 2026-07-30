@@ -1,9 +1,11 @@
-import { listChatSessions, openSettings } from "@/services/ipc";
+import { getEnvironmentContext, listChatSessions, openSettings } from "@/services/ipc";
+import type { CapturedContext } from "@/types/chat";
+import type { SlashI18nKey } from "@/services/locales/slash";
 
 export interface SlashCommand {
     command: string;
     label: string;
-    description: string;
+    descriptionKey: SlashI18nKey;
 }
 
 export type SlashCommandAction =
@@ -11,45 +13,45 @@ export type SlashCommandAction =
     | "openHistory"
     | "openModel"
     | "openWorkspace"
-    | "enterPlan"
     | "clearInput"
+    | "showContext"
     | null;
 
 export const slashCommands: SlashCommand[] = [
     {
         command: "/history",
         label: "history",
-        description: "打开历史对话",
+        descriptionKey: "slash.history.description",
     },
     {
         command: "/model",
         label: "model",
-        description: "切换对话模型",
-    },
-    {
-        command: "/plan",
-        label: "plan",
-        description: "进入计划模式（只读探索）",
+        descriptionKey: "slash.model.description",
     },
     {
         command: "/settings",
         label: "settings",
-        description: "打开设置",
+        descriptionKey: "slash.settings.description",
     },
     {
         command: "/work",
         label: "work",
-        description: "快速切换工作区",
+        descriptionKey: "slash.work.description",
     },
     {
         command: "/exit",
         label: "exit",
-        description: "关闭当前会话",
+        descriptionKey: "slash.exit.description",
+    },
+    {
+        command: "/context",
+        label: "context",
+        descriptionKey: "slash.context.description",
     },
     {
         command: "/clear",
         label: "clear",
-        description: "清空当前会话输入与本地草稿",
+        descriptionKey: "slash.clear.description",
     },
 ];
 
@@ -61,8 +63,6 @@ export async function executeSlashCommand(
             return "openHistory";
         case "/model":
             return "openModel";
-        case "/plan":
-            return "enterPlan";
         case "/settings":
             try {
                 await openSettings();
@@ -76,9 +76,15 @@ export async function executeSlashCommand(
             return "close";
         case "/clear":
             return "clearInput";
+        case "/context":
+            return "showContext";
         default:
             return null;
     }
+}
+
+export async function fetchEnvironmentContext(): Promise<CapturedContext> {
+    return getEnvironmentContext();
 }
 
 export async function fetchChatSessions() {

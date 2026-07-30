@@ -2,6 +2,8 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { listen } from "@tauri-apps/api/event";
 
 import type {
+  AgentEventRecord,
+  AgentDebugEvent,
   AskUserEvent,
   ChatContextNoticeEvent,
   ChatDeltaEvent,
@@ -31,6 +33,14 @@ export function listenIpcEvent<TPayload>(
 
 export function listenSettingsChanged(handler: (settings: AppSettings) => void) {
   return listenIpcEvent<AppSettings>(IPC_EVENTS.settingsChanged, handler);
+}
+
+export function listenAgentEvent(handler: (payload: AgentEventRecord) => void) {
+  return listenIpcEvent<AgentEventRecord>(IPC_EVENTS.agentEvent, handler);
+}
+
+export function listenAgentDebugEvent(handler: (payload: AgentDebugEvent) => void) {
+  return listenIpcEvent<AgentDebugEvent>(IPC_EVENTS.agentDebugEvent, handler);
 }
 
 export function listenChatStarted(handler: (payload: ChatStartedEvent) => void) {

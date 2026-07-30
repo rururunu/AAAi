@@ -27,7 +27,12 @@
             <Check v-if="workspace.id === current?.id" class="size-3" />
           </span>
           <span class="copy">
-            <strong>{{ workspace.name }}</strong>
+            <span class="workspace-title">
+              <strong>{{ workspace.name }}</strong>
+              <span v-if="workspaceSourceLabel(workspace.source)" class="workspace-source">
+                {{ workspaceSourceLabel(workspace.source) }}
+              </span>
+            </span>
             <span>{{ workspace.root }}</span>
           </span>
           <span v-if="workspace.id === current?.id" class="current-label">{{ copy.current }}</span>
@@ -63,6 +68,7 @@ import {
   listWorkspaces,
   selectWorkspaceFolder,
   switchWorkspace,
+  workspaceSourceLabel,
   type Workspace,
 } from "@/commands/workspace";
 
@@ -161,7 +167,9 @@ onUnmounted(() => unlisten?.());
 .radio { width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px solid var(--border); border-radius: 50%; }
 .radio.active { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); }
 .copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
-.copy strong { font-size: 13px; font-weight: 600; }
+.workspace-title { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.copy strong { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .copy span { overflow: hidden; color: var(--muted-foreground); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.copy .workspace-source { flex: none; padding: 1px 6px; border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); border-radius: 999px; color: var(--primary); font-size: 9px; font-weight: 600; line-height: 1.35; }
 .current-label { flex: none; color: var(--primary); font-size: 11px; font-weight: 600; }
 </style>

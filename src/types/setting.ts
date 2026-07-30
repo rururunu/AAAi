@@ -1,37 +1,16 @@
-export type ColorScheme =
-    | "blue-black"
-    | "dark"
-    | "light"
-    | "midnight"
-    | "forest"
-    | "rose"
-    | "ocean"
-    | "cream"
-    | "graphite"
-    | "ember"
-    | "frost"
-    | "teal";
+export type ColorScheme = "dark" | "light";
 
-export const LIGHT_COLOR_SCHEMES = new Set<ColorScheme>(["light", "cream", "frost"]);
+export const LIGHT_COLOR_SCHEMES = new Set<ColorScheme>(["light"]);
+
+export function normalizeColorScheme(value: unknown): ColorScheme {
+    if (value === "paper" || value === "light" || value === "cream" || value === "frost") {
+        return "light";
+    }
+    return "dark";
+}
 
 export function isLightColorScheme(scheme: ColorScheme): boolean {
     return LIGHT_COLOR_SCHEMES.has(scheme);
-}
-
-/** Default accent color applied on fresh installs and after reset. */
-/** Soft off-white — reads as white without pure #fff glare on dark UI. */
-export const DEFAULT_ACCENT_COLOR = "#e8ecf2";
-
-export function normalizeAccentColor(value: string | undefined | null): string {
-    const trimmed = (value ?? "").trim();
-    if (/^#[0-9a-f]{6}$/i.test(trimmed)) {
-        return trimmed.toLowerCase();
-    }
-    return DEFAULT_ACCENT_COLOR;
-}
-
-export function isDefaultAccentColor(value: string | undefined | null): boolean {
-    return normalizeAccentColor(value) === DEFAULT_ACCENT_COLOR;
 }
 
 export type AppLanguage = "zh-CN" | "en-US" | "ja-JP" | "ru-RU" | "de-DE" | "fr-FR" | "ko-KR";
@@ -92,10 +71,9 @@ export interface GeminiAuthStatus {
     clientId: string;
 }
 
-export const DEFAULT_GEMINI_OAUTH_CLIENT_ID =
-    "YOUR_GOOGLE_OAUTH_CLIENT_ID";
+export const DEFAULT_GEMINI_OAUTH_CLIENT_ID = "";
 
-export const DEFAULT_GEMINI_OAUTH_CLIENT_SECRET = "YOUR_GOOGLE_OAUTH_CLIENT_SECRET";
+export const DEFAULT_GEMINI_OAUTH_CLIENT_SECRET = "";
 
 export function defaultGeminiOAuthSettings(): GeminiOAuthSettings {
     return {
@@ -111,7 +89,7 @@ export function defaultGeminiOAuthSettings(): GeminiOAuthSettings {
 
 export interface AppSettings {
     colorScheme: ColorScheme;
-    customAccentColor: string;
+    vscodeTheme: string;
     language: AppLanguage;
     deepseekApiKey: string;
     geminiOauth: GeminiOAuthSettings;
@@ -138,14 +116,23 @@ export interface AppSettings {
     reasoningLanguage: ReasoningLanguage;
     /** Pass reasoning_content back on tool-call turns (DeepSeek thinking + tools). */
     passToolReasoning: boolean;
+    /** Display reasoning content supplied by the model in chat. */
+    showReasoning: boolean;
+    multiModelCollaboration: boolean;
+    collaborationModels: string[];
     zoom: number;
+    primaryHotkey: string;
     secondaryHotkey: string;
     customProviders: CustomProviderConfig[];
+    /** Show AI button on PixPin pin windows. */
+    pixpinPinAiEnabled: boolean;
+    /** Show AI button on Snipaste pin windows. */
+    snipastePinAiEnabled: boolean;
 }
 
 export interface AppSettingsPatch {
     colorScheme?: ColorScheme;
-    customAccentColor?: string;
+    vscodeTheme?: string;
     language?: AppLanguage;
     deepseekApiKey?: string;
     geminiOauth?: GeminiOAuthSettings;
@@ -170,9 +157,15 @@ export interface AppSettingsPatch {
     reasoningEffort?: ReasoningEffort;
     reasoningLanguage?: ReasoningLanguage;
     passToolReasoning?: boolean;
+    showReasoning?: boolean;
+    multiModelCollaboration?: boolean;
+    collaborationModels?: string[];
     zoom?: number;
+    primaryHotkey?: string;
     secondaryHotkey?: string;
     customProviders?: CustomProviderConfig[];
+    pixpinPinAiEnabled?: boolean;
+    snipastePinAiEnabled?: boolean;
 }
 
 export interface SelectOption<T extends string> {
@@ -186,10 +179,6 @@ export function localizedOptionLabel<T extends string>(option: SelectOption<T>, 
 
 export const colorSchemeOptions: SelectOption<ColorScheme>[] = [
     {
-        value: "blue-black",
-        label: { "zh-CN": "蓝黑", "en-US": "Blue Black" },
-    },
-    {
         value: "dark",
         label: { "zh-CN": "深色", "en-US": "Dark" },
     },
@@ -197,18 +186,6 @@ export const colorSchemeOptions: SelectOption<ColorScheme>[] = [
         value: "light",
         label: { "zh-CN": "浅色", "en-US": "Light" },
     },
-    {
-        value: "forest",
-        label: { "zh-CN": "森绿", "en-US": "Forest" },
-    },
-    {
-        value: "rose",
-        label: { "zh-CN": "暮玫", "en-US": "Rose" },
-    },
-    { value: "graphite", label: { "zh-CN": "石墨", "en-US": "Graphite" } },
-    { value: "ember", label: { "zh-CN": "余烬", "en-US": "Ember" } },
-    { value: "frost", label: { "zh-CN": "霜白", "en-US": "Frost" } },
-    { value: "teal", label: { "zh-CN": "青黛", "en-US": "Teal" } },
 ];
 
 export const languageOptions: SelectOption<AppLanguage>[] = [

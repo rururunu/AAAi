@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use similar::TextDiff;
 
 use super::context::{Tool, ToolContext};
 use super::error::ToolError;
@@ -12,10 +13,12 @@ pub enum ChangeKind {
     Delete,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolPreview {
     pub path: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub affected_paths: Vec<String>,
     pub kind: ChangeKind,
     pub old_text: Option<String>,
     pub new_text: Option<String>,
@@ -23,17 +26,33 @@ pub struct ToolPreview {
 }
 
 pub fn unified_diff(path: &str, old: &str, new: &str) -> String {
-    let mut out = format!("--- a/{path}\n+++ b/{path}\n");
-    let old_lines: Vec<&str> = old.lines().collect();
-    let new_lines: Vec<&str> = new.lines().collect();
-    out.push_str(&format!("@@ -1,{} +1,{} @@\n", old_lines.len(), new_lines.len()));
-    for line in &old_lines {
-        out.push_str(&format!("-{line}\n"));
+    TextDiff::from_lines(old, new)
+        .unified_diff()
+        .context_radius(3)
+        .header(&format!("a/{path}"), &format!("b/{path}"))
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unified_diff;
+
+    #[test]
+    fn unified_diff_counts_only_changed_lines() {
+        let diff = unified_diff("src/main.rs", "one\nold\nthree\n", "one\nnew\nthree\n");
+        assert_eq!(
+            diff.lines()
+                .filter(|line| line.starts_with('+') && !line.starts_with("+++"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            diff.lines()
+                .filter(|line| line.starts_with('-') && !line.starts_with("---"))
+                .count(),
+            1
+        );
     }
-    for line in &new_lines {
-        out.push_str(&format!("+{line}\n"));
-    }
-    out
 }
 
 /// Optional preview hook used by approval and checkpoints.

@@ -6,6 +6,10 @@ use super::stream::ToolCallPayload;
 #[serde(rename_all = "camelCase")]
 pub struct ToolActivity {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_activity_id: Option<String>,
     pub tool_name: String,
     pub title: String,
     pub kind: String,
@@ -15,6 +19,8 @@ pub struct ToolActivity {
     pub arguments: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<crate::core::tools::preview::ToolPreview>,
     pub success: bool,
     pub status: String,
 }

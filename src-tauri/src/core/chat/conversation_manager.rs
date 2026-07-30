@@ -12,9 +12,7 @@ where
     F::Output: Send + 'static,
 {
     match tokio::runtime::Handle::try_current() {
-        Ok(handle)
-            if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread =>
-        {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
             tokio::task::block_in_place(|| handle.block_on(future))
         }
         Ok(_) => std::thread::spawn(move || tauri::async_runtime::block_on(future))
@@ -171,6 +169,13 @@ impl ConversationManager {
                 eprintln!("Failed to bind chat session workspace: {error}");
             }
         });
+    }
+
+    pub fn workspace_for_session(&self, session_id: &str) -> Option<String> {
+        self.session_workspaces
+            .lock()
+            .ok()
+            .and_then(|workspaces| workspaces.get(session_id).cloned())
     }
 
     pub fn history(&self, session_id: &str) -> Result<Vec<ChatMessage>, ChatError> {
@@ -433,7 +438,11 @@ fn settle_message_in_place(message: &mut ChatMessage) -> bool {
             if activity.status == "running" {
                 activity.status = "error".into();
                 activity.success = false;
-                if activity.result.as_ref().is_none_or(|value| value.trim().is_empty()) {
+                if activity
+                    .result
+                    .as_ref()
+                    .is_none_or(|value| value.trim().is_empty())
+                {
                     activity.result = Some("interrupted".into());
                 }
                 changed = true;

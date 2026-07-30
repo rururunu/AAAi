@@ -3,6 +3,7 @@ pub mod apply_patch;
 pub mod builtin;
 pub mod display;
 pub mod error;
+pub mod file_io;
 pub mod fuzzy;
 pub mod memory;
 pub mod path;

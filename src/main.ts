@@ -20,6 +20,7 @@ import {
 import { normalizeToolActivityEvent, resolveSessionId } from "@/services/chat/normalize";
 import { createRafBatch } from "@/services/chat/rafBatch";
 import { markPeekWindow } from "@/services/overlay/appearance";
+import { installBrowserGuards } from "@/services/browserGuards";
 import type {
   ChatContextNoticeEvent,
   ChatDeltaEvent,
@@ -33,6 +34,8 @@ import { useChatStore } from "@/stores/chat";
 import { useSettingStore } from "@/stores/setting";
 import "./services/theme/themes.css";
 import "./styles/index.css";
+
+installBrowserGuards();
 
 const app = createApp(App);
 const pinia = createPinia();

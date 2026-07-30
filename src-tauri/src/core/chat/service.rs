@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use crate::core::agent::AgentRuntime;
 use crate::core::ai::provider::AIProvider;
 use crate::core::chat::compact::{self, context_window_tokens};
 use crate::core::chat::conversation_manager::{create_message, ConversationManager};
@@ -7,7 +8,6 @@ use crate::core::chat::error::ChatError;
 use crate::core::chat::limits::max_turn_tokens_for;
 use crate::core::chat::preferences::SendPreferences;
 use crate::core::chat::prompt::{PromptBuilder, PromptPreferences};
-use crate::core::chat::stream::StreamManager;
 use crate::core::context::ContextResolver;
 use crate::core::event::{BusEvent, EventBus};
 use crate::core::runtime::{ChatMessage, MessageStatus, Role, DEFAULT_SESSION_ID};
@@ -15,11 +15,13 @@ use crate::core::tools::context::{AskStore, PathPermissionStore, TaskItem};
 use crate::core::workspace::WorkspaceManager;
 use crate::models::settings::ChatMode;
 use crate::runtime::ToolManager;
+use tauri::Emitter;
 
 pub struct ChatSendResult {
     pub session_id: String,
     pub user_message_id: String,
     pub assistant_message_id: String,
+    pub agent_run_id: Option<String>,
 }
 
 pub struct ChatService {
@@ -28,7 +30,7 @@ pub struct ChatService {
     conversation: Arc<ConversationManager>,
     workspace_manager: Arc<WorkspaceManager>,
     context_resolver: ContextResolver,
-    stream_manager: StreamManager,
+    agent_runtime: AgentRuntime,
     tools: Arc<ToolManager>,
     ask_store: Arc<AskStore>,
     path_permission_store: Arc<PathPermissionStore>,
@@ -46,13 +48,14 @@ impl ChatService {
         workspace_manager: Arc<WorkspaceManager>,
         app_handle: tauri::AppHandle,
     ) -> Self {
+        let agent_runtime = AgentRuntime::new(Arc::clone(&event_bus), Arc::clone(&tools));
         Self {
             provider,
             event_bus,
             conversation,
             workspace_manager,
             context_resolver,
-            stream_manager: StreamManager::new(),
+            agent_runtime,
             tools,
             ask_store: Arc::new(AskStore::new()),
             path_permission_store: Arc::new(PathPermissionStore::new()),
@@ -94,20 +97,35 @@ impl ChatService {
             return Err(ChatError::EmptyMessage);
         }
         let workspace = self.workspace_manager.current();
+        let known_workspaces = self.workspace_manager.list();
 
         let session_id = session_id.unwrap_or_else(|| DEFAULT_SESSION_ID.to_string());
 
         // Mid-turn soft inject: queue into the active agent loop (tool boundary).
         if let Some(assistant_message_id) =
-            self.stream_manager.active_assistant_for_session(&session_id)
+            self.agent_runtime.active_assistant_for_session(&session_id)
         {
             return self.soft_inject(&session_id, content, &assistant_message_id);
         }
 
+        let agent_run_id = self.agent_runtime.create_run(content.clone());
+        let context = self
+            .agent_runtime
+            .collect_context(&agent_run_id, || {
+                let mut context = self
+                    .context_resolver
+                    .resolve_environment(workspace.as_ref(), &known_workspaces);
+                crate::core::context::provider::environment_provider::collect(&mut context);
+                context
+            })
+            .map_err(|error| ChatError::Internal(error.to_string()))?;
+        self.remember_ide_workspace(&context).await;
         let is_new_session = self.conversation.messages(&session_id).is_empty();
-        if is_new_session && workspace.is_some() {
-            let workspace = workspace.as_ref().expect("workspace checked above");
-            self.conversation.bind_workspace(&session_id, &workspace.id);
+        if is_new_session {
+            if let Some(resolved) = context.workspace.as_ref() {
+                self.conversation
+                    .bind_workspace(&session_id, &resolved.root);
+            }
         }
         let user_message = create_message(&session_id, Role::User, content, MessageStatus::Done);
         let assistant_message = create_message(
@@ -127,27 +145,28 @@ impl ChatService {
             assistant_message: assistant_message.clone(),
         });
 
-        let mut context = self.context_resolver.resolve();
-
-        if let Some(workspace) = workspace {
-            context.set_workspace(workspace.name, &workspace.root);
-        }
         // Memory recall may use `reqwest::blocking` — must not run on a tokio worker.
-        let recall_text =
-            super::selection::visible_user_text(&user_message.content).to_string();
+        let recall_text = super::selection::visible_user_text(&user_message.content).to_string();
         let workspace_root = context
             .workspace
             .as_ref()
             .map(|workspace| std::path::PathBuf::from(&workspace.root));
-        let task_rules = tauri::async_runtime::spawn_blocking(move || {
+        let task_rules_result = tauri::async_runtime::spawn_blocking(move || {
             crate::core::rules::RuleEngine::prepare_task(
                 &recall_text,
                 workspace_root.as_deref(),
                 is_new_session,
             )
         })
-        .await
-        .map_err(|error| ChatError::Provider(error.to_string()))?;
+        .await;
+        let task_rules = match task_rules_result {
+            Ok(task_rules) => task_rules,
+            Err(error) => {
+                self.agent_runtime
+                    .fail_run(&agent_run_id, "task preparation failed");
+                return Err(ChatError::Provider(error.to_string()));
+            }
+        };
         let _memory_decision = task_rules.memory_decision;
 
         let history = self.conversation.messages(&session_id);
@@ -160,8 +179,7 @@ impl ChatService {
         let context_window = context_window_tokens(large_context);
         let max_turn_tokens = max_turn_tokens_for(large_context);
         let provider = self.active_provider();
-        let summarizer =
-            crate::core::chat::compact::ProviderSummarizer::new(Arc::clone(&provider));
+        let summarizer = crate::core::chat::compact::ProviderSummarizer::new(Arc::clone(&provider));
         let compact = compact::prepare_history_for_prompt(
             &history,
             &context,
@@ -186,9 +204,17 @@ impl ChatService {
                 folded_messages: notice.folded_messages,
             });
         }
+        let collaboration_models = self
+            .app_handle
+            .as_ref()
+            .and_then(|app| crate::services::settings_store::get_settings(app).ok())
+            .filter(|settings| settings.multi_model_collaboration)
+            .map(|settings| settings.collaboration_models)
+            .unwrap_or_default();
         let prompt_preferences = PromptPreferences {
             app_language: preferences.app_language,
             reasoning_language: preferences.reasoning_language,
+            collaboration_models,
         };
         let request = PromptBuilder::build(
             &assistant_message.id,
@@ -231,10 +257,10 @@ impl ChatService {
             .map(|settings| settings.chat_model)
             .unwrap_or_default();
 
-        self.stream_manager.spawn(
+        let spawn_result = self.agent_runtime.spawn(
+            agent_run_id.clone(),
             provider,
             tools,
-            self.event_bus.clone(),
             Arc::clone(&self.conversation),
             Arc::clone(&self.ask_store),
             Arc::clone(&self.path_permission_store),
@@ -246,12 +272,64 @@ impl ChatService {
             max_turn_tokens,
             model,
         );
+        if let Err(error) = spawn_result {
+            self.agent_runtime
+                .fail_run(&agent_run_id, "agent runtime failed to start");
+            return Err(ChatError::Internal(error.to_string()));
+        }
 
         Ok(ChatSendResult {
             session_id,
             user_message_id: user_message.id,
             assistant_message_id: assistant_message.id,
+            agent_run_id: Some(agent_run_id),
         })
+    }
+
+    async fn remember_ide_workspace(&self, context: &crate::core::runtime::RequestContext) {
+        let Some(ide) = context.ide_context.as_ref() else {
+            return;
+        };
+        if !ide
+            .selection
+            .as_deref()
+            .is_some_and(|selection| !selection.trim().is_empty())
+        {
+            return;
+        }
+        let Some(root) = ide.workspace.clone() else {
+            return;
+        };
+
+        match self
+            .workspace_manager
+            .remember_from_ide(root, &ide.ide)
+            .await
+        {
+            Ok((_, false)) => {}
+            Ok((workspace, true)) => {
+                if let Some(app) = &self.app_handle {
+                    if let Err(error) =
+                        app.emit("workspaces-changed", self.workspace_manager.current())
+                    {
+                        tracing::warn!(
+                            provider = "ide",
+                            workspace = %workspace.root.display(),
+                            error = %error,
+                            "failed to emit IDE workspace update"
+                        );
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    provider = "ide",
+                    ide = %ide.ide,
+                    error = %error,
+                    "failed to remember IDE workspace"
+                );
+            }
+        }
     }
 
     fn soft_inject(
@@ -264,11 +342,10 @@ impl ChatService {
         // into the preceding assistant turn instead of an unanswered user bubble).
         const SOFT_INJECT_MARKER: &str = "<!--peek:soft-inject-->\n";
         let stored = format!("{SOFT_INJECT_MARKER}{content}");
-        let user_message =
-            create_message(session_id, Role::User, stored, MessageStatus::Done);
+        let user_message = create_message(session_id, Role::User, stored, MessageStatus::Done);
         self.conversation.append(session_id, user_message.clone());
         // Agent queue gets plain text (no HTML marker).
-        self.stream_manager.soft_inject(session_id, content)?;
+        self.agent_runtime.soft_inject(session_id, content)?;
 
         // Do not emit ChatStarted: that would re-project the assistant bubble and can
         // wipe in-flight streamed content. Frontend already staged the user message.
@@ -276,12 +353,15 @@ impl ChatService {
             session_id: session_id.to_string(),
             user_message_id: user_message.id,
             assistant_message_id: assistant_message_id.to_string(),
+            agent_run_id: self
+                .agent_runtime
+                .run_for_message(assistant_message_id)
+                .map(|run| run.id),
         })
     }
 
     pub fn cancel(&self, message_id: &str) -> Result<(), ChatError> {
-        self.stream_manager
-            .cancel(&self.conversation, self.event_bus.as_ref(), message_id)
+        self.agent_runtime.cancel(&self.conversation, message_id)
     }
 
     pub fn history(&self, session_id: &str) -> Result<Vec<ChatMessage>, ChatError> {
@@ -306,29 +386,57 @@ impl ChatService {
             Some(id) => self.conversation.messages(id),
             None => Vec::new(),
         };
-        let mut ctx = context.unwrap_or_else(|| self.context_resolver.resolve());
-        if ctx.workspace.is_none() {
-            if let Some(workspace) = self.workspace_manager.current() {
-                ctx.set_workspace(workspace.name, &workspace.root);
-            }
-        }
+        let current_workspace = self.workspace_manager.current();
+        let known_workspaces = self.workspace_manager.list();
+        let mut ctx = self.context_resolver.resolve_request(
+            context.unwrap_or_else(|| self.context_resolver.resolve()),
+            current_workspace.as_ref(),
+            &known_workspaces,
+        );
+        crate::core::context::provider::environment_provider::collect(&mut ctx);
 
         let large_context = get_settings(app)
             .map(|settings| settings.large_context_enabled)
             .unwrap_or(true);
         let context_window = context_window_tokens(large_context);
-        let measure = measure_context_usage(
-            &history,
-            &ctx,
-            draft_message.as_deref(),
-            context_window,
-        );
+        let measure =
+            measure_context_usage(&history, &ctx, draft_message.as_deref(), context_window);
 
         Ok(crate::models::chat::ContextUsageResponse {
             usage_ratio: measure.usage_ratio,
             estimated_tokens: measure.estimated_tokens,
             context_window_tokens: context_window,
         })
+    }
+
+    pub fn environment_context(&self) -> crate::core::runtime::RequestContext {
+        let current_workspace = self.workspace_manager.current();
+        let known_workspaces = self.workspace_manager.list();
+        let captured = self.context_resolver.resolve();
+        tracing::debug!(
+            active_window = ?captured.active_window.as_deref(),
+            active_file = ?captured.active_file.as_deref(),
+            workspace = ?captured.workspace.as_ref().map(|workspace| workspace.root.as_str()),
+            selected_files = captured.selected_files.len(),
+            ide = ?captured.ide_context.as_ref().map(|ide| ide.ide.as_str()),
+            "ChatService::environment_context input captured context"
+        );
+        let mut context = self.context_resolver.resolve_request(
+            captured,
+            current_workspace.as_ref(),
+            &known_workspaces,
+        );
+        crate::core::context::provider::environment_provider::collect(&mut context);
+        tracing::debug!(
+            active_window = ?context.active_window.as_deref(),
+            active_file = ?context.active_file.as_deref(),
+            workspace = ?context.workspace.as_ref().map(|workspace| workspace.root.as_str()),
+            has_git_status = context.git_status.is_some(),
+            has_shell_execution = context.last_shell_execution.is_some(),
+            ide = ?context.ide_context.as_ref().map(|ide| ide.ide.as_str()),
+            "ChatService::environment_context final resolved context"
+        );
+        context
     }
 
     pub fn emit_plan_mode_changed(&self, session_id: &str, active: bool) {

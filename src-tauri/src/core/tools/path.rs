@@ -69,13 +69,13 @@ pub fn resolve_tool_path(
 
     if ctx
         .path_permission_store
-        .is_granted(&ctx.session_id, &normalized, access)
+        .is_granted(ctx.root_session_id(), &normalized, access)
     {
         return Ok(normalized);
     }
 
     ctx.path_permission_store.request_and_grant(
-        &ctx.session_id,
+        ctx.root_session_id(),
         &ctx.event_bus,
         normalized,
         access,

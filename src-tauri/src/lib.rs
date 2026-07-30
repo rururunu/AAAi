@@ -18,9 +18,11 @@ use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 use app_state::AppState;
-use commands::{app, ask, chat, gemini, harness, mcp, permission, settings, skills, window, workspace};
-use services::settings_store::{load_settings, SettingsState};
+use commands::{
+    app, ask, chat, gemini, harness, mcp, permission, settings, skills, themes, window, workspace,
+};
 use services::overlay_native::clear_minimize_pending;
+use services::settings_store::{load_settings, SettingsState};
 use services::window::{
     cleanup_overlay_state, configure_overlay_window, handle_overlay_focused, is_overlay_label,
     mark_blur_guard, should_keep_overlay_visible, show_settings_window, toggle_overlay,
@@ -35,18 +37,15 @@ fn now_millis() -> u64 {
         .unwrap_or(0)
 }
 
-fn is_alt_key(key: Key) -> bool {
-    matches!(key, Key::Alt | Key::AltGr)
-}
-
 fn cursor_pos() -> Option<(i32, i32)> {
     let mut pt = POINT::default();
     unsafe { GetCursorPos(&mut pt).ok().map(|_| (pt.x, pt.y)) }
 }
 
 #[derive(Default)]
-struct DoubleAltDetector {
-    alt_down: bool,
+struct DoubleModifierDetector {
+    modifier: Option<crate::services::hotkey::PrimaryHotkey>,
+    modifier_down: bool,
     chorded: bool,
     last_tap_ms: Option<u64>,
     /// Second Alt was pressed within the double-tap window; fire on its keyup
@@ -54,14 +53,24 @@ struct DoubleAltDetector {
     pending_trigger: bool,
 }
 
-impl DoubleAltDetector {
-    fn key_press(&mut self, key: Key, now: u64) {
-        if is_alt_key(key) {
-            if self.alt_down {
+impl DoubleModifierDetector {
+    fn sync_modifier(&mut self, modifier: crate::services::hotkey::PrimaryHotkey) {
+        if self.modifier != Some(modifier) {
+            *self = Self {
+                modifier: Some(modifier),
+                ..Self::default()
+            };
+        }
+    }
+
+    fn key_press(&mut self, key: Key, now: u64, modifier: crate::services::hotkey::PrimaryHotkey) {
+        self.sync_modifier(modifier);
+        if modifier.matches(key) {
+            if self.modifier_down {
                 // Key-repeat while holding Alt — ignore.
                 return;
             }
-            self.alt_down = true;
+            self.modifier_down = true;
             self.chorded = false;
             let double_tap = self
                 .last_tap_ms
@@ -73,7 +82,7 @@ impl DoubleAltDetector {
             return;
         }
 
-        if self.alt_down {
+        if self.modifier_down {
             self.chorded = true;
             self.last_tap_ms = None;
             self.pending_trigger = false;
@@ -81,12 +90,18 @@ impl DoubleAltDetector {
     }
 
     /// Returns true when the second Alt of a double-tap is released.
-    fn key_release(&mut self, key: Key, now: u64) -> bool {
-        if !is_alt_key(key) || !self.alt_down {
+    fn key_release(
+        &mut self,
+        key: Key,
+        now: u64,
+        modifier: crate::services::hotkey::PrimaryHotkey,
+    ) -> bool {
+        self.sync_modifier(modifier);
+        if !modifier.matches(key) || !self.modifier_down {
             return false;
         }
 
-        self.alt_down = false;
+        self.modifier_down = false;
         if self.chorded {
             self.chorded = false;
             self.last_tap_ms = None;
@@ -115,20 +130,21 @@ fn trigger_overlay(app: &AppHandle) {
 
 fn start_hotkey_listener(app: AppHandle) {
     std::thread::spawn(move || {
-        let mut double_alt = DoubleAltDetector::default();
+        let mut primary_detector = DoubleModifierDetector::default();
         let mut secondary = crate::services::hotkey::SecondaryHotkeyDetector::default();
         let callback = move |event: Event| {
+            let primary = crate::services::hotkey::current_primary_hotkey();
             let chord = crate::services::hotkey::current_secondary_hotkey();
             let triggered = match event.event_type {
                 EventType::KeyPress(key) => {
-                    double_alt.key_press(key, now_millis());
+                    primary_detector.key_press(key, now_millis(), primary);
                     secondary.key_press(key, &chord);
                     false
                 }
                 EventType::KeyRelease(key) => {
-                    let alt = double_alt.key_release(key, now_millis());
+                    let primary_hit = primary_detector.key_release(key, now_millis(), primary);
                     let chord_hit = secondary.key_release(key, &chord);
-                    alt || chord_hit
+                    primary_hit || chord_hit
                 }
                 _ => false,
             };
@@ -145,37 +161,50 @@ fn start_hotkey_listener(app: AppHandle) {
 }
 
 #[cfg(test)]
-mod double_alt_tests {
+mod double_modifier_tests {
     use super::*;
 
     #[test]
     fn key_repeat_during_long_press_does_not_trigger() {
-        let mut detector = DoubleAltDetector::default();
-        detector.key_press(Key::Alt, 1_000);
-        detector.key_press(Key::Alt, 1_010);
-        assert!(!detector.key_release(Key::Alt, 1_020));
+        let mut detector = DoubleModifierDetector::default();
+        let modifier = crate::services::hotkey::PrimaryHotkey::Alt;
+        detector.key_press(Key::Alt, 1_000, modifier);
+        detector.key_press(Key::Alt, 1_010, modifier);
+        assert!(!detector.key_release(Key::Alt, 1_020, modifier));
     }
 
     #[test]
     fn two_complete_taps_trigger_on_second_release() {
-        let mut detector = DoubleAltDetector::default();
-        detector.key_press(Key::Alt, 1_000);
-        assert!(!detector.key_release(Key::Alt, 1_050));
-        detector.key_press(Key::Alt, 1_250);
-        assert!(detector.key_release(Key::Alt, 1_280));
+        let mut detector = DoubleModifierDetector::default();
+        let modifier = crate::services::hotkey::PrimaryHotkey::Alt;
+        detector.key_press(Key::Alt, 1_000, modifier);
+        assert!(!detector.key_release(Key::Alt, 1_050, modifier));
+        detector.key_press(Key::Alt, 1_250, modifier);
+        assert!(detector.key_release(Key::Alt, 1_280, modifier));
         // Next press must not immediately fire without a new arming tap.
-        detector.key_press(Key::Alt, 1_300);
-        assert!(!detector.key_release(Key::Alt, 1_320));
+        detector.key_press(Key::Alt, 1_300, modifier);
+        assert!(!detector.key_release(Key::Alt, 1_320, modifier));
     }
 
     #[test]
     fn alt_chord_does_not_count_as_a_tap() {
-        let mut detector = DoubleAltDetector::default();
-        detector.key_press(Key::Alt, 1_000);
-        detector.key_press(Key::KeyC, 1_010);
-        assert!(!detector.key_release(Key::Alt, 1_020));
-        detector.key_press(Key::Alt, 1_100);
-        assert!(!detector.key_release(Key::Alt, 1_120));
+        let mut detector = DoubleModifierDetector::default();
+        let modifier = crate::services::hotkey::PrimaryHotkey::Alt;
+        detector.key_press(Key::Alt, 1_000, modifier);
+        detector.key_press(Key::KeyC, 1_010, modifier);
+        assert!(!detector.key_release(Key::Alt, 1_020, modifier));
+        detector.key_press(Key::Alt, 1_100, modifier);
+        assert!(!detector.key_release(Key::Alt, 1_120, modifier));
+    }
+
+    #[test]
+    fn configured_ctrl_double_tap_triggers() {
+        let mut detector = DoubleModifierDetector::default();
+        let modifier = crate::services::hotkey::PrimaryHotkey::Ctrl;
+        detector.key_press(Key::ControlLeft, 1_000, modifier);
+        assert!(!detector.key_release(Key::ControlLeft, 1_050, modifier));
+        detector.key_press(Key::ControlRight, 1_200, modifier);
+        assert!(detector.key_release(Key::ControlRight, 1_240, modifier));
     }
 }
 
@@ -219,22 +248,26 @@ pub fn run() {
                 .app_config_dir()
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
             crate::core::chat::telemetry::init_logging(&config_dir);
-
             let settings = load_settings(app.handle());
             crate::core::tools::memory::shared_memory_store().configure(&settings);
             crate::runtime::search::shared_search_runtime().configure(&settings);
+            crate::services::hotkey::configure_primary_hotkey(&settings.primary_hotkey);
             crate::services::hotkey::configure_secondary_hotkey(&settings.secondary_hotkey);
             crate::core::tools::tool_approval::shared_tool_approval_store()
                 .configure(settings.tool_approval_mode);
             crate::core::lsp::shared_lsp_manager().configure(&settings);
             crate::core::mcp::shared_mcp_manager().configure(&settings);
+            crate::services::pin_badge::configure_from_settings(&settings);
+            crate::services::pin_badge::start(app.handle().clone());
             app.manage(SettingsState::new(settings.clone()));
             app.manage(AppState::new(app.handle().clone()));
+            crate::core::context::providers::local_api::start_server(app.handle().clone());
             // Never block app startup on MCP cold-start / missing npx.
             if let Some(state) = app.try_state::<AppState>() {
                 let registry = state.core.tools().registry();
                 tauri::async_runtime::spawn_blocking(move || {
-                    let _ = crate::core::mcp::shared_mcp_manager().register_enabled(registry.as_ref());
+                    let _ =
+                        crate::core::mcp::shared_mcp_manager().register_enabled(registry.as_ref());
                 });
             }
             setup_tray(app)?;
@@ -299,6 +332,8 @@ pub fn run() {
             window::get_preview_image,
             settings::get_app_settings,
             settings::set_app_settings,
+            themes::list_vscode_themes,
+            themes::load_vscode_theme,
             gemini::gemini_auth_status,
             gemini::gemini_oauth_login,
             gemini::gemini_oauth_logout,
@@ -316,6 +351,7 @@ pub fn run() {
             chat::list_chat_sessions,
             chat::list_chat_models,
             chat::get_context_usage,
+            chat::get_environment_context,
             chat::delete_chat_session,
             chat::clear_all_chat_sessions,
             workspace::list_workspaces,

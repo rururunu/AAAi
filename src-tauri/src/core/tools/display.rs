@@ -208,6 +208,21 @@ fn build_detail_from_args(tool_name: &str, args: &Value) -> Option<String> {
             "删除符号：`{}`",
             args["symbol"].as_str().unwrap_or("")
         )),
+        "run_subagent" | "run_readonly_subagent" => args["prompt"]
+            .as_str()
+            .map(|prompt| truncate(prompt, 1_200)),
+        "run_parallel_subagents" => args["tasks"].as_array().map(|tasks| {
+            let descriptions = tasks
+                .iter()
+                .enumerate()
+                .filter_map(|(index, task)| {
+                    task["prompt"]
+                        .as_str()
+                        .map(|prompt| format!("{}. {}", index + 1, truncate(prompt, 400)))
+                })
+                .collect::<Vec<_>>();
+            descriptions.join("\n\n")
+        }),
         _ => None,
     }
 }

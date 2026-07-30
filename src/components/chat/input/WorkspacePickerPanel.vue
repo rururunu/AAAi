@@ -38,7 +38,12 @@
         <Check v-if="workspace.id === currentWorkspace?.id" :size="10" />
       </span>
       <span class="workspace-option-copy">
-        <strong>{{ workspace.name }}</strong>
+        <span class="workspace-option-title">
+          <strong>{{ workspace.name }}</strong>
+          <span v-if="workspaceSourceLabel(workspace.source)" class="workspace-source">
+            {{ workspaceSourceLabel(workspace.source) }}
+          </span>
+        </span>
         <small>{{ workspace.root }}</small>
       </span>
     </button>
@@ -48,7 +53,7 @@
 
 <script setup lang="ts">
 import { Check, Plus } from "@lucide/vue";
-import type { Workspace } from "@/commands/workspace";
+import { workspaceSourceLabel, type Workspace } from "@/commands/workspace";
 
 defineProps<{
   title: string;
@@ -172,6 +177,17 @@ defineEmits<{
   white-space: nowrap;
 }
 
+.workspace-option-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workspace-option-title strong {
+  min-width: 0;
+}
+
 .workspace-option-copy strong {
   font-size: 12px;
   font-weight: 600;
@@ -180,6 +196,17 @@ defineEmits<{
 .workspace-option-copy small {
   color: var(--peek-muted);
   font-size: 10px;
+}
+
+.workspace-source {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--peek-accent) 38%, var(--peek-border));
+  border-radius: 999px;
+  color: var(--peek-accent);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 .workspace-error {

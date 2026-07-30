@@ -111,8 +111,6 @@ html.peek-window.frosted-glass .composer-dock.glass {
   }
   html.peek-window .overlay-shell,
   html.peek-window .peek-panel,
-  html.peek-window .composer-dock,
-  html.peek-window .thread-panel,
   html.peek-window .chat-input-shell,
   html.peek-window .input-bar {
     border-color: transparent !important;
@@ -134,8 +132,6 @@ html.peek-window #app,
 html.peek-window #app > *,
 html.peek-window .overlay-shell,
 html.peek-window .peek-panel,
-html.peek-window .composer-dock,
-html.peek-window .thread-panel,
 html.peek-window .chat-input-shell {
   border: none !important;
   outline: none !important;
@@ -190,4 +186,51 @@ html.peek-window .chat-input-shell {
 .setting-slider::-moz-range-thumb:active {
   transform: scale(0.9);
 }
+/* Shared card-style tabs used by Diff files and child Agent views. */
+.peek-card-tabs {
+  min-width: 0;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--peek-strong-border, var(--peek-border));
+  background: color-mix(in srgb, var(--peek-text) 1.5%, transparent);
+  scrollbar-width: none;
+}
 
+.peek-card-tabs::-webkit-scrollbar { display: none; }
+
+.peek-card-tab {
+  position: relative;
+  box-sizing: border-box;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--peek-text) 8%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--peek-surface) 82%, transparent);
+  color: var(--peek-muted);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.peek-card-tab:hover {
+  border-color: color-mix(in srgb, var(--peek-text) 16%, transparent);
+  background: color-mix(in srgb, var(--peek-text) 6%, var(--peek-surface));
+  color: var(--peek-text);
+}
+
+.peek-card-tab.active {
+  border-color: color-mix(in srgb, var(--peek-accent) 55%, var(--peek-strong-border, var(--peek-border)));
+  background: color-mix(in srgb, var(--peek-accent) 10%, var(--peek-surface));
+  color: var(--peek-active-fg, var(--peek-text));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--peek-accent) 8%, transparent);
+}
+
+.peek-card-tab:focus-visible {
+  outline: 1px solid var(--peek-accent);
+  outline-offset: 1px;
+}

@@ -19,7 +19,7 @@ export const chatEn = {
   analyzingImages: "Analyzing images",
   imageAnalysis: "Image analysis",
   waitingAnswer: "Waiting for answer...", waitingApproval: "Waiting for approval...", running: "Running...", failed: "Failed", edit: "Edit {count}", editContent: "Edit content", addContent: "Add content", deleteContent: "Delete content",
-  select: "Select", send: "Send", pause: "Pause", chooseModel: "Choose model", loadingFiles: "Loading workspace files...", noMatchingFiles: "No matching files", noMatchingModels: "No matching models",
+  select: "Select", send: "Send", pause: "Pause", copy: "Copy message", copied: "Copied", copyFailed: "Copy failed", chooseModel: "Choose model", loadingFiles: "Loading workspace files...", noMatchingFiles: "No matching files", noMatchingModels: "No matching models",
   chooseThinkingTier: "Choose thinking tier",
   currentThinkingTier: "Thinking tier: {tier}. Click to switch",
   refreshModels: "Refresh model list",
@@ -57,6 +57,11 @@ export const chatEn = {
   attachedFileSkipped: "Skipped",
   softInjected: "Added to this turn",
   emptyThread: "Send a message to start",
+  codeChanges: "Code changes", toggleCodeChanges: "Toggle code changes", closeChanges: "Close changes",
+  changedFiles: "Changed files", noCodeChanges: "No code changes yet", changesAppearHere: "File edits made by the Agent will appear here.", copyDiff: "Copy diff", resizeCodeChanges: "Resize code changes",
+  editedFiles: "Edited {count} file(s)", undoChanges: "Undo", reviewChanges: "Review",
+  processedFor: "Processed for {duration}",
+  diffViewMode: "Diff view mode", diffUnified: "Unified diff", diffSplit: "Side-by-side diff", diffOriginal: "Original", diffModified: "Modified",
 } as const;
 
 export type ChatI18nKey = keyof typeof chatEn;
@@ -72,6 +77,26 @@ export const chatLocales: Record<AppLanguage, LocalePartial> = {
   "fr-FR": { yesterday: "Hier", workspace: "Espace de travail", loadingModels: "Chargement des modèles...", noModels: "Aucun modèle disponible", currentModel: "Modèle actuel : {model}. Cliquez pour changer", chatHistory: "Historique des discussions", noChats: "Aucune discussion précédente", permissionRequest: "Demande d’autorisation", permissionQuestion: "Agent demande un accès en {operation} à ce chemin ({tool})", read: "lecture", write: "écriture", allowOnce: "Autoriser une fois", allowAlways: "Toujours autoriser", deny: "Refuser", customAnswer: "Je vais saisir ma réponse", aiResponding: "L’IA répond...", yourChoice: "Votre choix", thinking: "Réflexion", thinkingProcess: "Processus de réflexion", executionDetails: "Détails de l’exécution", fileOperations: "Opérations sur les fichiers", reading: "Lecture", writing: "Écriture", runningCommand: "Exécution de la commande", working: "Exécution", responding: "Rédaction de la réponse", waitingAnswer: "En attente d’une réponse...", running: "En cours...", failed: "Échec", select: "Sélectionner", send: "Envoyer", pause: "Pause", chooseModel: "Choisir un modèle", loadingFiles: "Chargement des fichiers de l’espace de travail...", noMatchingFiles: "Aucun fichier correspondant", continueQuestion: "Poser une autre question...", askAnything: "Posez une question...", newChat: "Nouvelle discussion", expand: "Développer", close: "Fermer", collapse: "Réduire", showSecret: "Afficher le secret", hideSecret: "Masquer le secret" },
   "ko-KR": { yesterday: "어제", workspace: "작업 영역", loadingModels: "모델 불러오는 중...", noModels: "사용 가능한 모델이 없습니다", currentModel: "현재 모델: {model}. 클릭하여 전환", chatHistory: "채팅 기록", noChats: "이전 채팅이 없습니다", permissionRequest: "권한 요청", permissionQuestion: "Agent가 이 경로에 대한 {operation} 권한을 요청합니다({tool})", read: "읽기", write: "쓰기", allowOnce: "한 번 허용", allowAlways: "항상 허용", deny: "거부", customAnswer: "직접 답변 입력", aiResponding: "AI 응답 중...", yourChoice: "선택 항목", thinking: "생각 중", thinkingProcess: "사고 과정", executionDetails: "실행 과정", fileOperations: "파일 작업", reading: "읽는 중", writing: "작성 중", runningCommand: "명령 실행 중", working: "작업 중", responding: "응답 중", waitingAnswer: "답변 대기 중...", running: "실행 중...", failed: "실패", select: "선택", send: "보내기", pause: "일시 정지", chooseModel: "모델 선택", loadingFiles: "작업 영역 파일을 불러오는 중...", noMatchingFiles: "일치하는 파일이 없습니다", continueQuestion: "추가 질문...", askAnything: "무엇이든 질문하세요...", newChat: "새 채팅", expand: "펼치기", close: "닫기", collapse: "접기", showSecret: "비밀 표시", hideSecret: "비밀 숨기기" },
 };
+
+Object.assign(chatLocales["zh-CN"], {
+  processedFor: "已处理 {duration}",
+  editedFiles: "已编辑 {count} 个文件",
+  undoChanges: "撤销",
+  reviewChanges: "审核",
+  diffViewMode: "Diff 对照方式",
+  diffUnified: "统一视图",
+  diffSplit: "左右对照",
+  diffOriginal: "原始内容",
+  diffModified: "修改后",
+  codeChanges: "代码变更",
+  toggleCodeChanges: "打开或关闭代码变更",
+  closeChanges: "关闭代码变更",
+  changedFiles: "变更文件",
+  noCodeChanges: "暂无代码变更",
+  changesAppearHere: "Agent 对文件的修改将显示在这里。",
+  copyDiff: "复制 Diff",
+  resizeCodeChanges: "调整代码变更宽度",
+});
 
 export const chatSupplements: Partial<Record<AppLanguage, LocalePartial>> = {
   "zh-CN": { refreshModels: "刷新模型列表", chooseThinkingTier: "选择思考强度", currentThinkingTier: "思考强度：{tier}，点击切换", thinkingTierDefault: "默认", thinkingTierLow: "低", thinkingTierHigh: "高", thinkingTierAgent: "Agent" },

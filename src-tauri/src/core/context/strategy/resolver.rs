@@ -33,3 +33,35 @@ impl Default for StrategyResolver {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn window(process_name: &str) -> WindowInfo {
+        WindowInfo {
+            hwnd: 1,
+            pid: 42,
+            process_name: process_name.to_string(),
+            title: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn vscode_uses_clipboard_strategy() {
+        let resolver = StrategyResolver::new();
+        assert!(matches!(
+            resolver.resolve(&window("Code.exe")),
+            ActiveProvider::Clipboard(_)
+        ));
+    }
+
+    #[test]
+    fn explorer_uses_explorer_strategy() {
+        let resolver = StrategyResolver::new();
+        assert!(matches!(
+            resolver.resolve(&window("explorer.exe")),
+            ActiveProvider::Explorer(_)
+        ));
+    }
+}

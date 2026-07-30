@@ -14,6 +14,7 @@
       <span class="minimize-preview-title" data-tauri-drag-region>{{ chatTitle }}</span>
     </div>
 
+    <div class="chat-main">
     <section
       v-if="mode === 'chat'"
       key="thread"
@@ -25,6 +26,42 @@
       data-tauri-drag-region
     >
       <header class="thread-header" data-tauri-drag-region @mousedown="onWindowDragMouseDown">
+        <div class="header-tools" data-tauri-drag-region="false">
+        <button
+          type="button"
+          class="window-btn diff-toggle-btn"
+          :class="{ active: diffSidebarOpen }"
+          :aria-label="tr(settingStore.language, 'toggleCodeChanges')"
+          :title="tr(settingStore.language, 'toggleCodeChanges')"
+          data-tauri-drag-region="false"
+          @mousedown.stop.prevent="toggleDiffSidebar"
+        >
+          <PanelRight :size="13" :stroke-width="1.8" />
+        </button>
+        <button
+          v-if="subagentActivities.length"
+          type="button"
+          class="window-btn subagent-toggle-btn"
+          :class="{ active: subagentSidebarOpen }"
+          :aria-label="subagentSidebarLabel"
+          :title="subagentSidebarLabel"
+          data-tauri-drag-region="false"
+          @mousedown.stop.prevent="toggleSubagentSidebar"
+        >
+          <Bot :size="13" :stroke-width="1.8" />
+          <span v-if="runningSubagentCount" class="running-dot" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="window-btn debug-toggle-btn"
+          :class="{ active: runtimeSidebarOpen }"
+          :aria-label="runtimeTabLabel"
+          :title="runtimeTabLabel"
+          @mousedown.stop.prevent="toggleRuntimeSidebar"
+        >
+          <Bug :size="13" :stroke-width="1.8" />
+        </button>
+        </div>
         <div
           class="window-controls"
           data-tauri-drag-region="false"
@@ -58,21 +95,93 @@
         {{ contextNotice }}
       </p>
 
-      <MessageList
-        :messages="messages"
-        :session-id="activeSessionId"
-        :checkpoints="checkpoints"
-        @rewound="handleRewound"
-      />
+      <div ref="threadContentRef" class="thread-content">
+        <MessageList
+          :messages="messages"
+          :session-id="activeSessionId"
+          :checkpoints="checkpoints"
+          @rewound="handleRewound"
+          @review-changes="openDiffSidebar"
+          @inspect-subagent="openSubagentSidebar"
+          @preview-image="handlePreviewImage"
+        />
+          <Transition name="workspace-sidebar">
+            <div
+              v-show="sidebarOpen"
+              class="workspace-sidebar-shell"
+              :style="{ width: `${diffSidebarWidth + DIFF_RESIZE_HANDLE_WIDTH}px` }"
+            >
+              <div
+                class="diff-resize-handle"
+                :class="{ active: diffSidebarResizing }"
+                role="separator"
+                aria-orientation="vertical"
+                :aria-label="tr(settingStore.language, 'resizeCodeChanges')"
+                :title="tr(settingStore.language, 'resizeCodeChanges')"
+                :aria-valuemin="DIFF_SIDEBAR_MIN_WIDTH"
+                :aria-valuemax="DIFF_SIDEBAR_MAX_WIDTH"
+                :aria-valuenow="Math.round(diffSidebarWidth)"
+                tabindex="0"
+                @pointerdown="startDiffSidebarResize"
+                @keydown="handleDiffSidebarResizeKey"
+                @dblclick="resetDiffSidebarWidth"
+              />
+              <aside class="workspace-sidebar" :style="{ width: `${diffSidebarWidth}px` }" data-tauri-drag-region="false">
+            <nav class="workspace-sidebar-tabs peek-card-tabs" :aria-label="sidebarViewsLabel">
+              <button type="button" class="workspace-view-tab peek-card-tab" :class="{ active: sidebarTab === 'diff' }" :title="diffTabLabel" @click="selectSidebarTab('diff')">
+                <FileDiff :size="13" />
+                <span>{{ diffTabLabel }}</span>
+              </button>
+              <button type="button" class="workspace-view-tab peek-card-tab" :class="{ active: sidebarTab === 'subagents' }" :title="subagentTabLabel" @click="selectSidebarTab('subagents')">
+                <Bot :size="13" />
+                <span>{{ subagentTabLabel }}</span>
+                <span v-if="runningSubagentCount" class="tab-running-dot" aria-hidden="true" />
+              </button>
+              <button v-if="openedImageSources.length" type="button" class="workspace-view-tab peek-card-tab" :class="{ active: sidebarTab === 'image' }" :title="imageTabLabel" @click="selectSidebarTab('image')">
+                <ImageIcon :size="13" />
+                <span>{{ imageTabLabel }}</span>
+              </button>
+              <button type="button" class="workspace-view-tab peek-card-tab" :class="{ active: sidebarTab === 'runtime' }" :title="runtimeTabLabel" @click="selectSidebarTab('runtime')">
+                <Bug :size="13" />
+                <span>{{ runtimeTabLabel }}</span>
+              </button>
+              <button type="button" class="sidebar-close-button" :aria-label="sidebarCloseLabel" :title="sidebarCloseLabel" @click="closeSidebar">
+                <X :size="13" />
+              </button>
+            </nav>
+            <div class="workspace-sidebar-content">
+              <CodeDiffSidebar
+                v-show="sidebarTab === 'diff'"
+                :messages="messages"
+                :width="diffSidebarWidth"
+                embedded
+              />
+              <SubagentSidebar
+                v-show="sidebarTab === 'subagents'"
+                :activities="subagentActivities"
+                :all-activities="allToolActivities"
+                :opened-entry-ids="openedSubagentIds"
+                :selected-entry-id="selectedSubagentId"
+                embedded
+                @close-entry="closeSubagentTab"
+              />
+              <AgentDebugPanel
+                v-show="sidebarTab === 'runtime'"
+                embedded
+              />
+              <ImagePreviewSidebar
+                v-show="sidebarTab === 'image'"
+                :sources="openedImageSources"
+                :selected-source="selectedImageSource"
+                @select="selectedImageSource = $event"
+                @close="closeImageTab"
+              />
+            </div>
+              </aside>
+            </div>
+          </Transition>
+      </div>
     </section>
-
-    <PlanModeBanner
-      :active="planModeActive"
-      :language="settingStore.language"
-      :busy="planModeBusy"
-      @approve="handlePlanApprove"
-      @cancel="handlePlanCancel"
-    />
 
     <div
       ref="dockRef"
@@ -91,6 +200,7 @@
         :sending="sending"
         :session-id="activeSessionId"
         :captured-context="capturedContext"
+        :context-ready="contextReady"
         :placeholder="tr(settingStore.language, mode === 'chat' ? 'continueQuestion' : 'askAnything')"
         :close-on-escape="mode === 'input'"
         :ask-user="askUserSession"
@@ -110,24 +220,30 @@
         @history-select="handleHistorySelect"
         @history-close="handleHistoryClose"
         @remove-selection="emit('selectionRemoved')"
-        @enter-plan="handleEnterPlan"
+        @show-context="handleShowContext"
+        @preview-image="handlePreviewImage"
       />
     </div>
+    </div>
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { Minus, X } from "@lucide/vue";
+import { Bot, Bug, FileDiff, Image as ImageIcon, Minus, PanelRight, X } from "@lucide/vue";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import ChatInputBar, {
   type AskUserSession,
   type PathPermissionSession,
 } from "@/components/chat/ChatInputBar.vue";
+import CodeDiffSidebar from "@/components/chat/CodeDiffSidebar.vue";
+import AgentDebugPanel from "@/components/chat/AgentDebugPanel.vue";
+import SubagentSidebar from "@/components/chat/SubagentSidebar.vue";
+import ImagePreviewSidebar from "@/components/chat/ImagePreviewSidebar.vue";
 import MessageList from "@/components/chat/MessageList.vue";
-import PlanModeBanner from "@/components/chat/PlanModeBanner.vue";
 import {
   gsapOverlayDockReveal,
 } from "@/services/motion/gsapPresets";
@@ -137,19 +253,17 @@ import { fetchChatSessions } from "@/commands/slash";
 import {
   listenAskUser,
   listenPathPermission,
-  listenPlanModeChanged,
   listenToolApproval,
 } from "@/services/ipc/events";
 import {
   chatCancel,
-  getPlanMode,
   listCheckpoints,
   minimizeOverlay,
   respondAskUser,
   respondPathPermission,
   respondToolApproval,
   setOverlayPopupOpen,
-  setPlanMode,
+  openImagePreview,
 } from "@/services/ipc";
 import { useChatStore } from "@/stores/chat";
 import { useSettingStore } from "@/stores/setting";
@@ -174,6 +288,7 @@ const props = defineProps<{
   mode: "input" | "chat";
   sessionId: string;
   capturedContext?: CapturedContext | null;
+  contextReady?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -188,6 +303,10 @@ const emit = defineEmits<{
       pickerHeight?: number;
       hasContextPreview: boolean;
       mode: "input" | "chat";
+      diffSidebarOpen: boolean;
+      subagentSidebarOpen: boolean;
+      runtimeSidebarOpen: boolean;
+      imageSidebarOpen: boolean;
       hasImages?: boolean;
       hasFiles?: boolean;
     },
@@ -204,6 +323,7 @@ const { sessions, overlayDraftSessionId, overlayContextNotice } = storeToRefs(ch
 
 const inputRef = ref<InstanceType<typeof ChatInputBar> | null>(null);
 const dockRef = ref<HTMLElement | null>(null);
+const threadContentRef = ref<HTMLElement | null>(null);
 const panelVisible = ref(false);
 const isMinimizePreview = ref(false);
 const MINIMIZE_PREVIEW_MS = 64;
@@ -214,11 +334,37 @@ const pathPermissionSession = ref<PathPermissionSession | null>(null);
 const pathPermissionSubmitting = ref(false);
 const toolApprovalSession = ref<ToolApprovalSession | null>(null);
 const toolApprovalSubmitting = ref(false);
-const planModeActive = ref(false);
-const planModeBusy = ref(false);
 const checkpoints = ref<CheckpointInfo[]>([]);
 const historySessions = ref<ChatSessionSummary[] | null>(null);
 const PUBLIC_HISTORY_LIMIT = 10;
+const diffSidebarOpen = ref(false);
+const subagentSidebarOpen = ref(false);
+const runtimeSidebarOpen = ref(false);
+const imageSidebarOpen = ref(false);
+const openedImageSources = ref<string[]>([]);
+const selectedImageSource = ref("");
+const openedSubagentIds = ref<string[]>([]);
+const selectedSubagentId = ref("");
+type SidebarTab = "diff" | "subagents" | "runtime" | "image";
+const sidebarTab = ref<SidebarTab>("diff");
+const sidebarOpen = computed(() =>
+  diffSidebarOpen.value || subagentSidebarOpen.value || runtimeSidebarOpen.value || imageSidebarOpen.value,
+);
+const diffSidebarResizing = ref(false);
+const DIFF_SIDEBAR_DEFAULT_WIDTH = 720;
+const DIFF_SIDEBAR_MIN_WIDTH = 420;
+const DIFF_SIDEBAR_MAX_WIDTH = 1000;
+const CHAT_PANE_MIN_WIDTH = 540;
+const DIFF_RESIZE_HANDLE_WIDTH = 7;
+const DIFF_SIDEBAR_WIDTH_KEY = "aaai.diffSidebarWidth.v3";
+const storedDiffSidebarWidth = Number(localStorage.getItem(DIFF_SIDEBAR_WIDTH_KEY));
+const diffSidebarWidth = ref(
+  Number.isFinite(storedDiffSidebarWidth)
+    ? Math.min(DIFF_SIDEBAR_MAX_WIDTH, Math.max(DIFF_SIDEBAR_MIN_WIDTH, storedDiffSidebarWidth))
+    : DIFF_SIDEBAR_DEFAULT_WIDTH,
+);
+let diffResizeStartX = 0;
+let diffResizeStartWidth = DIFF_SIDEBAR_DEFAULT_WIDTH;
 
 const isGlass = computed(() => settingStore.opacity < 100);
 const activeSessionId = computed(
@@ -231,6 +377,40 @@ const messages = computed(() => {
   }
   return sessions.value[sessionId] ?? [];
 });
+watch(activeSessionId, () => {
+  openedSubagentIds.value = [];
+  selectedSubagentId.value = "";
+  openedImageSources.value = [];
+  selectedImageSource.value = "";
+  if (sidebarTab.value === "subagents" || sidebarTab.value === "image") closeSidebar();
+});
+const SUBAGENT_TOOLS = new Set([
+  "run_subagent", "run_readonly_subagent", "run_parallel_subagents",
+  "run_skill", "run_readonly_skill", "explore_codebase", "research_topic",
+  "review_code", "review_security", "generate_word",
+]);
+const allToolActivities = computed(() =>
+  messages.value.flatMap((message) => message.toolActivities ?? []),
+);
+const subagentActivities = computed(() =>
+  allToolActivities.value.filter((activity) => SUBAGENT_TOOLS.has(activity.toolName)),
+);
+const runningSubagentCount = computed(() =>
+  subagentActivities.value.filter((activity) => activity.status === "running").length,
+);
+const subagentSidebarLabel = computed(() =>
+  tr(settingStore.language, "subagent.view"),
+);
+const subagentTabLabel = computed(() =>
+  tr(settingStore.language, "sidebar.subagents"),
+);
+const imageTabLabel = computed(() =>
+  tr(settingStore.language, "sidebar.image"),
+);
+const diffTabLabel = computed(() => tr(settingStore.language, "sidebar.diff"));
+const runtimeTabLabel = computed(() => tr(settingStore.language, "sidebar.runtime"));
+const sidebarViewsLabel = computed(() => tr(settingStore.language, "sidebar.views"));
+const sidebarCloseLabel = computed(() => tr(settingStore.language, "sidebar.close"));
 const hasVisibleMessages = computed(() =>
   messages.value.some(
     (message) => String(message.role).toLowerCase() !== "system",
@@ -309,7 +489,158 @@ function emitComposerLayout() {
     ...composerLayout.value,
     hasContextPreview: Boolean(contextPreview.value),
     mode: props.mode,
+    diffSidebarOpen: props.mode === "chat" && diffSidebarOpen.value,
+    subagentSidebarOpen: props.mode === "chat" && subagentSidebarOpen.value,
+    runtimeSidebarOpen: props.mode === "chat" && runtimeSidebarOpen.value,
+    imageSidebarOpen: props.mode === "chat" && imageSidebarOpen.value,
   });
+}
+
+function toggleDiffSidebar() {
+  if (sidebarOpen.value && sidebarTab.value === "diff") closeSidebar();
+  else selectSidebarTab("diff");
+}
+
+function openDiffSidebar() {
+  selectSidebarTab("diff");
+}
+
+function toggleSubagentSidebar() {
+  if (sidebarOpen.value && sidebarTab.value === "subagents") closeSidebar();
+  else openSubagentSidebar();
+}
+
+function toggleRuntimeSidebar() {
+  if (sidebarOpen.value && sidebarTab.value === "runtime") closeSidebar();
+  else selectSidebarTab("runtime");
+}
+
+function handlePreviewImage(source: string) {
+  if (props.mode === "chat") {
+    if (!openedImageSources.value.includes(source)) {
+      openedImageSources.value = [...openedImageSources.value, source];
+    }
+    selectedImageSource.value = source;
+    selectSidebarTab("image");
+    return;
+  }
+  void openImagePreview(source).catch((error) => {
+    console.error("openImagePreview failed:", error);
+  });
+}
+
+function closeImageTab(source: string) {
+  const index = openedImageSources.value.indexOf(source);
+  if (index < 0) return;
+  const remaining = openedImageSources.value.filter((item) => item !== source);
+  openedImageSources.value = remaining;
+  if (selectedImageSource.value === source) {
+    selectedImageSource.value = remaining[index] ?? remaining[index - 1] ?? "";
+  }
+  if (!remaining.length && sidebarTab.value === "image") {
+    closeSidebar();
+  }
+}
+
+function openSubagentSidebar(entryId?: string) {
+  if (entryId) {
+    if (!openedSubagentIds.value.includes(entryId)) {
+      openedSubagentIds.value = [...openedSubagentIds.value, entryId];
+    }
+    selectedSubagentId.value = entryId;
+  }
+  if (!openedSubagentIds.value.length) return;
+  selectSidebarTab("subagents");
+}
+
+function closeSubagentTab(entryId: string) {
+  const index = openedSubagentIds.value.indexOf(entryId);
+  if (index < 0) return;
+  const remaining = openedSubagentIds.value.filter((id) => id !== entryId);
+  openedSubagentIds.value = remaining;
+  if (selectedSubagentId.value === entryId) {
+    selectedSubagentId.value = remaining[index] ?? remaining[index - 1] ?? "";
+  }
+  if (!remaining.length && sidebarTab.value === "subagents") {
+    closeSidebar();
+  }
+}
+
+function selectSidebarTab(tab: SidebarTab) {
+  sidebarTab.value = tab;
+  diffSidebarOpen.value = tab === "diff";
+  subagentSidebarOpen.value = tab === "subagents";
+  runtimeSidebarOpen.value = tab === "runtime";
+  imageSidebarOpen.value = tab === "image";
+  emitComposerLayout();
+  void nextTick().then(fitDiffSidebarWidth);
+}
+
+function closeSidebar() {
+  if (!sidebarOpen.value) return;
+  diffSidebarOpen.value = false;
+  subagentSidebarOpen.value = false;
+  runtimeSidebarOpen.value = false;
+  imageSidebarOpen.value = false;
+  emitComposerLayout();
+}
+
+function availableDiffSidebarWidth() {
+  const contentWidth = threadContentRef.value?.clientWidth ?? 0;
+  return contentWidth > 0
+    ? Math.min(DIFF_SIDEBAR_MAX_WIDTH, contentWidth - CHAT_PANE_MIN_WIDTH - DIFF_RESIZE_HANDLE_WIDTH)
+    : DIFF_SIDEBAR_MAX_WIDTH;
+}
+
+function fitDiffSidebarWidth() {
+  if (!sidebarOpen.value) return;
+  const available = Math.max(DIFF_SIDEBAR_MIN_WIDTH, availableDiffSidebarWidth());
+  diffSidebarWidth.value = Math.min(diffSidebarWidth.value, available);
+}
+
+function startDiffSidebarResize(event: PointerEvent) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  diffResizeStartX = event.clientX;
+  diffResizeStartWidth = diffSidebarWidth.value;
+  diffSidebarResizing.value = true;
+  window.addEventListener("pointermove", handleDiffSidebarResize);
+  window.addEventListener("pointerup", stopDiffSidebarResize, { once: true });
+}
+
+function handleDiffSidebarResize(event: PointerEvent) {
+  event.preventDefault();
+  const requested = diffResizeStartWidth + diffResizeStartX - event.clientX;
+  const maximum = Math.max(DIFF_SIDEBAR_MIN_WIDTH, availableDiffSidebarWidth());
+  diffSidebarWidth.value = Math.min(
+    maximum,
+    Math.max(DIFF_SIDEBAR_MIN_WIDTH, requested),
+  );
+}
+
+function stopDiffSidebarResize() {
+  diffSidebarResizing.value = false;
+  window.removeEventListener("pointermove", handleDiffSidebarResize);
+  window.removeEventListener("pointerup", stopDiffSidebarResize);
+  localStorage.setItem(DIFF_SIDEBAR_WIDTH_KEY, String(Math.round(diffSidebarWidth.value)));
+}
+
+function handleDiffSidebarResizeKey(event: KeyboardEvent) {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  const delta = event.key === "ArrowLeft" ? 16 : -16;
+  const requested = diffSidebarWidth.value + delta;
+  diffSidebarWidth.value = Math.min(
+    Math.max(DIFF_SIDEBAR_MIN_WIDTH, availableDiffSidebarWidth()),
+    Math.max(DIFF_SIDEBAR_MIN_WIDTH, requested),
+  );
+  localStorage.setItem(DIFF_SIDEBAR_WIDTH_KEY, String(Math.round(diffSidebarWidth.value)));
+}
+
+function resetDiffSidebarWidth() {
+  const available = Math.max(DIFF_SIDEBAR_MIN_WIDTH, availableDiffSidebarWidth());
+  diffSidebarWidth.value = Math.min(DIFF_SIDEBAR_DEFAULT_WIDTH, available);
+  localStorage.setItem(DIFF_SIDEBAR_WIDTH_KEY, String(diffSidebarWidth.value));
 }
 
 function handleLayoutChange(payload: {
@@ -360,6 +691,25 @@ async function handleSubmit(text: string) {
   emit("contextConsumed");
 
   void chatStore.send(messageWithSelection, sessionId, { staged: true });
+}
+
+function handleShowContext(context: CapturedContext) {
+  const sessionId = props.mode === "chat" && activeSessionId.value
+    ? activeSessionId.value
+    : createSessionId();
+  if (props.mode !== "chat") {
+    chatStore.setOverlayDraftSession(sessionId);
+    emit("enterChat", sessionId);
+  }
+  chatStore.upsertMessage({
+    id: `local-context-${Date.now()}`,
+    sessionId,
+    role: "assistant",
+    content: "",
+    environmentContext: context,
+    status: "done",
+    timestamp: Date.now(),
+  });
 }
 
 const activeAssistantMessageId = computed(() => {
@@ -595,19 +945,6 @@ async function handleToolApprovalComplete(decision: ToolApprovalDecision) {
   void inputRef.value?.focusInput();
 }
 
-async function refreshPlanMode() {
-  const sessionId = activeSessionId.value;
-  if (!sessionId) {
-    planModeActive.value = false;
-    return;
-  }
-  try {
-    planModeActive.value = await getPlanMode(sessionId);
-  } catch {
-    planModeActive.value = false;
-  }
-}
-
 async function refreshCheckpoints() {
   const sessionId = activeSessionId.value;
   if (!sessionId) {
@@ -619,42 +956,6 @@ async function refreshCheckpoints() {
   } catch {
     checkpoints.value = [];
   }
-}
-
-async function handleEnterPlan() {
-  const sessionId = activeSessionId.value;
-  if (!sessionId) {
-    return;
-  }
-  planModeBusy.value = true;
-  try {
-    await setPlanMode(sessionId, true);
-    planModeActive.value = true;
-  } catch (error) {
-    console.error("set_plan_mode failed:", error);
-  } finally {
-    planModeBusy.value = false;
-  }
-}
-
-async function handlePlanApprove() {
-  const sessionId = activeSessionId.value;
-  if (!sessionId) {
-    return;
-  }
-  planModeBusy.value = true;
-  try {
-    await setPlanMode(sessionId, false);
-    planModeActive.value = false;
-  } catch (error) {
-    console.error("approve plan failed:", error);
-  } finally {
-    planModeBusy.value = false;
-  }
-}
-
-async function handlePlanCancel() {
-  await handlePlanApprove();
 }
 
 async function handleRewound(payload: { text: string }) {
@@ -675,7 +976,6 @@ function closeAskUser() {
 watch(
   () => activeSessionId.value,
   () => {
-    void refreshPlanMode();
     void refreshCheckpoints();
   },
 );
@@ -782,13 +1082,6 @@ onMounted(async () => {
     void inputRef.value?.focusInput();
   });
 
-  void listenPlanModeChanged((payload) => {
-    if (payload.sessionId && payload.sessionId !== activeSessionId.value) {
-      return;
-    }
-    planModeActive.value = payload.active;
-  });
-
   await window.listen("overlay-shown", () => {
     clearMinimizePreview();
     void refreshOverlayWindowBackground();
@@ -810,14 +1103,23 @@ onMounted(async () => {
       pickerHeight: 0,
       hasContextPreview: false,
       mode: props.mode,
+      diffSidebarOpen: false,
+      subagentSidebarOpen: false,
+      runtimeSidebarOpen: false,
+      imageSidebarOpen: false,
     });
+    diffSidebarOpen.value = false;
+    subagentSidebarOpen.value = false;
+    runtimeSidebarOpen.value = false;
+    imageSidebarOpen.value = false;
+    openedImageSources.value = [];
+    selectedImageSource.value = "";
     closeAskUser();
     closePathPermission();
     closeToolApproval();
     historySessions.value = null;
   });
 
-  void refreshPlanMode();
   void refreshCheckpoints();
 
   if (await window.isVisible()) {
@@ -855,9 +1157,6 @@ onMounted(async () => {
             historySessions.value = sessions;
           });
           break;
-        case "plan":
-          void handleEnterPlan();
-          break;
         case "work":
           void inputRef.value?.focusInput();
           break;
@@ -876,6 +1175,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearMinimizePreview();
+  stopDiffSidebarResize();
 });
 </script>
 
@@ -887,7 +1187,7 @@ onUnmounted(() => {
   position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: stretch;
   background: transparent;
   color: var(--peek-text);
@@ -895,6 +1195,164 @@ onUnmounted(() => {
   border: none;
   outline: none;
   --thread-side-gap: 14px;
+  --peek-panel-outline: var(--peek-strong-border, color-mix(in srgb, var(--peek-text) 20%, transparent));
+  --peek-panel-highlight: color-mix(in srgb, var(--peek-text) 5%, transparent);
+  --peek-panel-shadow: rgba(0, 0, 0, 0.24);
+}
+
+.chat-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.thread-content {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.thread-content :deep(.message-list-shell) {
+  flex: 1;
+  min-width: 540px;
+}
+
+.workspace-sidebar-shell {
+  flex: none;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+  transform: translateX(0);
+  transform-origin: right center;
+  opacity: 1;
+}
+
+.workspace-sidebar-enter-active,
+.workspace-sidebar-leave-active {
+  overflow: hidden;
+  transition:
+    width 180ms cubic-bezier(.2, .72, .25, 1),
+    opacity 130ms ease,
+    transform 180ms cubic-bezier(.2, .72, .25, 1);
+}
+
+.workspace-sidebar-enter-from,
+.workspace-sidebar-leave-to {
+  width: 0 !important;
+  opacity: 0;
+  transform: translateX(12px);
+}
+
+.workspace-sidebar {
+  flex: none;
+  box-sizing: border-box;
+  min-width: 420px;
+  max-width: 1000px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: 34px;
+  background: transparent;
+  container: workspace-sidebar / inline-size;
+}
+
+.workspace-sidebar-tabs {
+  flex: none;
+  min-height: 42px;
+  padding: 6px 8px;
+}
+
+.workspace-sidebar-tabs .workspace-view-tab {
+  flex: 0 1 auto;
+  gap: 6px;
+  min-width: 68px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+.workspace-sidebar-tabs .workspace-view-tab > svg { flex: none; }
+.workspace-sidebar-tabs .workspace-view-tab > span:not(.tab-running-dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-sidebar-tabs .sidebar-close-button { flex: none; min-width: 28px; width: 28px; height: 28px; display: grid; place-items: center; margin-left: auto; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--peek-muted); cursor: pointer; }
+.workspace-sidebar-tabs .sidebar-close-button:hover { color: var(--peek-text); background: color-mix(in srgb, var(--peek-text) 7%, transparent); }
+.tab-running-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--peek-accent); }
+.workspace-sidebar-content { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+
+@container workspace-sidebar (max-width: 560px) {
+  .workspace-sidebar-tabs .workspace-view-tab {
+    flex: none;
+    min-width: 32px;
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .workspace-sidebar-tabs .workspace-view-tab > span:not(.tab-running-dot) {
+    display: none;
+  }
+
+  .workspace-sidebar-tabs .tab-running-dot {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+  }
+}
+
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.debug-toggle-btn.active {
+  color: var(--peek-accent);
+  background: color-mix(in srgb, var(--peek-accent) 14%, transparent);
+}
+
+.subagent-toggle-btn { position: relative; }
+.subagent-toggle-btn.active { color: var(--peek-accent); background: color-mix(in srgb, var(--peek-accent) 14%, transparent); }
+.running-dot { position: absolute; top: 4px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--peek-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--peek-sidebar) 88%, transparent); }
+
+.diff-resize-handle {
+  position: relative;
+  z-index: 4;
+  flex: none;
+  width: 7px;
+  min-width: 7px;
+  cursor: col-resize;
+  outline: none;
+  touch-action: none;
+}
+
+.diff-resize-handle::after {
+  content: "";
+  position: absolute;
+  inset: 34px 3px 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--peek-text) 12%, var(--peek-border));
+  transition: width 100ms ease, inset 100ms ease, background 100ms ease;
+}
+
+.diff-resize-handle:hover::after,
+.diff-resize-handle:focus-visible::after,
+.diff-resize-handle.active::after {
+  inset: 34px 2px 0;
+  width: 3px;
+  background: color-mix(in srgb, var(--peek-accent) 68%, var(--peek-border));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-sidebar-enter-active,
+  .workspace-sidebar-leave-active {
+    transition-duration: 1ms;
+  }
 }
 
 .peek-panel.chat .thread-panel {
@@ -910,13 +1368,16 @@ onUnmounted(() => {
   margin: 0 auto calc(-1 * var(--composer-overlap, 12px));
   display: flex;
   flex-direction: column;
-  border: none;
+  border: 1px solid var(--peek-panel-outline);
   border-radius: 8px 8px 0 0;
   background: color-mix(in srgb, var(--peek-list-bg) 92%, transparent);
   overflow: hidden;
   position: relative;
   z-index: 1;
   isolation: isolate;
+  box-shadow:
+    inset 0 1px 0 var(--peek-panel-highlight),
+    0 8px 24px var(--peek-panel-shadow);
 }
 
 .thread-panel.glass {
@@ -948,13 +1409,24 @@ onUnmounted(() => {
   padding: 0 8px;
   border-bottom: 1px solid transparent;
   background: transparent;
-  opacity: 0;
+  opacity: 0.42;
   pointer-events: auto;
   transition:
     opacity 160ms ease,
     border-color 160ms ease,
     background 160ms ease;
   cursor: grab;
+}
+
+.diff-toggle-btn {
+  position: relative;
+  margin-right: auto;
+}
+
+.diff-toggle-btn.active {
+  border-color: color-mix(in srgb, var(--peek-accent) 38%, transparent);
+  background: color-mix(in srgb, var(--peek-accent) 13%, transparent);
+  color: var(--peek-accent);
 }
 
 .thread-header:hover {
@@ -975,8 +1447,9 @@ onUnmounted(() => {
 /* 红色：全宽消息框底座 */
 .composer-dock {
   flex: none;
+  box-sizing: border-box;
   width: 100%;
-  border: none;
+  border: 1px solid var(--peek-panel-outline);
   border-radius: 8px;
   background: var(--peek-surface);
   position: relative;
@@ -984,6 +1457,9 @@ onUnmounted(() => {
   overflow: hidden;
   isolation: isolate;
   will-change: clip-path, opacity;
+  box-shadow:
+    inset 0 1px 0 var(--peek-panel-highlight),
+    0 10px 28px var(--peek-panel-shadow);
 }
 
 .composer-dock :deep(.chat-input-shell) {
@@ -993,7 +1469,6 @@ onUnmounted(() => {
 }
 
 .composer-dock.expanded {
-  border: none;
   border-radius: 8px;
   background: linear-gradient(
     180deg,
@@ -1068,8 +1543,7 @@ onUnmounted(() => {
 }
 
 .peek-panel.minimize-preview .thread-panel,
-.peek-panel.minimize-preview .composer-dock,
-.peek-panel.minimize-preview .plan-mode-banner {
+.peek-panel.minimize-preview .composer-dock {
   visibility: hidden;
   pointer-events: none;
 }

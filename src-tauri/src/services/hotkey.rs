@@ -1,10 +1,62 @@
-//! Secondary global hotkey: parse `Ctrl+Alt+Space`-style chords and match them via rdev.
+//! Configurable global hotkeys for overlay activation.
 
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use rdev::Key;
 
 pub const DEFAULT_SECONDARY_HOTKEY: &str = "Ctrl+Alt+Space";
+pub const DEFAULT_PRIMARY_HOTKEY: &str = "Alt";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrimaryHotkey {
+    Alt,
+    Ctrl,
+    Shift,
+    Meta,
+}
+
+impl PrimaryHotkey {
+    pub fn matches(self, key: Key) -> bool {
+        match self {
+            Self::Alt => is_alt_key(key),
+            Self::Ctrl => is_ctrl_key(key),
+            Self::Shift => is_shift_key(key),
+            Self::Meta => is_meta_key(key),
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Alt => "Alt",
+            Self::Ctrl => "Ctrl",
+            Self::Shift => "Shift",
+            Self::Meta => "Meta",
+        }
+    }
+}
+
+impl Default for PrimaryHotkey {
+    fn default() -> Self {
+        Self::Alt
+    }
+}
+
+pub fn parse_primary_hotkey(raw: &str) -> Result<PrimaryHotkey, String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "alt" | "option" => Ok(PrimaryHotkey::Alt),
+        "ctrl" | "control" => Ok(PrimaryHotkey::Ctrl),
+        "shift" => Ok(PrimaryHotkey::Shift),
+        "meta" | "win" | "super" | "cmd" | "command" => Ok(PrimaryHotkey::Meta),
+        _ => Err(format!("unsupported primary hotkey: {raw}")),
+    }
+}
+
+pub fn normalize_primary_hotkey(raw: &str) -> String {
+    parse_primary_hotkey(raw)
+        .unwrap_or_default()
+        .label()
+        .to_string()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChordKey {
@@ -439,6 +491,20 @@ pub fn current_secondary_hotkey() -> ParsedChord {
     *lock_recover(shared_secondary_hotkey())
 }
 
+pub fn shared_primary_hotkey() -> &'static Mutex<PrimaryHotkey> {
+    static HOTKEY: OnceLock<Mutex<PrimaryHotkey>> = OnceLock::new();
+    HOTKEY.get_or_init(|| Mutex::new(PrimaryHotkey::default()))
+}
+
+pub fn configure_primary_hotkey(raw: &str) {
+    let hotkey = parse_primary_hotkey(raw).unwrap_or_default();
+    *lock_recover(shared_primary_hotkey()) = hotkey;
+}
+
+pub fn current_primary_hotkey() -> PrimaryHotkey {
+    *lock_recover(shared_primary_hotkey())
+}
+
 fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,
@@ -456,6 +522,12 @@ mod tests {
         assert!(chord.ctrl && chord.alt && !chord.shift);
         assert_eq!(chord.key, ChordKey::Space);
         assert_eq!(format_hotkey(&chord), "Ctrl+Alt+Space");
+    }
+
+    #[test]
+    fn normalizes_primary_double_tap_modifier() {
+        assert_eq!(normalize_primary_hotkey("control"), "Ctrl");
+        assert_eq!(normalize_primary_hotkey("invalid"), DEFAULT_PRIMARY_HOTKEY);
     }
 
     #[test]

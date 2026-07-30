@@ -8,11 +8,10 @@ import {
 } from "@/services/locales/settings";
 import type { AppLanguage } from "@/types/setting";
 
-export type CategoryId = "appearance" | "ai" | "memory" | "search" | "agent" | "mcp" | "skills" | "workspace" | "history" | "about" | "provider";
+export type CategoryId = "appearance" | "ai" | "memory" | "search" | "agent" | "mcp" | "skills" | "plugins" | "workspace" | "history" | "about" | "provider";
 
 export type SettingType =
   | "select-color"
-  | "custom-color"
   | "select-language"
   | "select-reasoning-effort"
   | "select-reasoning-language"
@@ -27,7 +26,8 @@ export type SettingType =
   | "toggle"
   | "readonly"
   | "slider"
-  | "hotkey-record";
+  | "hotkey-record"
+  | "collaboration-models";
 
 export interface SettingDefinition {
   id: string;
@@ -81,6 +81,7 @@ export function buildSettingDefinitions(language: AppLanguage, info: SettingsApp
     memory: tr(language, "settings.groups.memory"),
     search: tr(language, "settings.groups.search"),
     agent: tr(language, "settings.groups.agent"),
+    plugins: tr(language, "settings.groups.plugins"),
     about: tr(language, "settings.groups.about"),
   };
 
@@ -94,16 +95,6 @@ export function buildSettingDefinitions(language: AppLanguage, info: SettingsApp
       description: m.colorScheme.description,
       type: "select-color",
       keywords: [...m.colorScheme.keywords],
-    },
-    {
-      id: "customAccentColor",
-      category: "appearance",
-      group: groups.appearance,
-      path: m.customAccentColor.path,
-      title: m.customAccentColor.title,
-      description: m.customAccentColor.description,
-      type: "custom-color",
-      keywords: [...m.customAccentColor.keywords],
     },
     {
       id: "language",
@@ -137,6 +128,16 @@ export function buildSettingDefinitions(language: AppLanguage, info: SettingsApp
       max: 100,
       step: 5,
       keywords: [...m.opacity.keywords],
+    },
+    {
+      id: "primaryHotkey",
+      category: "appearance",
+      group: groups.appearance,
+      path: m.primaryHotkey.path,
+      title: m.primaryHotkey.title,
+      description: m.primaryHotkey.description,
+      type: "hotkey-record",
+      keywords: [...m.primaryHotkey.keywords],
     },
     {
       id: "secondaryHotkey",
@@ -207,6 +208,16 @@ export function buildSettingDefinitions(language: AppLanguage, info: SettingsApp
       description: m.reasoningLanguage.description,
       type: "select-reasoning-language",
       keywords: [...m.reasoningLanguage.keywords],
+    },
+    {
+      id: "showReasoning",
+      category: "ai",
+      group: groups.ai,
+      path: m.showReasoning.path,
+      title: m.showReasoning.title,
+      description: m.showReasoning.description,
+      type: "toggle",
+      keywords: [...m.showReasoning.keywords],
     },
     {
       id: "passToolReasoning",
@@ -317,6 +328,36 @@ export function buildSettingDefinitions(language: AppLanguage, info: SettingsApp
       description: m.lspEnabled.description,
       type: "toggle",
       keywords: [...m.lspEnabled.keywords],
+    },
+    {
+      id: "multiModelCollaboration",
+      category: "agent",
+      group: groups.agent,
+      path: m.multiModelCollaboration.path,
+      title: m.multiModelCollaboration.title,
+      description: m.multiModelCollaboration.description,
+      type: "collaboration-models",
+      keywords: [...m.multiModelCollaboration.keywords],
+    },
+    {
+      id: "pixpinPinAiEnabled",
+      category: "plugins",
+      group: groups.plugins,
+      path: m.pixpinPinAiEnabled.path,
+      title: m.pixpinPinAiEnabled.title,
+      description: m.pixpinPinAiEnabled.description,
+      type: "toggle",
+      keywords: [...m.pixpinPinAiEnabled.keywords],
+    },
+    {
+      id: "snipastePinAiEnabled",
+      category: "plugins",
+      group: groups.plugins,
+      path: m.snipastePinAiEnabled.path,
+      title: m.snipastePinAiEnabled.title,
+      description: m.snipastePinAiEnabled.description,
+      type: "toggle",
+      keywords: [...m.snipastePinAiEnabled.keywords],
     },
     {
       id: "appName",

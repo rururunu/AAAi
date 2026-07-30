@@ -3,13 +3,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::app_state::AppState;
+use crate::core::context::store::capture_now;
+use crate::core::runtime::RequestContext;
 use crate::services::overlay_native::{
     clear_minimize_pending, clear_overlay_native_minimized, is_minimize_pending,
     is_overlay_native_minimized, mark_minimize_pending, mark_overlay_native_minimized,
     minimize_window, reapply_toolwindow_style,
 };
-use crate::core::context::store::capture_now;
-use crate::core::runtime::RequestContext;
 use tauri::WebviewUrl;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindowBuilder};
 
@@ -59,10 +60,7 @@ pub fn mark_blur_guard() {
 }
 
 pub fn mark_blur_guard_for(ms: u64) {
-    OVERLAY_IGNORE_BLUR_UNTIL_MS.store(
-        now_millis().saturating_add(ms),
-        Ordering::Relaxed,
-    );
+    OVERLAY_IGNORE_BLUR_UNTIL_MS.store(now_millis().saturating_add(ms), Ordering::Relaxed);
 }
 
 pub fn should_ignore_overlay_blur() -> bool {
@@ -247,6 +245,7 @@ fn create_new_overlay(app: &AppHandle, context: &RequestContext) {
         Ok(window) => {
             configure_overlay_window(&window);
             let _ = window.center();
+            tracing::debug!(label = %label, source = "toggle_overlay", "overlay interactive ready");
             let _ = window.show();
             let _ = window.set_focus();
             // 不在这里发 overlay-shown，前端 onMounted 检测 isVisible() 后自行初始化
@@ -265,6 +264,21 @@ fn emit_context_captured(app: &AppHandle, label: &str, context: &RequestContext)
     }
 }
 
+fn resolve_environment_context(app: &AppHandle, captured: RequestContext) -> RequestContext {
+    let resolved = app
+        .try_state::<AppState>()
+        .map(|state| state.core.chat().environment_context())
+        .unwrap_or(captured);
+    tracing::debug!(
+        active_window = ?resolved.active_window,
+        active_file = ?resolved.active_file,
+        workspace = ?resolved.workspace,
+        has_git_status = resolved.git_status.is_some(),
+        "overlay resolved environment context"
+    );
+    resolved
+}
+
 fn has_selected_context(context: &RequestContext) -> bool {
     context
         .selection
@@ -281,6 +295,7 @@ fn has_selected_context(context: &RequestContext) -> bool {
 /// `mouse_pos`：双击 Alt 时的鼠标物理坐标，有值则弹窗定位到鼠标附近，
 /// 否则居中显示（无选中内容时的兜底行为）。
 pub fn toggle_overlay(app: &AppHandle, mouse_pos: Option<(i32, i32)>) {
+    tracing::debug!(source = "toggle_overlay", "overlay opening start");
     let all_windows = app.webview_windows();
 
     // 找所有 overlay 类型窗口，按 label 排序以保证确定性
@@ -301,7 +316,7 @@ pub fn toggle_overlay(app: &AppHandle, mouse_pos: Option<(i32, i32)>) {
             if visible {
                 hide_overlay(app, label);
             } else {
-                let context = capture_now();
+                let context = resolve_environment_context(app, capture_now());
                 configure_overlay_window(&window);
                 if let Some((mx, my)) = mouse_pos.filter(|_| has_selected_context(&context)) {
                     const WIN_W: f64 = 640.0;
@@ -312,15 +327,16 @@ pub fn toggle_overlay(app: &AppHandle, mouse_pos: Option<(i32, i32)>) {
                 } else {
                     let _ = window.center();
                 }
+                emit_context_captured(app, label, &context);
+                tracing::debug!(label = %label, source = "toggle_overlay", "overlay interactive ready");
                 let _ = window.show();
                 let _ = window.set_focus();
-                emit_context_captured(app, label, &context);
                 let _ = window.emit_to(label, "overlay-shown", ());
                 mark_blur_guard();
             }
         }
     } else {
-        let context = capture_now();
+        let context = resolve_environment_context(app, capture_now());
         if let Some((mx, my)) = mouse_pos.filter(|_| has_selected_context(&context)) {
             place_and_show_overlay_at_mouse(app, mx, my, &context);
         } else {
@@ -413,10 +429,11 @@ fn place_and_show_overlay_at_mouse(
             let (x, y) = calc_position_near_mouse(&window, mouse_x, mouse_y, WIN_W, WIN_H, OFFSET);
             configure_overlay_window(&window);
             let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-            let _ = window.show();
-            let _ = window.set_focus();
             let label_str = label.clone();
             let _ = window.emit_to(&label_str, "context-captured", context);
+            tracing::debug!(label = %label_str, source = "toggle_overlay", "overlay interactive ready");
+            let _ = window.show();
+            let _ = window.set_focus();
             let _ = window.emit_to(&label_str, "overlay-shown", ());
             mark_blur_guard();
         }
@@ -444,6 +461,7 @@ fn place_and_show_overlay_at_mouse(
                 let (x, y) =
                     calc_position_near_mouse(&window, mouse_x, mouse_y, WIN_W, WIN_H, OFFSET);
                 let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+                tracing::debug!(label = %label, source = "toggle_overlay", "overlay interactive ready");
                 let _ = window.show();
                 let _ = window.set_focus();
                 mark_blur_guard();
@@ -466,6 +484,51 @@ pub fn show_settings_window(app: &AppHandle) {
     let _ = window.show();
     let _ = window.set_focus();
     let _ = window.emit("settings-opened", ());
+}
+
+/// Open (or create) an input overlay and attach the given images as selected context.
+/// Used by pin-window AI badges (PixPin / Snipaste) and the local HTTP API.
+pub fn open_overlay_with_images(app: &AppHandle, images: Vec<String>) {
+    if images.is_empty() {
+        return;
+    }
+
+    let mut context = resolve_environment_context(app, RequestContext::default());
+    context.selected_images = images;
+
+    let all_windows = app.webview_windows();
+    let mut overlay_labels: Vec<String> = all_windows
+        .keys()
+        .filter(|label| is_overlay_label(label))
+        .cloned()
+        .collect();
+    overlay_labels.sort();
+
+    let input_label = overlay_labels
+        .iter()
+        .find(|label| is_available_input_window(app, label))
+        .cloned();
+
+    if let Some(label) = input_label {
+        if let Some(window) = app.get_webview_window(&label) {
+            configure_overlay_window(&window);
+            let _ = window.center();
+            emit_context_captured(app, &label, &context);
+            tracing::debug!(
+                label = %label,
+                image_count = context.selected_images.len(),
+                source = "open_overlay_with_images",
+                "overlay interactive ready"
+            );
+            let _ = window.show();
+            let _ = window.set_focus();
+            let _ = window.emit_to(&label, "overlay-shown", ());
+            mark_blur_guard();
+            return;
+        }
+    }
+
+    create_new_overlay(app, &context);
 }
 
 #[cfg(test)]

@@ -76,20 +76,42 @@
               {{ userContent(item.message).selection }}
             </span>
           </div>
-          <button
-            v-if="checkpointFor(item.message)"
-            type="button"
-            class="rewind-icon-btn"
-            :disabled="rewindBusy"
-            :aria-label="tr(settingStore.language, 'rewind')"
-            :title="tr(settingStore.language, 'rewind')"
-            @click.stop="confirmRewind(item.message)"
+          <div
+            v-if="copyableUserText(item.message) || checkpointFor(item.message)"
+            class="message-actions user-message-actions"
           >
-            <Undo2 :size="14" :stroke-width="2" aria-hidden="true" />
-          </button>
+            <button
+              v-if="copyableUserText(item.message)"
+              type="button"
+              class="message-action-btn"
+              :class="copyButtonClass(item.message.id)"
+              :aria-label="copyButtonLabel(item.message.id)"
+              :title="copyButtonLabel(item.message.id)"
+              @click.stop="copyMessage(item.message, 'user')"
+            >
+              <Check v-if="copyStatus?.id === item.message.id && copyStatus.state === 'copied'" :size="14" :stroke-width="2" aria-hidden="true" />
+              <Copy v-else :size="14" :stroke-width="2" aria-hidden="true" />
+            </button>
+            <button
+              v-if="checkpointFor(item.message)"
+              type="button"
+              class="message-action-btn"
+              :disabled="rewindBusy"
+              :aria-label="tr(settingStore.language, 'rewind')"
+              :title="tr(settingStore.language, 'rewind')"
+              @click.stop="confirmRewind(item.message)"
+            >
+              <Undo2 :size="14" :stroke-width="2" aria-hidden="true" />
+            </button>
+          </div>
         </div>
         <div v-else class="assistant-bubble">
-          <AgentWorkDetails :message="item.message" :language="settingStore.language" />
+          <AgentWorkDetails
+            :message="item.message"
+            :language="settingStore.language"
+            :show-reasoning="settingStore.showReasoning"
+            @inspect-subagent="emit('inspectSubagent', $event)"
+          />
           <AskUserAnswerCard v-if="item.message.askUserAnswer?.length" :items="item.message.askUserAnswer" />
           <ImageAnalysisDetails
             v-for="(analysis, idx) in imageAnalysesForAssistant(item.message)"
@@ -97,7 +119,15 @@
             :model="analysis.model"
             :text="analysis.text"
           />
-          <Markdown v-if="item.message.content" :content="item.message.content" />
+          <EnvironmentContextCard
+            v-if="item.message.environmentContext"
+            :context="item.message.environmentContext"
+          />
+          <Markdown
+            v-else-if="item.message.content"
+            :content="item.message.content"
+            @preview-image="emit('previewImage', $event)"
+          />
           <div v-if="item.injects.length" class="soft-inject-list">
             <div
               v-for="inject in item.injects"
@@ -113,6 +143,33 @@
             v-if="activityLabel(item.message)"
             :label="activityLabel(item.message)!"
           />
+          <CodeChangesSummary
+            :message="item.message"
+            :can-undo="Boolean(checkpointForAssistant(item.message))"
+            :busy="rewindBusy"
+            @undo="confirmAssistantRewind(item.message)"
+            @review="$emit('reviewChanges')"
+          />
+          <div
+            v-if="item.message.content.trim() || processingDuration(item.message)"
+            class="message-actions assistant-message-actions"
+          >
+            <span v-if="processingDuration(item.message)" class="processing-duration">
+              {{ tr(settingStore.language, "processedFor", { duration: processingDuration(item.message)! }) }}
+            </span>
+            <button
+              v-if="item.message.content.trim()"
+              type="button"
+              class="message-action-btn"
+              :class="copyButtonClass(item.message.id)"
+              :aria-label="copyButtonLabel(item.message.id)"
+              :title="copyButtonLabel(item.message.id)"
+              @click.stop="copyMessage(item.message, 'assistant')"
+            >
+              <Check v-if="copyStatus?.id === item.message.id && copyStatus.state === 'copied'" :size="14" :stroke-width="2" aria-hidden="true" />
+              <Copy v-else :size="14" :stroke-width="2" aria-hidden="true" />
+            </button>
+          </div>
         </div>
       </article>
     </div>
@@ -123,28 +180,29 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { File, Undo2 } from "@lucide/vue";
+import { Check, Copy, File, Undo2 } from "@lucide/vue";
 import AgentWorkDetails from "@/components/chat/AgentWorkDetails.vue";
+import CodeChangesSummary from "@/components/chat/CodeChangesSummary.vue";
 import AssistantActivityIndicator from "@/components/chat/AssistantActivityIndicator.vue";
 import AskUserAnswerCard from "@/components/chat/AskUserAnswerCard.vue";
 import ImageAnalysisDetails from "@/components/chat/ImageAnalysisDetails.vue";
+import EnvironmentContextCard from "@/components/chat/EnvironmentContextCard.vue";
 import Markdown from "@/components/chat/Markdown.vue";
 import { AppConfirmDialog } from "@/components/ui/confirm-dialog";
-import { rewindSession, openImagePreview } from "@/services/ipc";
+import { rewindSession } from "@/services/ipc";
 import { useSettingStore } from "@/stores/setting";
 import type { ChatMessage, CheckpointInfo } from "@/types/chat";
 import { parseSelectionAttachment } from "@/services/chat/selectionAttachment";
 import { isSoftInjectContent, stripSoftInjectMarker } from "@/services/chat/softInject";
 import { tr } from "@/services/i18n";
 import { gsapScrollContainerTo } from "@/services/motion/gsapPresets";
+import { copyText } from "@/services/clipboard";
 
 type DisplayItem =
   | { kind: "user"; key: string; message: ChatMessage }
   | { kind: "assistant"; key: string; message: ChatMessage; injects: ChatMessage[] };
 function previewImage(url: string) {
-  void openImagePreview(url).catch((error) => {
-    console.error("openImagePreview failed:", error);
-  });
+  emit("previewImage", url);
 }
 
 const SCROLL_NEAR_BOTTOM_THRESHOLD = 96;
@@ -155,6 +213,9 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   rewound: [payload: { text: string }];
+  reviewChanges: [];
+  inspectSubagent: [activityId: string];
+  previewImage: [source: string];
 }>();
 const settingStore = useSettingStore();
 const confirmDialogRef = ref<InstanceType<typeof AppConfirmDialog> | null>(null);
@@ -207,6 +268,10 @@ const listRef = ref<HTMLElement | null>(null);
 const stickToBottom = ref(true);
 const activeUserMessageId = ref("");
 const rewindBusy = ref(false);
+const copyStatus = ref<{ id: string; state: "copied" | "failed" } | null>(null);
+const durationClock = ref(Date.now());
+let copyStatusTimer: number | undefined;
+let durationTimer: number | undefined;
 
 function normalizeRole(role: ChatMessage["role"] | string) {
   return String(role).toLowerCase();
@@ -222,6 +287,38 @@ function softInjectText(message: ChatMessage) {
 }
 function userContent(message: ChatMessage) {
   return parseSelectionAttachment(stripSoftInjectMarker(message.content));
+}
+
+function copyableUserText(message: ChatMessage) {
+  const content = userContent(message);
+  return [content.message.trim(), content.selection?.trim() ?? ""].filter(Boolean).join("\n\n");
+}
+
+function copyButtonLabel(messageId: string) {
+  if (copyStatus.value?.id !== messageId) return tr(settingStore.language, "copy");
+  return tr(settingStore.language, copyStatus.value.state === "copied" ? "copied" : "copyFailed");
+}
+
+function copyButtonClass(messageId: string) {
+  if (copyStatus.value?.id !== messageId) return undefined;
+  return copyStatus.value.state;
+}
+
+async function copyMessage(message: ChatMessage, kind: "user" | "assistant") {
+  const text = kind === "user" ? copyableUserText(message) : message.content;
+  if (!text) return;
+  if (copyStatusTimer) window.clearTimeout(copyStatusTimer);
+  try {
+    await copyText(text);
+    copyStatus.value = { id: message.id, state: "copied" };
+  } catch (error) {
+    console.error("failed to copy message:", error);
+    copyStatus.value = { id: message.id, state: "failed" };
+  }
+  copyStatusTimer = window.setTimeout(() => {
+    if (copyStatus.value?.id === message.id) copyStatus.value = null;
+    copyStatusTimer = undefined;
+  }, 1600);
 }
 
 /** Image analyses are persisted on the preceding user message; show them on the assistant turn. */
@@ -245,6 +342,28 @@ function imageAnalysesForAssistant(message: ChatMessage) {
 
 function checkpointFor(message: ChatMessage) {
   return (props.checkpoints ?? []).find((item) => item.userMessageId === message.id);
+}
+
+function processingDuration(message: ChatMessage): string | undefined {
+  const startedAt = precedingUserMessage(message)?.timestamp;
+  if (!startedAt) return undefined;
+
+  const running = isPending(message);
+  const finishedAt = running ? durationClock.value : message.completedAt;
+  if (!finishedAt || finishedAt < startedAt) return undefined;
+
+  const totalSeconds = Math.max(0, Math.floor((finishedAt - startedAt) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes} m ${seconds} s` : `${seconds} s`;
+}
+function checkpointForAssistant(message: ChatMessage) {
+  const userMessage = precedingUserMessage(message);
+  return userMessage ? checkpointFor(userMessage) : undefined;
+}
+function confirmAssistantRewind(message: ChatMessage) {
+  const userMessage = precedingUserMessage(message);
+  if (userMessage) void confirmRewind(userMessage);
 }
 async function confirmRewind(message: ChatMessage) {
   const checkpoint = checkpointFor(message);
@@ -481,6 +600,9 @@ watch(
 
 let resizeObserver: ResizeObserver | null = null;
 onMounted(() => {
+  durationTimer = window.setInterval(() => {
+    if (visibleMessages.value.some(isPending)) durationClock.value = Date.now();
+  }, 1000);
   const element = listRef.value;
   if (!element || typeof ResizeObserver === "undefined") return;
   resizeObserver = new ResizeObserver(() => {
@@ -491,6 +613,8 @@ onMounted(() => {
 onUnmounted(() => {
   resizeObserver?.disconnect();
   resizeObserver = null;
+  if (copyStatusTimer) window.clearTimeout(copyStatusTimer);
+  if (durationTimer) window.clearInterval(durationTimer);
 });
 </script>
 
@@ -600,7 +724,22 @@ onUnmounted(() => {
   box-shadow: 0 1px 0 color-mix(in srgb, #000 4%, transparent);
 }
 .user-message-text { display: block; min-width: 0; }
-.rewind-icon-btn {
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 26px;
+}
+.user-message-actions { justify-content: flex-end; }
+.assistant-message-actions { justify-content: flex-start; }
+.processing-duration {
+  margin-right: 4px;
+  color: var(--peek-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.72;
+}
+.message-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -610,16 +749,22 @@ onUnmounted(() => {
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: var(--peek-muted);
+  color: var(--peek-icon, var(--peek-muted));
   cursor: pointer;
-  opacity: 0.7;
+  opacity: 0.88;
 }
-.rewind-icon-btn:hover:not(:disabled) {
+.message-action-btn:hover:not(:disabled) {
   opacity: 1;
   color: var(--peek-accent);
   background: color-mix(in srgb, var(--peek-accent) 14%, transparent);
 }
-.rewind-icon-btn:disabled {
+.message-action-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--peek-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.message-action-btn.copied { color: #36a269; opacity: 1; }
+.message-action-btn.failed { color: #d35f5f; opacity: 1; }
+.message-action-btn:disabled {
   cursor: default;
   opacity: 0.4;
 }

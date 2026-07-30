@@ -31,6 +31,7 @@ export function settleInterruptedMessages(messages: ChatMessage[]): ChatMessage[
     return {
       ...message,
       status: statusStuck ? "cancelled" : message.status,
+      completedAt: message.completedAt ?? Date.now(),
       activityStatus: undefined,
       toolActivities: message.toolActivities?.map((activity) =>
         activity.status === "running"
@@ -423,6 +424,7 @@ export const useChatStore = defineStore("chat", {
         ...messages[index],
         content: `发送失败：${String(error)}`,
         status: "error",
+        completedAt: Date.now(),
       };
       this.setSessionMessages(sessionId, messages);
     },
@@ -668,6 +670,7 @@ export const useChatStore = defineStore("chat", {
         ...next[index],
         content,
         status: "done",
+        completedAt: Date.now(),
         activityStatus: undefined,
         ...(reasoning !== undefined ? { reasoning } : {}),
       };
@@ -799,6 +802,7 @@ export const useChatStore = defineStore("chat", {
         ...next[index],
         content: error,
         status: "error",
+        completedAt: Date.now(),
         activityStatus: undefined,
       };
       this.setSessionMessages(resolvedSessionId, next);

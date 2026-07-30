@@ -4,6 +4,7 @@ use std::fmt;
 pub struct ToolError {
     pub message: String,
     terminal: bool,
+    cancelled: bool,
 }
 
 impl ToolError {
@@ -11,6 +12,7 @@ impl ToolError {
         Self {
             message: message.into(),
             terminal: false,
+            cancelled: false,
         }
     }
 
@@ -18,11 +20,24 @@ impl ToolError {
         Self {
             message: message.into(),
             terminal: true,
+            cancelled: false,
+        }
+    }
+
+    pub fn cancelled() -> Self {
+        Self {
+            message: "tool execution cancelled".to_string(),
+            terminal: false,
+            cancelled: true,
         }
     }
 
     pub fn is_terminal(&self) -> bool {
         self.terminal
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled
     }
 }
 
@@ -49,10 +64,17 @@ impl From<serde_json::Error> for ToolError {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn user_denial_is_a_terminal_tool_error() {
         assert!(ToolError::user_denied("denied").is_terminal());
         assert!(!ToolError::new("ordinary failure").is_terminal());
+    }
+
+
+    #[test]
+    fn cancellation_is_distinct_from_user_denial() {
+        let error = ToolError::cancelled();
+        assert!(error.is_cancelled());
+        assert!(!error.is_terminal());
     }
 }

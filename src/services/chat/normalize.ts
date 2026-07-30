@@ -1,4 +1,4 @@
-import type { ChatMessage, MessageStatus, Role, ToolActivity } from "@/types/chat";
+import type { ChatMessage, MessageStatus, Role, ToolActivity, ToolPreviewPayload } from "@/types/chat";
 import { isSoftInjectContent } from "@/services/chat/softInject";
 
 type RawMessage = Partial<ChatMessage> & {
@@ -83,6 +83,7 @@ export function normalizeMessage(
     injected: raw.injected === true || isSoftInjectContent(raw.content ?? ""),
     status: normalizeStatus(raw.status),
     timestamp: raw.timestamp ?? Date.now(),
+    completedAt: raw.completedAt,
   };
 }
 
@@ -118,6 +119,10 @@ type RawToolActivityEvent = {
   message_id?: string;
   activityId?: string;
   activity_id?: string;
+  subagentId?: string;
+  subagent_id?: string;
+  parentActivityId?: string;
+  parent_activity_id?: string;
   toolName?: string;
   tool_name?: string;
   title?: string;
@@ -125,6 +130,7 @@ type RawToolActivityEvent = {
   detail?: string;
   arguments?: Record<string, unknown>;
   result?: string;
+  preview?: ToolPreviewPayload | null;
   success?: boolean;
   status?: string;
 };
@@ -154,12 +160,15 @@ export function normalizeToolActivityEvent(
     messageId,
     activity: {
       id: activityId,
+      subagentId: raw.subagentId ?? raw.subagent_id,
+      parentActivityId: raw.parentActivityId ?? raw.parent_activity_id,
       toolName: raw.toolName ?? raw.tool_name ?? "tool",
       title: raw.title ?? raw.toolName ?? raw.tool_name ?? "工具调用",
       kind: raw.kind ?? "other",
       detail: raw.detail,
       arguments: raw.arguments,
       result: raw.result,
+      preview: raw.preview,
       success: raw.success ?? status !== "error",
       status,
     },

@@ -2,8 +2,10 @@
 //! project bootstrap as jcode, so Gemini rides the free Code Assist quota.
 
 use std::collections::HashMap;
+use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -12,7 +14,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 use uuid::Uuid;
 
@@ -24,12 +26,14 @@ const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v1/userinfo?alt=json";
 const GOOGLE_OAUTH_USER_AGENT: &str = "google-api-nodejs-client/9.15.1";
 
-// Public Desktop OAuth credentials from Google's Antigravity app (safe to embed).
-const ANTIGRAVITY_CLIENT_ID: &str =
-    "YOUR_GOOGLE_OAUTH_CLIENT_ID";
-const ANTIGRAVITY_CLIENT_SECRET: &str = "YOUR_GOOGLE_OAUTH_CLIENT_SECRET";
 const ANTIGRAVITY_VERSION: &str = "1.18.3";
 const ANTIGRAVITY_SCOPES: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs";
+
+const OAUTH_LOCAL_FILE_NAMES: &[&str] = &[
+    "agy-oauth.local.json",
+    "google-oauth.local.json",
+    "client_secret.local.json",
+];
 
 const DEFAULT_CALLBACK_PORT: u16 = 51121;
 const REDIRECT_PATH: &str = "/oauth-callback";
@@ -211,6 +215,36 @@ struct UserInfoResponse {
     email: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct OAuthCredentials {
+    client_id: String,
+    client_secret: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OAuthCredentialsFile {
+    #[serde(default)]
+    #[serde(alias = "clientId")]
+    client_id: String,
+    #[serde(default)]
+    #[serde(alias = "clientSecret")]
+    client_secret: String,
+    #[serde(default)]
+    installed: Option<OAuthCredentialsBlock>,
+    #[serde(default)]
+    web: Option<OAuthCredentialsBlock>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OAuthCredentialsBlock {
+    #[serde(default)]
+    #[serde(alias = "clientId")]
+    client_id: String,
+    #[serde(default)]
+    #[serde(alias = "clientSecret")]
+    client_secret: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LoadCodeAssistResponse {
@@ -240,10 +274,7 @@ pub fn client_metadata_header() -> String {
 }
 
 pub fn is_gemini_model(model: &str) -> bool {
-    model
-        .trim()
-        .to_ascii_lowercase()
-        .starts_with("gemini")
+    model.trim().to_ascii_lowercase().starts_with("gemini")
 }
 
 /// Whether this model should use Antigravity OAuth instead of OpenAI-compatible endpoints.
@@ -254,14 +285,111 @@ pub fn can_use_antigravity_for_model(
     is_gemini_model(model) && settings.gemini_oauth.is_logged_in()
 }
 
+fn load_oauth_credentials(app: &AppHandle) -> Result<OAuthCredentials, String> {
+    let env_client_id = std::env::var("AAAI_AGY_OAUTH_CLIENT_ID")
+        .or_else(|_| std::env::var("AGY_OAUTH_CLIENT_ID"))
+        .unwrap_or_default();
+    let env_client_secret = std::env::var("AAAI_AGY_OAUTH_CLIENT_SECRET")
+        .or_else(|_| std::env::var("AGY_OAUTH_CLIENT_SECRET"))
+        .unwrap_or_default();
+    if let Some(credentials) = normalize_oauth_credentials(env_client_id, env_client_secret) {
+        return Ok(credentials);
+    }
+
+    let mut candidates = Vec::new();
+    if let Ok(dir) = std::env::current_dir() {
+        push_oauth_candidates(&mut candidates, dir);
+    }
+    if let Ok(dir) = app.path().app_config_dir() {
+        push_oauth_candidates(&mut candidates, dir);
+    }
+
+    let mut seen = Vec::<PathBuf>::new();
+    for path in candidates {
+        if seen.iter().any(|seen_path| seen_path == &path) {
+            continue;
+        }
+        seen.push(path.clone());
+        if path.is_file() {
+            return parse_oauth_credentials_file(&path);
+        }
+    }
+
+    let searched = seen
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "Missing Antigravity OAuth credentials. Create agy-oauth.local.json with client_id and client_secret, or set AAAI_AGY_OAUTH_CLIENT_ID / AAAI_AGY_OAUTH_CLIENT_SECRET. Searched: {searched}"
+    ))
+}
+
+fn push_oauth_candidates(candidates: &mut Vec<PathBuf>, dir: PathBuf) {
+    for name in OAUTH_LOCAL_FILE_NAMES {
+        candidates.push(dir.join(name));
+    }
+    for name in OAUTH_LOCAL_FILE_NAMES {
+        candidates.push(dir.join("src-tauri").join(name));
+    }
+}
+
+fn parse_oauth_credentials_file(path: &Path) -> Result<OAuthCredentials, String> {
+    let raw = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "Failed to read OAuth credentials at {}: {error}",
+            path.display()
+        )
+    })?;
+    parse_oauth_credentials_json(&raw).ok_or_else(|| {
+        format!(
+            "OAuth credentials at {} are missing client_id/client_secret",
+            path.display()
+        )
+    })
+}
+
+fn parse_oauth_credentials_json(raw: &str) -> Option<OAuthCredentials> {
+    let parsed: OAuthCredentialsFile = serde_json::from_str(raw).ok()?;
+    normalize_oauth_credentials(parsed.client_id, parsed.client_secret)
+        .or_else(|| {
+            parsed
+                .installed
+                .and_then(|block| normalize_oauth_credentials(block.client_id, block.client_secret))
+        })
+        .or_else(|| {
+            parsed
+                .web
+                .and_then(|block| normalize_oauth_credentials(block.client_id, block.client_secret))
+        })
+}
+
+fn normalize_oauth_credentials(
+    client_id: String,
+    client_secret: String,
+) -> Option<OAuthCredentials> {
+    let client_id = client_id.trim().to_string();
+    let client_secret = client_secret.trim().to_string();
+    if client_id.is_empty() || client_secret.is_empty() {
+        return None;
+    }
+    Some(OAuthCredentials {
+        client_id,
+        client_secret,
+    })
+}
+
 pub fn auth_status(app: &AppHandle) -> Result<GeminiAuthStatus, String> {
     let settings = get_settings(app)?;
     let oauth = &settings.gemini_oauth;
+    let credentials = load_oauth_credentials(app).ok();
     Ok(GeminiAuthStatus {
         logged_in: oauth.is_logged_in(),
         email: oauth.email.clone(),
-        has_client_secret: true,
-        client_id: ANTIGRAVITY_CLIENT_ID.to_string(),
+        has_client_secret: credentials.is_some(),
+        client_id: credentials
+            .map(|credentials| credentials.client_id)
+            .unwrap_or_else(|| oauth.client_id.clone()),
     })
 }
 
@@ -276,25 +404,32 @@ pub fn logout(app: &AppHandle) -> Result<GeminiAuthStatus, String> {
     auth_status(app)
 }
 
-/// Kept for IPC compatibility; Antigravity credentials are embedded and not user-imported.
-pub fn import_client_secrets(app: &AppHandle, _path: &str) -> Result<GeminiAuthStatus, String> {
+/// Kept for IPC compatibility; credentials are loaded from a local ignored file.
+pub fn import_client_secrets(app: &AppHandle, path: &str) -> Result<GeminiAuthStatus, String> {
+    let credentials = if path.trim().is_empty() {
+        load_oauth_credentials(app)?
+    } else {
+        parse_oauth_credentials_file(Path::new(path.trim()))?
+    };
     let mut settings = get_settings(app)?;
-    settings.gemini_oauth.client_id = ANTIGRAVITY_CLIENT_ID.to_string();
-    settings.gemini_oauth.client_secret = ANTIGRAVITY_CLIENT_SECRET.to_string();
+    settings.gemini_oauth.client_id = credentials.client_id;
+    settings.gemini_oauth.client_secret.clear();
     set_settings(app, settings)?;
     auth_status(app)
 }
 
 /// Start the Antigravity Desktop OAuth loopback flow and persist tokens on success.
 pub fn login(app: &AppHandle) -> Result<GeminiAuthStatus, String> {
-    let client_id = ANTIGRAVITY_CLIENT_ID;
-    let client_secret = ANTIGRAVITY_CLIENT_SECRET;
+    let credentials = load_oauth_credentials(app)?;
+    let client_id = credentials.client_id.as_str();
+    let client_secret = credentials.client_secret.as_str();
 
-    let listener = TcpListener::bind(format!("127.0.0.1:{DEFAULT_CALLBACK_PORT}")).map_err(|e| {
-        format!(
+    let listener =
+        TcpListener::bind(format!("127.0.0.1:{DEFAULT_CALLBACK_PORT}")).map_err(|e| {
+            format!(
             "Failed to bind Antigravity callback port {DEFAULT_CALLBACK_PORT} (may be in use): {e}"
         )
-    })?;
+        })?;
     listener
         .set_nonblocking(false)
         .map_err(|e| format!("Failed to configure callback listener: {e}"))?;
@@ -333,7 +468,7 @@ pub fn login(app: &AppHandle) -> Result<GeminiAuthStatus, String> {
 
     let mut next = get_settings(app)?;
     next.gemini_oauth.client_id = client_id.to_string();
-    next.gemini_oauth.client_secret = client_secret.to_string();
+    next.gemini_oauth.client_secret.clear();
     next.gemini_oauth.access_token = tokens.access_token;
     if let Some(refresh) = tokens.refresh_token {
         if !refresh.is_empty() {
@@ -362,9 +497,10 @@ pub fn ensure_access_token(app: &AppHandle) -> Result<String, String> {
         return Err("Gemini (Antigravity) is not signed in. Please sign in with a Google account in Settings.".into());
     }
 
+    let credentials = load_oauth_credentials(app)?;
     let tokens = refresh_access_token(
-        ANTIGRAVITY_CLIENT_ID,
-        ANTIGRAVITY_CLIENT_SECRET,
+        credentials.client_id.as_str(),
+        credentials.client_secret.as_str(),
         oauth.refresh_token.trim(),
     )?;
 
@@ -543,8 +679,10 @@ async fn fetch_available_models(
             }
         };
         if status.is_success() {
-            let parsed: FetchAvailableModelsResponse = serde_json::from_str(&text)
-                .map_err(|error| format!("Failed to parse fetchAvailableModels response: {error}; body={text}"))?;
+            let parsed: FetchAvailableModelsResponse =
+                serde_json::from_str(&text).map_err(|error| {
+                    format!("Failed to parse fetchAvailableModels response: {error}; body={text}")
+                })?;
             return Ok(parse_gemini_catalog(&parsed));
         }
 
@@ -665,13 +803,10 @@ fn group_gemini_thinking_variants(
         .collect();
 
     grouped.sort_by(|left, right| {
-        right
-            .recommended
-            .cmp(&left.recommended)
-            .then_with(|| {
-                prettify_gemini_family_display(&left.family_key)
-                    .cmp(&prettify_gemini_family_display(&right.family_key))
-            })
+        right.recommended.cmp(&left.recommended).then_with(|| {
+            prettify_gemini_family_display(&left.family_key)
+                .cmp(&prettify_gemini_family_display(&right.family_key))
+        })
     });
     grouped
 }
@@ -720,7 +855,10 @@ fn gemini_family_key(id: &str) -> String {
     format!("gemini-{rest}")
 }
 
-fn variant_selection_score(model: &ParsedCatalogModel, default_agent_model_id: Option<&str>) -> i32 {
+fn variant_selection_score(
+    model: &ParsedCatalogModel,
+    default_agent_model_id: Option<&str>,
+) -> i32 {
     let id = model.id.trim();
     let lower = id.to_ascii_lowercase();
     let mut score = 0;
@@ -842,10 +980,7 @@ mod gemini_display_name_tests {
 
     #[test]
     fn prettify_common_gemini_ids() {
-        assert_eq!(
-            prettify_gemini_model_id("gemini-3-flash"),
-            "Gemini 3 Flash"
-        );
+        assert_eq!(prettify_gemini_model_id("gemini-3-flash"), "Gemini 3 Flash");
         assert_eq!(
             prettify_gemini_model_id("gemini-3-flash-agent"),
             "Gemini 3 Flash (Agent)"
@@ -928,7 +1063,9 @@ fn wait_for_auth_code(listener: TcpListener, expected_state: &str) -> Result<Str
                     Ok(conn) => break conn,
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         if std::time::Instant::now() >= deadline {
-                            return Err("Timed out waiting for Google sign-in. Please retry.".into());
+                            return Err(
+                                "Timed out waiting for Google sign-in. Please retry.".into()
+                            );
                         }
                         thread::sleep(Duration::from_millis(100));
                     }
@@ -1021,7 +1158,11 @@ fn parse_query_params(request: &str) -> HashMap<String, String> {
     map
 }
 
-fn write_html_response(stream: &mut std::net::TcpStream, status: u16, body: &str) -> Result<(), String> {
+fn write_html_response(
+    stream: &mut std::net::TcpStream,
+    status: u16,
+    body: &str,
+) -> Result<(), String> {
     let reason = if status == 200 { "OK" } else { "Bad Request" };
     let response = format!(
         "HTTP/1.1 {status} {reason}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -1086,7 +1227,8 @@ fn parse_token_response(response: reqwest::blocking::Response) -> Result<TokenRe
     if !status.is_success() {
         return Err(format!("Google token API error ({status}): {text}"));
     }
-    serde_json::from_str(&text).map_err(|e| format!("Failed to parse token response: {e}; body={text}"))
+    serde_json::from_str(&text)
+        .map_err(|e| format!("Failed to parse token response: {e}; body={text}"))
 }
 
 fn fetch_email(access_token: &str) -> Option<String> {

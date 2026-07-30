@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use crate::core::tools::preview::ToolPreview;
 use crate::core::tools::registry::ToolRegistry;
 use crate::runtime::tool::{Tool, ToolContext, ToolError};
 
@@ -30,6 +31,17 @@ impl ToolManager {
         self.registry.schemas_arc()
     }
 
+    pub fn preview(
+        &self,
+        context: &ToolContext,
+        name: &str,
+        arguments: &Value,
+    ) -> Option<ToolPreview> {
+        self.registry
+            .get(name)
+            .and_then(|tool| tool.preview(context, arguments).ok().flatten())
+    }
+
     pub fn dispatch(
         &self,
         context: &ToolContext,
@@ -47,6 +59,7 @@ impl ToolManager {
         name: &str,
         arguments: Value,
     ) -> Result<String, ToolError> {
+        context.ensure_not_cancelled()?;
         if crate::core::tools::agent::is_async_runtime_tool(name) {
             let registry = Arc::clone(&self.registry);
             let auth_ctx = context.clone();
@@ -58,16 +71,25 @@ impl ToolManager {
             })
             .await
             .unwrap_or_else(|error| Err(ToolError::new(format!("tool task failed: {error}"))))?;
-            return crate::core::tools::agent::execute_async_tool(&tool_name, context, arguments)
-                .await;
+            let result =
+                crate::core::tools::agent::execute_async_tool(&tool_name, context, arguments).await;
+            context.ensure_not_cancelled()?;
+            return result;
         }
 
         let registry = Arc::clone(&self.registry);
         let context = context.clone();
+        let cancellation = Arc::clone(&context.cancelled);
         let name = name.to_string();
-        tauri::async_runtime::spawn_blocking(move || registry.execute(&context, &name, arguments))
-            .await
-            .unwrap_or_else(|error| Err(ToolError::new(format!("tool task failed: {error}"))))
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            registry.execute(&context, &name, arguments)
+        })
+        .await
+        .unwrap_or_else(|error| Err(ToolError::new(format!("tool task failed: {error}"))));
+        if cancellation.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(ToolError::cancelled());
+        }
+        result
     }
 
     /// MCP and other runtime adapters register tools through this method.
@@ -151,7 +173,10 @@ mod tests {
             provider: None,
             subagent_depth: 0,
             max_subagent_depth: 0,
+            subagent_id: None,
+            parent_activity_id: None,
             app_handle: None,
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         assert_eq!(
             manager

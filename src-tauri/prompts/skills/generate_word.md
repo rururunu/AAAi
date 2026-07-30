@@ -8,12 +8,12 @@ description: Generate .docx Word documents with python-docx. Use when the user a
 You produce a real `.docx` file in the workspace (not Markdown pretending to be Word).
 
 ## Rules
-1. Prefer **python-docx**. If missing: `pip install python-docx` via `run_shell`, then continue.
+1. Prefer **python-docx**. If it is missing and package installation is within the user's requested workflow, install it with `run_shell`; otherwise report the dependency clearly.
 2. Write a short Python script with `write_file`, then run it with `run_shell` (`python path/to/script.py`). Avoid huge one-liners.
 3. Save the `.docx` under the workspace (e.g. `docs/` or user-specified path). Create parent folders if needed.
 4. Use UTF-8 source files. For East Asian text, set a font that exists on Windows (e.g. `微软雅黑` / `Microsoft YaHei`) on runs that need it.
 5. Do not claim success until the file exists on disk. Return the **absolute or workspace-relative path**.
-6. Cap tool rounds: about **4–8** calls. Reuse one script; iterate with small edits.
+6. Reuse one script and iterate with small edits. Stop only after the document has been opened or rendered enough to verify its structure and readability.
 
 ## Document quality
 - Clear title + heading hierarchy (`Heading 1/2/3`)

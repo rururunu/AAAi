@@ -8,7 +8,7 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::UI::Shell::{
     IFolderView, IFolderView2, IShellBrowser, IShellItemArray, IShellView, IShellWindows,
-    IWebBrowserApp, SID_STopLevelBrowser, SVGIO_SELECTION, ShellWindows, SIGDN_FILESYSPATH,
+    IWebBrowserApp, SID_STopLevelBrowser, ShellWindows, SIGDN_FILESYSPATH, SVGIO_SELECTION,
 };
 
 use crate::core::context::image_capture::partition_selected_files;
@@ -46,7 +46,10 @@ impl CaptureProvider for ExplorerProvider {
                 }
             }
             Ok(_) => CaptureResult::Empty,
-            Err(error) => CaptureResult::Failed(error),
+            Err(error) => {
+                tracing::warn!(provider = "explorer", error = %error, "context provider failed");
+                CaptureResult::Empty
+            }
         }
     }
 }

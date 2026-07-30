@@ -167,9 +167,7 @@ pub async fn prepare_history_for_prompt(
     let usage_ratio = estimated as f32 / context_window.max(1) as f32;
 
     if usage_ratio >= COMPACT_TRIGGER_RATIO {
-        if let Some(compacted) =
-            compact_prior(&prior, session_id, summarizer).await
-        {
+        if let Some(compacted) = compact_prior(&prior, session_id, summarizer).await {
             let mut messages = compacted.messages;
             if let Some(user) = current_user {
                 messages.push(user);
@@ -231,8 +229,7 @@ pub fn measure_context_usage(
             .iter()
             .rev()
             .find(|message| message.role == Role::User);
-        let already_counted =
-            last_user.is_some_and(|message| message.content.trim() == draft);
+        let already_counted = last_user.is_some_and(|message| message.content.trim() == draft);
         if !already_counted {
             estimated += estimate_tokens(draft);
         }
@@ -311,13 +308,37 @@ fn message_token_overhead(message: &ChatMessage) -> usize {
 
 fn estimate_context_tokens(context: &RequestContext) -> usize {
     let mut total = 0;
-    for value in [&context.active_window, &context.clipboard] {
+    for value in [
+        &context.active_window,
+        &context.active_file,
+        &context.clipboard,
+        &context.git_status,
+        &context.last_shell_execution,
+    ] {
         if let Some(text) = value.as_ref().filter(|text| !text.trim().is_empty()) {
             total += estimate_tokens(text) + 8;
         }
     }
     if let Some(workspace) = &context.workspace {
         total += estimate_tokens(&workspace.name) + estimate_tokens(&workspace.root) + 12;
+    }
+    if let Some(ide) = &context.ide_context {
+        total += estimate_tokens(&ide.ide) + 8;
+        if let Some(path) = &ide.workspace {
+            total += estimate_tokens(&path.display().to_string()) + 4;
+        }
+        if let Some(path) = &ide.active_file {
+            total += estimate_tokens(&path.display().to_string()) + 4;
+        }
+        if let Some(language) = &ide.language {
+            total += estimate_tokens(language) + 4;
+        }
+        if let Some(selection) = &ide.selection {
+            total += estimate_tokens(selection) + 4;
+        }
+        if ide.cursor.is_some() {
+            total += 8;
+        }
     }
     for file in &context.selected_files {
         if !file.trim().is_empty() {
@@ -601,14 +622,9 @@ mod tests {
         }
         history.push(user_msg("current", "latest question"));
 
-        let result = prepare_history_for_prompt(
-            &history,
-            &RequestContext::default(),
-            "s1",
-            8_000,
-            None,
-        )
-        .await;
+        let result =
+            prepare_history_for_prompt(&history, &RequestContext::default(), "s1", 8_000, None)
+                .await;
         assert_eq!(
             result.notice.as_ref().map(|n| n.kind),
             Some(ContextNoticeKind::Compacted)
@@ -686,14 +702,9 @@ mod tests {
             user_msg("current", "hi"),
         ];
 
-        let result = prepare_history_for_prompt(
-            &history,
-            &RequestContext::default(),
-            "s1",
-            6_000,
-            None,
-        )
-        .await;
+        let result =
+            prepare_history_for_prompt(&history, &RequestContext::default(), "s1", 6_000, None)
+                .await;
         assert_eq!(
             result.notice.as_ref().map(|n| n.kind),
             Some(ContextNoticeKind::ApproachingLimit)

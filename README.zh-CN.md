@@ -17,7 +17,7 @@
 
 <p align="center">
   <img alt="platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" />
-  <img alt="release" src="https://img.shields.io/badge/version-v0.1.2-4D6BFE?style=flat-square" />
+  <img alt="release" src="https://img.shields.io/badge/version-v0.1.3-4D6BFE?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-Unlicense-3DA639?style=flat-square" />
 </p>
 
@@ -35,6 +35,13 @@
 
 工作区不会自动识别；请通过设置或 `/work` 手动选择。未选中的剪贴板文本和活动窗口标题不会自动加入消息。
 
+### IDE 上下文插件
+
+在 VS Code 或 IntelliJ 系列 IDE 中安装上下文插件后，AAAi 便能理解你正在处理的代码。只需选中一段有意义的内容，插件就会在本机把相关文件、项目目录、编程语言、所选代码及其位置交给 AAAi，为接下来的提问补足必要背景。即使 AAAi 尚未启动，插件也不会打断手头的编辑工作。
+
+- [安装 Visual Studio Code 扩展](https://marketplace.visualstudio.com/items?itemName=AAAi.aaai-ide-context)
+- [安装 IntelliJ Platform 插件](https://plugins.jetbrains.com/plugin/33163-aaai-ide-context)
+
 ## 使用方式
 
 ### 一按即达
@@ -45,11 +52,16 @@
 
 - **Ask**：可使用读文件、搜索、LSP 和已配置的只读工具，但不能修改文件、执行 Shell 命令或运行 Git 操作。
 - **Agent**：默认模式；可读写文件、执行 PowerShell、使用 Git、Skills、MCP 和子 Agent。工具审批行为由设置决定。
-- 输入 `/plan` 进入 Plan Mode；该模式会阻止写入类操作，适合先讨论方案。
 
 <p align="center">
   <img src="./docs/image/set_code.png" alt="Agent 执行文件修改并展示变更内容" width="720" />
 </p>
+
+### 顺手的辅助
+
+- **贴图辅助**：可在 PixPin 或 Snipaste 的贴图上启用 AAAi 角标，点击后便能带着这张图片开始提问。
+- **文件 Diff**：Agent 修改代码后，可按文件查看增删内容，让每一处变化都有迹可循。
+- **子 Agent**：面对较复杂的任务，Agent 可以把彼此独立的部分交给子 Agent 协作处理，进度与工具操作仍集中呈现在主对话中。
 
 ### 模型服务商
 

@@ -65,11 +65,12 @@ impl CaptureProvider for ClipboardProvider {
         }
 
         match capture_selected_content(window) {
-            Ok(content) if content.has_content() => {
-                CaptureResult::Success(content.into_partial())
-            }
+            Ok(content) if content.has_content() => CaptureResult::Success(content.into_partial()),
             Ok(_) => CaptureResult::Empty,
-            Err(error) => CaptureResult::Failed(error),
+            Err(error) => {
+                tracing::warn!(provider = "clipboard", error = %error, "context provider failed");
+                CaptureResult::Empty
+            }
         }
     }
 }
@@ -179,11 +180,7 @@ fn capture_selected_content(window: &WindowInfo) -> Result<CapturedClipboardCont
     let backup_for_compare = backup.clone();
     restore_clipboard_text(backup)?;
 
-    let selected_text = select_captured_text(
-        backup_for_compare,
-        captured,
-        start_seq != end_seq,
-    );
+    let selected_text = select_captured_text(backup_for_compare, captured, start_seq != end_seq);
     Ok(CapturedClipboardContent {
         selected_text,
         selected_images: captured_image.into_iter().collect(),

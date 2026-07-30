@@ -71,7 +71,10 @@ impl AgentRunner {
     ) -> Result<(), ProviderError> {
         request.tools = self.tools.schemas_arc();
         let mut steps = 0u32;
-        let mut user_msg_index = request.messages.iter().rposition(|msg| msg.role == Role::User);
+        let mut user_msg_index = request
+            .messages
+            .iter()
+            .rposition(|msg| msg.role == Role::User);
         let mut used_tokens = estimate_request_tokens(&request);
 
         loop {
@@ -99,8 +102,16 @@ impl AgentRunner {
                     if user_idx > 0 {
                         let prior = &request.messages[..user_idx];
                         let current_turn = request.messages[user_idx..].to_vec();
-                        let summarizer = crate::core::chat::compact::ProviderSummarizer::new(Arc::clone(&self.provider));
-                        if let Some(outcome) = crate::core::chat::compact::compact_prior(prior, &request.session_id, Some(&summarizer)).await {
+                        let summarizer = crate::core::chat::compact::ProviderSummarizer::new(
+                            Arc::clone(&self.provider),
+                        );
+                        if let Some(outcome) = crate::core::chat::compact::compact_prior(
+                            prior,
+                            &request.session_id,
+                            Some(&summarizer),
+                        )
+                        .await
+                        {
                             let mut new_messages = outcome.messages;
                             let new_user_idx = new_messages.len();
                             new_messages.extend(current_turn);
@@ -158,9 +169,15 @@ impl AgentRunner {
                     StreamEvent::Status { kind } => {
                         let _ = tx.send(StreamEvent::Status { kind }).await;
                     }
-                    StreamEvent::UserContentPatch { message_id, content } => {
+                    StreamEvent::UserContentPatch {
+                        message_id,
+                        content,
+                    } => {
                         let _ = tx
-                            .send(StreamEvent::UserContentPatch { message_id, content })
+                            .send(StreamEvent::UserContentPatch {
+                                message_id,
+                                content,
+                            })
                             .await;
                     }
                     StreamEvent::ToolCall(call) => {
@@ -187,9 +204,9 @@ impl AgentRunner {
                 }
             }
 
-            provider_task
-                .await
-                .map_err(|error| ProviderError::message(format!("provider task failed: {error}")))??;
+            provider_task.await.map_err(|error| {
+                ProviderError::message(format!("provider task failed: {error}"))
+            })??;
 
             used_tokens += estimate_tokens(&content) + estimate_tokens(&reasoning);
 
@@ -291,7 +308,7 @@ impl AgentRunner {
             if cancelled.load(Ordering::Relaxed) {
                 return Err(ProviderError::cancelled());
             }
-            outcomes.push(self.execute_one_tool(call, tool_ctx).await);
+            outcomes.push(self.execute_one_tool(call, tool_ctx).await?);
         }
         Ok(outcomes)
     }
@@ -314,7 +331,8 @@ impl AgentRunner {
 
         let jobs = prepared.into_iter().map(|started| {
             let tools = Arc::clone(&self.tools);
-            let execution_context = tool_ctx.clone();
+            let mut execution_context = tool_ctx.clone();
+            execution_context.parent_activity_id = Some(started.activity_id.clone());
             let tool_name = started.tool_name.clone();
             let tool_args = started.args.clone();
             let max_chars = self.tool_output_max_chars;
@@ -327,6 +345,9 @@ impl AgentRunner {
         });
 
         let finished = join_all(jobs).await;
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(ProviderError::cancelled());
+        }
         let mut outcomes = Vec::with_capacity(finished.len());
         for (started, execution, max_chars) in finished {
             outcomes.push(self.finish_tool_activity(started, execution, tool_ctx, max_chars));
@@ -334,36 +355,53 @@ impl AgentRunner {
         Ok(outcomes)
     }
 
-    async fn execute_one_tool(&self, call: &ToolCallPayload, tool_ctx: &ToolContext) -> ToolOutcome {
+    async fn execute_one_tool(
+        &self,
+        call: &ToolCallPayload,
+        tool_ctx: &ToolContext,
+    ) -> Result<ToolOutcome, ProviderError> {
         let started = self.begin_tool_activity(call, tool_ctx);
         let tools = Arc::clone(&self.tools);
-        let execution_context = tool_ctx.clone();
+        let mut execution_context = tool_ctx.clone();
+        execution_context.parent_activity_id = Some(started.activity_id.clone());
         let tool_name = started.tool_name.clone();
         let tool_args = started.args.clone();
         let execution = tools
             .dispatch_async(&execution_context, &tool_name, tool_args)
             .await;
-        self.finish_tool_activity(started, execution, tool_ctx, self.tool_output_max_chars)
+        if tool_ctx.is_cancelled()
+            || execution
+                .as_ref()
+                .err()
+                .is_some_and(ToolError::is_cancelled)
+        {
+            return Err(ProviderError::cancelled());
+        }
+        Ok(self.finish_tool_activity(started, execution, tool_ctx, self.tool_output_max_chars))
     }
 
     fn begin_tool_activity(&self, call: &ToolCallPayload, tool_ctx: &ToolContext) -> StartedTool {
         let args: serde_json::Value =
             serde_json::from_str(&call.arguments).unwrap_or_else(|_| serde_json::json!({}));
         let activity_id = format!("tool-{}-{}", call.id, now_millis());
-        let preview = build_activity_view(&call.name, &args, None);
-        let preview_detail = preview.detail.clone();
-        let display_sid = display_session_id(&tool_ctx.session_id);
+        let activity_view = build_activity_view(&call.name, &args, None);
+        let preview_detail = activity_view.detail.clone();
+        let tool_preview = self.tools.preview(tool_ctx, &call.name, &args);
+        let display_sid = tool_ctx.root_session_id().to_string();
         tool_ctx.conversation.upsert_tool_activity(
             &display_sid,
             &tool_ctx.assistant_message_id,
             ToolActivity {
                 id: activity_id.clone(),
+                subagent_id: tool_ctx.subagent_id.clone(),
+                parent_activity_id: tool_ctx.parent_activity_id.clone(),
                 tool_name: call.name.clone(),
-                title: preview.title.clone(),
-                kind: preview.kind.clone(),
-                detail: preview.detail.clone(),
+                title: activity_view.title.clone(),
+                kind: activity_view.kind.clone(),
+                detail: activity_view.detail.clone(),
                 arguments: Some(args.clone()),
                 result: None,
+                preview: tool_preview.clone(),
                 success: true,
                 status: "running".to_string(),
             },
@@ -372,13 +410,16 @@ impl AgentRunner {
             .event_bus
             .emit(crate::core::event::BusEvent::ToolStarted {
                 session_id: display_sid,
+                subagent_id: tool_ctx.subagent_id.clone(),
+                parent_activity_id: tool_ctx.parent_activity_id.clone(),
                 message_id: tool_ctx.assistant_message_id.clone(),
                 activity_id: activity_id.clone(),
                 tool_name: call.name.clone(),
-                title: preview.title.clone(),
-                kind: preview.kind.clone(),
-                detail: preview.detail,
+                title: activity_view.title.clone(),
+                kind: activity_view.kind.clone(),
+                detail: activity_view.detail,
                 arguments: args.clone(),
+                preview: tool_preview.clone(),
             });
         StartedTool {
             call_id: call.id.clone(),
@@ -386,6 +427,7 @@ impl AgentRunner {
             activity_id,
             args,
             preview_detail,
+            tool_preview,
         }
     }
 
@@ -404,18 +446,21 @@ impl AgentRunner {
         let result = truncate_tool_output(&raw_result, max_chars);
         let finished = build_activity_view(&started.tool_name, &started.args, Some(&result));
         let detail = finished.detail.or(started.preview_detail);
-        let display_sid = display_session_id(&tool_ctx.session_id);
+        let display_sid = tool_ctx.root_session_id().to_string();
         tool_ctx.conversation.upsert_tool_activity(
             &display_sid,
             &tool_ctx.assistant_message_id,
             ToolActivity {
                 id: started.activity_id.clone(),
+                subagent_id: tool_ctx.subagent_id.clone(),
+                parent_activity_id: tool_ctx.parent_activity_id.clone(),
                 tool_name: started.tool_name.clone(),
                 title: finished.title.clone(),
                 kind: finished.kind.clone(),
                 detail: detail.clone(),
                 arguments: Some(started.args.clone()),
                 result: Some(result.clone()),
+                preview: started.tool_preview.clone(),
                 success,
                 status: if success { "done" } else { "error" }.to_string(),
             },
@@ -424,6 +469,8 @@ impl AgentRunner {
             .event_bus
             .emit(crate::core::event::BusEvent::ToolFinished {
                 session_id: display_sid,
+                subagent_id: tool_ctx.subagent_id.clone(),
+                parent_activity_id: tool_ctx.parent_activity_id.clone(),
                 message_id: tool_ctx.assistant_message_id.clone(),
                 activity_id: started.activity_id,
                 tool_name: started.tool_name.clone(),
@@ -431,6 +478,7 @@ impl AgentRunner {
                 kind: finished.kind,
                 detail,
                 arguments: started.args,
+                preview: started.tool_preview,
                 result: result.clone(),
                 success,
             });
@@ -449,14 +497,12 @@ impl AgentRunner {
         prompt: String,
         read_only: bool,
     ) -> Result<String, ToolError> {
-        let active_tools = if read_only {
-            Arc::new(ToolManager::new(registry.filter_read_only()))
-        } else {
-            Arc::new(ToolManager::from_registry(registry))
-        };
+        let active_tools = Arc::new(ToolManager::new(
+            registry.filter_for_subagent(read_only),
+        ));
         let runner = AgentRunner::new(provider, active_tools);
         let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
-        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancelled = Arc::clone(&tool_ctx.cancelled);
         let soft_queue = Arc::new(Mutex::new(VecDeque::new()));
         let request = ChatRequest {
             request_id: format!("sub-{}", now_millis()),
@@ -485,7 +531,11 @@ impl AgentRunner {
         // Spawn a background task to receive from rx concurrently to avoid channel deadlocks.
         let answer = Arc::new(tokio::sync::Mutex::new(String::new()));
         let answer_clone = Arc::clone(&answer);
+        let progress_bus = Arc::clone(&tool_ctx.event_bus);
+        let progress_subagent_id = tool_ctx.subagent_id.clone();
         let rx_task = tauri::async_runtime::spawn(async move {
+            let mut response_reported = false;
+            let mut reasoning_reported = false;
             while let Some(event) = rx.recv().await {
                 match event {
                     StreamEvent::TurnComplete { content, .. } => {
@@ -493,8 +543,42 @@ impl AgentRunner {
                         *lock = content;
                     }
                     StreamEvent::Delta(delta) => {
+                        if !response_reported {
+                            if let Some(subagent_id) = &progress_subagent_id {
+                                progress_bus.emit(crate::core::event::BusEvent::SubagentProgress {
+                                    subagent_id: subagent_id.clone(),
+                                    kind: "responding".to_string(),
+                                    content: "Generating response".to_string(),
+                                    timestamp_ms: now_millis(),
+                                });
+                            }
+                            response_reported = true;
+                        }
                         let mut lock = answer_clone.lock().await;
                         lock.push_str(&delta);
+                    }
+                    StreamEvent::Reasoning(_) => {
+                        if !reasoning_reported {
+                            if let Some(subagent_id) = &progress_subagent_id {
+                                progress_bus.emit(crate::core::event::BusEvent::SubagentProgress {
+                                    subagent_id: subagent_id.clone(),
+                                    kind: "reasoning".to_string(),
+                                    content: "Reasoning".to_string(),
+                                    timestamp_ms: now_millis(),
+                                });
+                            }
+                            reasoning_reported = true;
+                        }
+                    }
+                    StreamEvent::Status { kind } => {
+                        if let Some(subagent_id) = &progress_subagent_id {
+                            progress_bus.emit(crate::core::event::BusEvent::SubagentProgress {
+                                subagent_id: subagent_id.clone(),
+                                kind: "status".to_string(),
+                                content: kind,
+                                timestamp_ms: now_millis(),
+                            });
+                        }
                     }
                     _ => {}
                 }
@@ -519,6 +603,7 @@ struct StartedTool {
     activity_id: String,
     args: serde_json::Value,
     preview_detail: Option<String>,
+    tool_preview: Option<crate::core::tools::preview::ToolPreview>,
 }
 
 struct ToolOutcome {
@@ -595,9 +680,7 @@ async fn drain_soft_injects(
             id: format!("msg-{}", now_millis()),
             session_id: request.session_id.clone(),
             role: Role::User,
-            content: format!(
-                "[Follow-up instruction while you were working]\n{content}"
-            ),
+            content: format!("[Follow-up instruction while you were working]\n{content}"),
             reasoning: None,
             tool_activities: None,
             tool_calls: None,
@@ -617,12 +700,4 @@ async fn drain_soft_injects(
             kind: "soft_injected".to_string(),
         })
         .await;
-}
-
-fn display_session_id(session_id: &str) -> String {
-    if let Some(pos) = session_id.find("-sub") {
-        session_id[..pos].to_string()
-    } else {
-        session_id.to_string()
-    }
 }

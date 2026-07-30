@@ -39,30 +39,12 @@ pub fn load_settings(app: &AppHandle) -> AppSettings {
     };
 
     let mut settings: AppSettings = serde_json::from_str(&raw).unwrap_or_default();
+    settings.primary_hotkey =
+        crate::services::hotkey::normalize_primary_hotkey(&settings.primary_hotkey);
     settings.secondary_hotkey =
         crate::services::hotkey::normalize_hotkey(&settings.secondary_hotkey);
-    // Migrate to embedded Antigravity OAuth client; old Gemini Desktop tokens won't refresh.
-    let defaults = crate::models::settings::GeminiOAuthSettings::default();
-    let client_changed = settings.gemini_oauth.client_id.trim() != defaults.client_id;
-    if settings.gemini_oauth.client_id.trim().is_empty() || client_changed {
-        if client_changed && settings.gemini_oauth.is_logged_in() {
-            settings.gemini_oauth.access_token.clear();
-            settings.gemini_oauth.refresh_token.clear();
-            settings.gemini_oauth.expires_at = 0;
-            settings.gemini_oauth.email.clear();
-            settings.gemini_oauth.project_id.clear();
-        }
-        settings.gemini_oauth.client_id = defaults.client_id;
-        settings.gemini_oauth.client_secret = defaults.client_secret;
-    } else if settings.gemini_oauth.client_secret.trim().is_empty() {
-        settings.gemini_oauth.client_secret = defaults.client_secret;
-    }
-    if settings.custom_accent_color.trim().is_empty()
-        || settings.custom_accent_color.eq_ignore_ascii_case("#ffffff")
-    {
-        // Soft off-white; migrate empty / former pure-white default.
-        settings.custom_accent_color = "#e8ecf2".to_string();
-    }
+    // OAuth client secrets now live in ignored local files, never in app settings.
+    settings.gemini_oauth.client_secret.clear();
     settings
 }
 
@@ -103,11 +85,13 @@ pub fn set_settings(app: &AppHandle, next: AppSettings) -> Result<AppSettings, S
 
     crate::core::tools::memory::shared_memory_store().configure(&next);
     crate::runtime::search::shared_search_runtime().configure(&next);
+    crate::services::hotkey::configure_primary_hotkey(&next.primary_hotkey);
     crate::services::hotkey::configure_secondary_hotkey(&next.secondary_hotkey);
     crate::core::tools::tool_approval::shared_tool_approval_store()
         .configure(next.tool_approval_mode);
     crate::core::lsp::shared_lsp_manager().configure(&next);
     crate::core::mcp::shared_mcp_manager().configure(&next);
+    crate::services::pin_badge::configure_from_settings(&next);
     // Connecting MCP (npx/uvx cold start) can block for a long time — never hold
     // set_app_settings / the settings UI on that work.
     if let Some(app_state) = app.try_state::<crate::app_state::AppState>() {

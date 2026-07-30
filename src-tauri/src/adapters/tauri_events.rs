@@ -20,6 +20,15 @@ impl TauriEventBus {
 impl EventBus for TauriEventBus {
     fn emit(&self, event: BusEvent) {
         match event {
+            BusEvent::AgentEvent { event } => {
+                let _ = self.app.emit("agent-event", event);
+            }
+            BusEvent::AgentDebugEvent { event } => {
+                let _ = self.app.emit("agent-debug-event", event);
+            }
+            BusEvent::SubagentStarted { .. }
+            | BusEvent::SubagentProgress { .. }
+            | BusEvent::SubagentFinished { .. } => {}
             BusEvent::ChatStarted {
                 session_id,
                 user_message,
@@ -207,10 +216,7 @@ impl EventBus for TauriEventBus {
                     }),
                 );
             }
-            BusEvent::PlanModeChanged {
-                session_id,
-                active,
-            } => {
+            BusEvent::PlanModeChanged { session_id, active } => {
                 let _ = self.app.emit(
                     "plan-mode-changed",
                     serde_json::json!({
@@ -221,6 +227,8 @@ impl EventBus for TauriEventBus {
             }
             BusEvent::ToolStarted {
                 session_id,
+                subagent_id,
+                parent_activity_id,
                 message_id,
                 activity_id,
                 tool_name,
@@ -228,6 +236,7 @@ impl EventBus for TauriEventBus {
                 kind,
                 detail,
                 arguments,
+                preview,
             } => {
                 let _ = self.app.emit(
                     "tool-started",
@@ -235,12 +244,15 @@ impl EventBus for TauriEventBus {
                         session_id,
                         message_id,
                         activity_id,
+                        subagent_id,
+                        parent_activity_id,
                         tool_name,
                         title,
                         kind,
                         detail,
                         arguments,
                         result: None,
+                        preview,
                         success: true,
                         status: "running".into(),
                     },
@@ -248,6 +260,8 @@ impl EventBus for TauriEventBus {
             }
             BusEvent::ToolFinished {
                 session_id,
+                subagent_id,
+                parent_activity_id,
                 message_id,
                 activity_id,
                 tool_name,
@@ -255,6 +269,7 @@ impl EventBus for TauriEventBus {
                 kind,
                 detail,
                 arguments,
+                preview,
                 result,
                 success,
             } => {
@@ -264,12 +279,15 @@ impl EventBus for TauriEventBus {
                         session_id,
                         message_id,
                         activity_id,
+                        subagent_id,
+                        parent_activity_id,
                         tool_name,
                         title,
                         kind,
                         detail,
                         arguments,
                         result: Some(result),
+                        preview,
                         success,
                         status: if success { "done" } else { "error" }.into(),
                     },

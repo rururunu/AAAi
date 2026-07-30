@@ -7,6 +7,8 @@ export const IPC_COMMANDS = {
   exitApp: "exit_app",
   getAppSettings: "get_app_settings",
   setAppSettings: "set_app_settings",
+  listVscodeThemes: "list_vscode_themes",
+  loadVscodeTheme: "load_vscode_theme",
   geminiAuthStatus: "gemini_auth_status",
   geminiOauthLogin: "gemini_oauth_login",
   geminiOauthLogout: "gemini_oauth_logout",
@@ -18,6 +20,7 @@ export const IPC_COMMANDS = {
   listChatSessions: "list_chat_sessions",
   listChatModels: "list_chat_models",
   getContextUsage: "get_context_usage",
+  getEnvironmentContext: "get_environment_context",
   setOverlayChatMode: "set_overlay_chat_mode_command",
   setOverlayPopupOpen: "set_overlay_popup_open_command",
   takeOverlayContext: "take_overlay_context",
@@ -31,6 +34,8 @@ export const IPC_COMMANDS = {
 } as const;
 
 export const IPC_EVENTS = {
+  agentEvent: "agent-event",
+  agentDebugEvent: "agent-debug-event",
   overlayShown: "overlay-shown",
   overlayHidden: "overlay-hidden",
   settingsOpened: "settings-opened",

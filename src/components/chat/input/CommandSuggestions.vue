@@ -53,6 +53,7 @@ defineEmits<{
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  font-family: var(--peek-font-sans);
 }
 
 .command-item {
@@ -70,7 +71,6 @@ defineEmits<{
 
 .command-name {
   flex: none;
-  font-family: var(--font-mono);
   font-size: 13px;
   color: var(--peek-accent);
 }

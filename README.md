@@ -17,7 +17,7 @@
 
 <p align="center">
   <img alt="platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" />
-  <img alt="release" src="https://img.shields.io/badge/version-v0.1.2-4D6BFE?style=flat-square" />
+  <img alt="release" src="https://img.shields.io/badge/version-v0.1.3-4D6BFE?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-Unlicense-3DA639?style=flat-square" />
 </p>
 
@@ -35,6 +35,13 @@ When summoned, AAAi attempts to read the text selection in the foreground app or
 
 The workspace is not detected automatically: select it in Settings or with `/work`. Unselected clipboard text and the active-window title are not added to a message automatically.
 
+### IDE context plugins
+
+AAAi can receive richer coding context directly from VS Code and IntelliJ Platform IDEs. When you select code, the plugin shares the active file, workspace, language, selected text, and cursor/selection position with the locally running AAAi app. Delivery is best-effort, so the editor remains unaffected when AAAi is not running.
+
+- [Install for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=AAAi.aaai-ide-context)
+- [Install for IntelliJ Platform](https://plugins.jetbrains.com/plugin/33163-aaai-ide-context)
+
 ## How it works
 
 ### One gesture away
@@ -45,11 +52,16 @@ Double-tap <kbd>Alt</kbd> in any app to show or hide the overlay. The default fa
 
 - **Ask**: read-only tools such as file reading, search, LSP, and configured read-only tools; it cannot change files, run Shell commands, or use Git.
 - **Agent**: the default mode; can read and edit files, run PowerShell, and use Git, Skills, MCP, and sub-agents. Tool approval behavior is configured in Settings.
-- Use `/plan` to enter Plan Mode, which blocks write operations while you discuss an approach.
 
 <p align="center">
   <img src="./docs/image/set_code.png" alt="Agent editing files and showing the resulting changes" width="720" />
 </p>
+
+### Workflow helpers
+
+- **Pinned-image assistance**: add an AAAi badge to PixPin or Snipaste pinned images, then open a conversation with that image already attached.
+- **File diffs**: review Agent changes file by file, with additions and deletions kept together in a focused Diff view.
+- **Sub-agents**: larger tasks can be divided among child agents, while their progress and tool activity remain visible from the main conversation.
 
 ### Model providers
 

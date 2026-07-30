@@ -5,12 +5,12 @@ pub fn seek_sequence(
     pattern: &[String],
     start: usize,
     eof: bool,
-) -> Option<usize> {
+) -> Result<Option<usize>, usize> {
     if pattern.is_empty() {
-        return Some(start);
+        return Ok(Some(start));
     }
     if pattern.len() > lines.len() {
-        return None;
+        return Ok(None);
     }
     let search_start = if eof && lines.len() >= pattern.len() {
         lines.len() - pattern.len()
@@ -18,34 +18,34 @@ pub fn seek_sequence(
         start
     };
 
-    for i in search_start..=lines.len().saturating_sub(pattern.len()) {
-        if lines[i..i + pattern.len()] == *pattern {
-            return Some(i);
-        }
+    let end = lines.len().saturating_sub(pattern.len());
+    let exact = unique_position(search_start, end, |i| {
+        lines[i..i + pattern.len()] == *pattern
+    });
+    if exact != Ok(None) {
+        return exact;
     }
-    for i in search_start..=lines.len().saturating_sub(pattern.len()) {
-        let mut ok = true;
+    let trailing = unique_position(search_start, end, |i| {
         for (p_idx, pat) in pattern.iter().enumerate() {
             if lines[i + p_idx].trim_end() != pat.trim_end() {
-                ok = false;
-                break;
+                return false;
             }
         }
-        if ok {
-            return Some(i);
-        }
+        true
+    });
+    if trailing != Ok(None) {
+        return trailing;
     }
-    for i in search_start..=lines.len().saturating_sub(pattern.len()) {
-        let mut ok = true;
+    let trimmed = unique_position(search_start, end, |i| {
         for (p_idx, pat) in pattern.iter().enumerate() {
             if lines[i + p_idx].trim() != pat.trim() {
-                ok = false;
-                break;
+                return false;
             }
         }
-        if ok {
-            return Some(i);
-        }
+        true
+    });
+    if trimmed != Ok(None) {
+        return trimmed;
     }
 
     fn normalise(s: &str) -> String {
@@ -64,19 +64,29 @@ pub fn seek_sequence(
             .collect::<String>()
     }
 
-    for i in search_start..=lines.len().saturating_sub(pattern.len()) {
-        let mut ok = true;
+    unique_position(search_start, end, |i| {
         for (p_idx, pat) in pattern.iter().enumerate() {
             if normalise(&lines[i + p_idx]) != normalise(pat) {
-                ok = false;
-                break;
+                return false;
             }
         }
-        if ok {
-            return Some(i);
-        }
+        true
+    })
+}
+
+fn unique_position(
+    start: usize,
+    end: usize,
+    mut matches: impl FnMut(usize) -> bool,
+) -> Result<Option<usize>, usize> {
+    let positions = (start..=end)
+        .filter(|index| matches(*index))
+        .collect::<Vec<_>>();
+    match positions.as_slice() {
+        [] => Ok(None),
+        [position] => Ok(Some(*position)),
+        _ => Err(positions.len()),
     }
-    None
 }
 
 #[cfg(test)]
@@ -88,11 +98,17 @@ mod tests {
         let lines = vec!["  foo".into(), "bar".into()];
         assert_eq!(
             seek_sequence(&lines, &["foo".into()], 0, false),
-            Some(0)
+            Ok(Some(0))
         );
         assert_eq!(
             seek_sequence(&lines, &["bar".into()], 0, false),
-            Some(1)
+            Ok(Some(1))
         );
+    }
+
+    #[test]
+    fn rejects_ambiguous_sequences() {
+        let lines = vec!["same".into(), "other".into(), "same".into()];
+        assert_eq!(seek_sequence(&lines, &["same".into()], 0, false), Err(2));
     }
 }

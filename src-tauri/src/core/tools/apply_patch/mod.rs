@@ -2,6 +2,7 @@
 mod parser;
 mod seek_sequence;
 
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -9,6 +10,7 @@ use serde_json::{json, Value};
 
 use super::context::{Tool, ToolContext};
 use super::error::ToolError;
+use super::file_io::atomic_write;
 use super::path::{normalize_path, resolve_tool_path};
 use super::path_permission::PathAccess;
 use super::preview::{unified_diff, ChangeKind, ToolPreview};
@@ -27,7 +29,7 @@ impl Tool for ApplyPatchTool {
     }
 
     fn description(&self) -> &str {
-        "Preferred file editor. Apply a Codex-style patch (NOT unified git diff). Wrap with `*** Begin Patch` / `*** End Patch`. File ops must use three asterisks: `*** Update File: path`, `*** Add File: path`, `*** Delete File: path`. Hunks use `@@` then lines starting with ` ` / `-` / `+`. Example:\n*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+new\n*** End Patch"
+        "Use for structural insertions/deletions, connected block rewrites, or coordinated multi-hunk/multi-file edits. Keep hunks minimal and omit unchanged sections. Do not use for one or several localized replacements that replace_in_file or replace_many_in_file can express directly. Apply a Codex-style patch (NOT unified git diff). Wrap with `*** Begin Patch` / `*** End Patch`. File ops must use three asterisks: `*** Update File: path`, `*** Add File: path`, `*** Delete File: path`. Hunks use `@@` then lines starting with ` ` / `-` / `+`. Example:\n*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+new\n*** End Patch"
     }
 
     fn parameters_schema(&self) -> Value {
@@ -50,21 +52,31 @@ impl Tool for ApplyPatchTool {
             .ops
             .first()
             .ok_or_else(|| ToolError::new("patch contains no file operations"))?;
+        let unified_diff = plan
+            .ops
+            .iter()
+            .map(|op| op.diff.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let affected_paths = plan
+            .ops
+            .iter()
+            .flat_map(|op| std::iter::once(op.display_path.clone()).chain(op.move_to.clone()))
+            .collect();
         Ok(Some(ToolPreview {
             path: first.display_path.clone(),
+            affected_paths,
             kind: first.kind,
             old_text: first.old_text.clone(),
             new_text: first.new_text.clone(),
-            unified_diff: first.diff.clone(),
+            unified_diff,
         }))
     }
 
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         let patch = patch_arg(&args)?;
         let plan = plan_patch(ctx, &patch)?;
-        for op in &plan.ops {
-            apply_op(op)?;
-        }
+        execute_plan(&plan)?;
         let summary = plan
             .ops
             .iter()
@@ -124,7 +136,23 @@ fn plan_patch(ctx: &ToolContext, patch: &str) -> Result<PatchPlan, ToolError> {
     for hunk in parsed.hunks {
         ops.push(plan_hunk(ctx, hunk)?);
     }
+    reject_overlapping_operations(&ops)?;
     Ok(PatchPlan { ops })
+}
+
+fn reject_overlapping_operations(ops: &[PlannedOp]) -> Result<(), ToolError> {
+    let mut touched = HashSet::new();
+    for op in ops {
+        for path in std::iter::once(&op.absolute).chain(op.move_absolute.as_ref()) {
+            if !touched.insert(path.clone()) {
+                return Err(ToolError::new(format!(
+                    "patch contains multiple operations for {}; combine them into one file operation",
+                    path.display()
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn plan_hunk(ctx: &ToolContext, hunk: Hunk) -> Result<PlannedOp, ToolError> {
@@ -132,26 +160,20 @@ fn plan_hunk(ctx: &ToolContext, hunk: Hunk) -> Result<PlannedOp, ToolError> {
         Hunk::AddFile { path, contents } => {
             let display = path_to_display(&path)?;
             let absolute = resolve_write(ctx, &display)?;
-            let old = if absolute.exists() {
-                Some(fs::read_to_string(&absolute).unwrap_or_default())
-            } else {
-                None
-            };
-            let kind = if old.is_some() {
-                ChangeKind::Modify
-            } else {
-                ChangeKind::Create
-            };
-            let old_str = old.clone().unwrap_or_default();
+            if absolute.exists() {
+                return Err(ToolError::new(format!(
+                    "cannot add existing file: {display}; use Update File instead"
+                )));
+            }
             Ok(PlannedOp {
                 display_path: display.clone(),
                 absolute,
                 move_to: None,
                 move_absolute: None,
-                kind,
-                old_text: old,
+                kind: ChangeKind::Create,
+                old_text: None,
                 new_text: Some(contents.clone()),
-                diff: unified_diff(&display, &old_str, &contents),
+                diff: unified_diff(&display, "", &contents),
             })
         }
         Hunk::DeleteFile { path } => {
@@ -162,7 +184,7 @@ fn plan_hunk(ctx: &ToolContext, hunk: Hunk) -> Result<PlannedOp, ToolError> {
                     "cannot delete missing file: {display}"
                 )));
             }
-            let old = fs::read_to_string(&absolute).unwrap_or_default();
+            let old = fs::read_to_string(&absolute)?;
             Ok(PlannedOp {
                 display_path: display.clone(),
                 absolute,
@@ -218,16 +240,65 @@ fn apply_op(op: &PlannedOp) -> Result<(), ToolError> {
         }
         ChangeKind::Create | ChangeKind::Modify => {
             let target = op.move_absolute.as_ref().unwrap_or(&op.absolute);
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)?;
-            }
             let content = op.new_text.clone().unwrap_or_default();
-            fs::write(target, content)?;
+            atomic_write(target, content)?;
             if op.move_absolute.is_some() && &op.absolute != target && op.absolute.exists() {
                 fs::remove_file(&op.absolute)?;
             }
             Ok(())
         }
+    }
+}
+
+fn execute_plan(plan: &PatchPlan) -> Result<(), ToolError> {
+    let snapshots = snapshot_plan_files(plan)?;
+    for op in &plan.ops {
+        if let Err(error) = apply_op(op) {
+            return match restore_plan_files(&snapshots) {
+                Ok(()) => Err(error),
+                Err(rollback) => Err(ToolError::new(format!(
+                    "{error}; rollback also failed: {rollback}"
+                ))),
+            };
+        }
+    }
+    Ok(())
+}
+
+fn snapshot_plan_files(plan: &PatchPlan) -> Result<HashMap<PathBuf, Option<Vec<u8>>>, ToolError> {
+    let mut snapshots = HashMap::new();
+    for op in &plan.ops {
+        for path in std::iter::once(&op.absolute).chain(op.move_absolute.as_ref()) {
+            if snapshots.contains_key(path) {
+                continue;
+            }
+            let content = if path.exists() {
+                Some(fs::read(path)?)
+            } else {
+                None
+            };
+            snapshots.insert(path.clone(), content);
+        }
+    }
+    Ok(snapshots)
+}
+
+fn restore_plan_files(snapshots: &HashMap<PathBuf, Option<Vec<u8>>>) -> Result<(), ToolError> {
+    let mut failures = Vec::new();
+    for (path, content) in snapshots {
+        let result = match content {
+            Some(bytes) => atomic_write(path, bytes),
+            None if path.exists() => fs::remove_file(path),
+            None => Ok(()),
+        };
+        if let Err(error) = result {
+            failures.push(format!("{}: {error}", path.display()));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(ToolError::new(failures.join("; ")))
     }
 }
 
@@ -255,16 +326,28 @@ fn apply_chunks_to_contents(
     path: &str,
     chunks: &[UpdateFileChunk],
 ) -> Result<String, ToolError> {
-    let mut original_lines: Vec<String> = original.split('\n').map(str::to_string).collect();
-    if original_lines.last().is_some_and(String::is_empty) {
+    let newline = if original.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let had_trailing_newline = original.ends_with('\n');
+    let normalized = original.replace("\r\n", "\n");
+    let mut original_lines: Vec<String> = if normalized.is_empty() {
+        Vec::new()
+    } else {
+        normalized.split('\n').map(str::to_string).collect()
+    };
+    if had_trailing_newline && original_lines.last().is_some_and(String::is_empty) {
         original_lines.pop();
     }
     let replacements = compute_replacements(&original_lines, path, chunks)?;
-    let mut new_lines = apply_replacements(original_lines, &replacements);
-    if !new_lines.last().is_some_and(String::is_empty) {
-        new_lines.push(String::new());
+    let new_lines = apply_replacements(original_lines, &replacements);
+    let mut output = new_lines.join(newline);
+    if had_trailing_newline {
+        output.push_str(newline);
     }
-    Ok(new_lines.join("\n"))
+    Ok(output)
 }
 
 fn compute_replacements(
@@ -277,9 +360,13 @@ fn compute_replacements(
 
     for chunk in chunks {
         if let Some(ctx_line) = &chunk.change_context {
-            if let Some(idx) =
-                seek_sequence(original_lines, std::slice::from_ref(ctx_line), line_index, false)
-            {
+            if let Some(idx) = seek_unique(
+                original_lines,
+                std::slice::from_ref(ctx_line),
+                line_index,
+                false,
+                path,
+            )? {
                 line_index = idx + 1;
             } else {
                 return Err(ToolError::new(format!(
@@ -299,7 +386,13 @@ fn compute_replacements(
         }
 
         let mut pattern: &[String] = &chunk.old_lines;
-        let mut found = seek_sequence(original_lines, pattern, line_index, chunk.is_end_of_file);
+        let mut found = seek_unique(
+            original_lines,
+            pattern,
+            line_index,
+            chunk.is_end_of_file,
+            path,
+        )?;
         let mut new_slice: &[String] = &chunk.new_lines;
 
         if found.is_none() && pattern.last().is_some_and(String::is_empty) {
@@ -307,7 +400,13 @@ fn compute_replacements(
             if new_slice.last().is_some_and(String::is_empty) {
                 new_slice = &new_slice[..new_slice.len() - 1];
             }
-            found = seek_sequence(original_lines, pattern, line_index, chunk.is_end_of_file);
+            found = seek_unique(
+                original_lines,
+                pattern,
+                line_index,
+                chunk.is_end_of_file,
+                path,
+            )?;
         }
 
         if let Some(start_idx) = found {
@@ -323,6 +422,20 @@ fn compute_replacements(
 
     replacements.sort_by_key(|(index, _, _)| *index);
     Ok(replacements)
+}
+
+fn seek_unique(
+    lines: &[String],
+    pattern: &[String],
+    start: usize,
+    eof: bool,
+    path: &str,
+) -> Result<Option<usize>, ToolError> {
+    seek_sequence(lines, pattern, start, eof).map_err(|count| {
+        ToolError::new(format!(
+            "patch context is ambiguous in {path}: matched {count} locations; include more unique context"
+        ))
+    })
 }
 
 fn apply_replacements(
@@ -380,7 +493,10 @@ mod tests {
             provider: None,
             subagent_depth: 0,
             max_subagent_depth: 0,
+            subagent_id: None,
+            parent_activity_id: None,
             app_handle: None,
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         (ctx, db_path)
     }
@@ -419,6 +535,186 @@ mod tests {
         assert!(!root.join("gone.txt").exists());
         let _ = fs::remove_dir_all(root);
         let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn preview_includes_every_file_in_a_multi_file_patch() {
+        let root =
+            std::env::temp_dir().join(format!("peek-patch-preview-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("one.txt"), "old one\n").unwrap();
+        fs::write(root.join("two.txt"), "old two\n").unwrap();
+        let patch = r#"*** Begin Patch
+*** Update File: one.txt
+@@
+-old one
++new one
+*** Update File: two.txt
+@@
+-old two
++new two
+*** End Patch"#;
+
+        let (ctx, db) = make_ctx(root.clone());
+        let preview = ApplyPatchTool
+            .preview(&ctx, &json!({ "input": patch }))
+            .expect("preview")
+            .expect("file preview");
+
+        assert!(preview.unified_diff.contains("--- a/one.txt"));
+        assert!(preview.unified_diff.contains("--- a/two.txt"));
+        assert_eq!(preview.affected_paths, vec!["one.txt", "two.txt"]);
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn update_preserves_crlf_and_trailing_newline() {
+        let root = std::env::temp_dir().join(format!("peek-patch-crlf-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("file.txt"), b"one\r\ntwo\r\nthree\r\n").unwrap();
+        let patch = "*** Begin Patch\n*** Update File: file.txt\n@@\n-two\n+TWO\n*** End Patch";
+        let (ctx, db) = make_ctx(root.clone());
+
+        ApplyPatchTool
+            .execute(&ctx, json!({ "input": patch }))
+            .unwrap();
+
+        let output = fs::read(root.join("file.txt")).unwrap();
+        assert_eq!(output, b"one\r\nTWO\r\nthree\r\n");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn update_preserves_missing_trailing_newline() {
+        let root = std::env::temp_dir().join(format!("peek-patch-eof-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("file.txt"), "one\ntwo").unwrap();
+        let patch = "*** Begin Patch\n*** Update File: file.txt\n@@\n-two\n+TWO\n*** End Patch";
+        let (ctx, db) = make_ctx(root.clone());
+
+        ApplyPatchTool
+            .execute(&ctx, json!({ "input": patch }))
+            .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.join("file.txt")).unwrap(),
+            "one\nTWO"
+        );
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn rejects_ambiguous_patch_context() {
+        let root =
+            std::env::temp_dir().join(format!("peek-patch-ambiguous-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("file.txt"), "same\nmiddle\nsame\n").unwrap();
+        let patch =
+            "*** Begin Patch\n*** Update File: file.txt\n@@\n-same\n+changed\n*** End Patch";
+        let (ctx, db) = make_ctx(root.clone());
+
+        let error = ApplyPatchTool
+            .execute(&ctx, json!({ "input": patch }))
+            .unwrap_err();
+
+        assert!(error.to_string().contains("ambiguous"));
+        assert_eq!(
+            fs::read_to_string(root.join("file.txt")).unwrap(),
+            "same\nmiddle\nsame\n"
+        );
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn rejects_multiple_operations_for_the_same_file() {
+        let root =
+            std::env::temp_dir().join(format!("peek-patch-duplicate-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("file.txt"), "one\ntwo\n").unwrap();
+        let patch = r#"*** Begin Patch
+*** Update File: file.txt
+@@
+-one
++ONE
+*** Update File: file.txt
+@@
+-two
++TWO
+*** End Patch"#;
+        let (ctx, db) = make_ctx(root.clone());
+
+        let error = ApplyPatchTool
+            .execute(&ctx, json!({ "input": patch }))
+            .unwrap_err();
+
+        assert!(error.to_string().contains("multiple operations"));
+        assert_eq!(
+            fs::read_to_string(root.join("file.txt")).unwrap(),
+            "one\ntwo\n"
+        );
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn add_file_refuses_to_overwrite_existing_content() {
+        let root =
+            std::env::temp_dir().join(format!("peek-patch-add-existing-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("file.txt"), "keep\n").unwrap();
+        let patch = "*** Begin Patch\n*** Add File: file.txt\n+replace\n*** End Patch";
+        let (ctx, db) = make_ctx(root.clone());
+
+        let error = ApplyPatchTool
+            .execute(&ctx, json!({ "input": patch }))
+            .unwrap_err();
+
+        assert!(error.to_string().contains("existing file"));
+        assert_eq!(fs::read_to_string(root.join("file.txt")).unwrap(), "keep\n");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn multi_file_failure_rolls_back_already_written_files() {
+        let root =
+            std::env::temp_dir().join(format!("peek-patch-rollback-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let blocker = root.join("blocker");
+        let child = blocker.join("child.txt");
+        let plan = PatchPlan {
+            ops: vec![
+                PlannedOp {
+                    display_path: "blocker".into(),
+                    absolute: blocker.clone(),
+                    move_to: None,
+                    move_absolute: None,
+                    kind: ChangeKind::Create,
+                    old_text: None,
+                    new_text: Some("first".into()),
+                    diff: String::new(),
+                },
+                PlannedOp {
+                    display_path: "blocker/child.txt".into(),
+                    absolute: child.clone(),
+                    move_to: None,
+                    move_absolute: None,
+                    kind: ChangeKind::Create,
+                    old_text: None,
+                    new_text: Some("second".into()),
+                    diff: String::new(),
+                },
+            ],
+        };
+
+        assert!(execute_plan(&plan).is_err());
+        assert!(!blocker.exists());
+        assert!(!child.exists());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

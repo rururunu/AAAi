@@ -1,12 +1,11 @@
 use std::path::PathBuf;
 
-use crate::core::context::models::{CaptureError, CaptureSource, WindowInfo};
+use crate::core::context::models::{CaptureSource, WindowInfo};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CaptureResult {
     Success(PartialCapture),
     Empty,
-    Failed(CaptureError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

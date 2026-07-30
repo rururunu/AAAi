@@ -10,6 +10,8 @@ import { settingsEn, settingsLocales, type SettingsI18nKey } from "@/services/lo
 import { skillsEn, skillsLocales, type SkillsI18nKey } from "@/services/locales/skills";
 import { chatInputEn, chatInputLocales, type ChatInputI18nKey } from "@/services/locales/chatInput";
 import { workspaceEn, workspaceLocales, type WorkspaceI18nKey } from "@/services/locales/workspace";
+import { slashEn, slashLocales, type SlashI18nKey } from "@/services/locales/slash";
+import { uiEn, uiLocales, type UiI18nKey } from "@/services/locales/ui";
 
 type ModuleEn = Record<string, string>;
 type ModuleLocales = Record<AppLanguage, Partial<Record<string, string>>>;
@@ -45,6 +47,14 @@ const modules: Array<{
     en: chatInputEn as unknown as ModuleEn,
     locales: chatInputLocales as unknown as ModuleLocales,
   },
+  {
+    en: slashEn as unknown as ModuleEn,
+    locales: slashLocales as unknown as ModuleLocales,
+  },
+  {
+    en: uiEn as unknown as ModuleEn,
+    locales: uiLocales as unknown as ModuleLocales,
+  },
 ];
 
 function resolve(language: AppLanguage, key: string): string | undefined {
@@ -65,7 +75,9 @@ export type I18nKey =
   | McpI18nKey
   | SettingsI18nKey
   | SkillsI18nKey
-  | WorkspaceI18nKey;
+  | WorkspaceI18nKey
+  | SlashI18nKey
+  | UiI18nKey;
 
 export function tr(
   language: AppLanguage | undefined,

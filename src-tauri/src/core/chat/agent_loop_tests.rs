@@ -88,6 +88,26 @@ struct CountingTool {
     payload: String,
 }
 
+struct CancellationAwareTool;
+
+impl Tool for CancellationAwareTool {
+    fn name(&self) -> &str {
+        "slow_scan"
+    }
+    fn description(&self) -> &str {
+        "test cancellation-aware scan"
+    }
+    fn parameters_schema(&self) -> Value {
+        serde_json::json!({ "type": "object" })
+    }
+    fn execute(&self, ctx: &ToolContext, _args: Value) -> Result<String, ToolError> {
+        loop {
+            ctx.ensure_not_cancelled()?;
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+}
+
 impl Tool for CountingTool {
     fn name(&self) -> &str {
         self.name
@@ -136,7 +156,10 @@ fn make_ctx(registry: Arc<ToolRegistry>) -> (ToolContext, std::path::PathBuf) {
         provider: None,
         subagent_depth: 0,
         max_subagent_depth: 0,
+        subagent_id: None,
+        parent_activity_id: None,
         app_handle: None,
+        cancelled: Arc::new(AtomicBool::new(false)),
     };
     (ctx, db_path)
 }
@@ -319,6 +342,49 @@ async fn finishes_without_tools() {
         StreamEvent::TurnComplete { content, .. } => assert_eq!(content, "final answer"),
         _ => panic!("unexpected"),
     }
+    let _ = std::fs::remove_file(db);
+}
+
+#[tokio::test]
+async fn cancellation_during_tool_stops_before_next_provider_turn() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(CancellationAwareTool));
+    let tools = Arc::new(ToolManager::new(registry));
+    let provider = Arc::new(ScriptedProvider {
+        scripts: Mutex::new(vec![
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("1", "slow_scan")],
+            },
+            ProviderTurn {
+                content: "must not run".into(),
+                tool_calls: vec![],
+            },
+        ]),
+    });
+    let (ctx, db) = make_ctx(tools.registry());
+    let cancelled = Arc::clone(&ctx.cancelled);
+    let cancel_signal = Arc::clone(&cancelled);
+    let runner = AgentRunner::new(provider.clone(), tools);
+    let (tx, _rx) = mpsc::channel(32);
+    let canceller = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        cancel_signal.store(true, Ordering::Relaxed);
+    });
+
+    let result = runner
+        .run(
+            base_request(),
+            ctx,
+            tx,
+            cancelled,
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
+        .await;
+    canceller.await.unwrap();
+
+    assert!(matches!(result, Err(ProviderError::Cancelled)));
+    assert_eq!(provider.scripts.lock().unwrap().len(), 1);
     let _ = std::fs::remove_file(db);
 }
 

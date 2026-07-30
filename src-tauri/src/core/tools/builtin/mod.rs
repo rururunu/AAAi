@@ -114,9 +114,13 @@ impl Tool for RunShellTool {
         if args["run_in_background"].as_bool().unwrap_or(false) {
             return self
                 .jobs
-                .spawn_background(command.to_string(), Some(&ctx.workspace_root));
+                .spawn_background(
+                    command.to_string(),
+                    Some(&ctx.workspace_root),
+                    Arc::clone(&ctx.cancelled),
+                );
         }
-        run_foreground(command, Some(&ctx.workspace_root))
+        run_foreground(command, Some(&ctx.workspace_root), &ctx.cancelled)
     }
 }
 
@@ -168,8 +172,9 @@ impl Tool for WaitForShellTool {
     fn read_only(&self) -> bool {
         true
     }
-    fn execute(&self, _ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
-        self.jobs.wait_job(args["job_id"].as_str().unwrap_or(""))
+    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        self.jobs
+            .wait_job(args["job_id"].as_str().unwrap_or(""), ctx)
     }
 }
 
@@ -236,7 +241,7 @@ impl Tool for UpdateTasksTool {
             *guard = parsed.clone();
         }
         self.event_bus.emit(BusEvent::TaskListUpdated {
-            session_id: ctx.session_id.clone(),
+            session_id: ctx.root_session_id().to_string(),
             tasks: parsed,
         });
         Ok("updated".into())
@@ -291,14 +296,20 @@ impl Tool for AskUserTool {
         let (tx, rx) = std::sync::mpsc::channel();
         ctx.ask_store.insert(request_id.clone(), tx);
         self.event_bus.emit(BusEvent::AskUser {
-            session_id: ctx.session_id.clone(),
+            session_id: ctx.root_session_id().to_string(),
             request_id: request_id.clone(),
             questions,
         });
-        let answer = rx
-            .recv_timeout(std::time::Duration::from_secs(600))
-            .map_err(|_| ToolError::new("ask_user timed out or cancelled"))?;
-        Ok(answer)
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+        loop {
+            ctx.ensure_not_cancelled()?;
+            match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(answer) => return Ok(answer),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                    if std::time::Instant::now() < deadline => {}
+                Err(_) => return Err(ToolError::new("ask_user timed out or disconnected")),
+            }
+        }
     }
 }
 
@@ -311,7 +322,7 @@ impl Tool for SaveMemoryTool {
         "save_memory"
     }
     fn description(&self) -> &str {
-        "Save a durable, non-sensitive fact for future chats. Proactively use this for stable identity/profile facts, lasting preferences, recurring workflow choices, persistent environment facts, project conventions, repeated corrections, or long-term goals, even when the user does not explicitly ask you to remember. Never save secrets, one-off requests, temporary state, or current task progress."
+        "Save one concise, durable, user-confirmed fact for future chats. Suitable for lasting preferences, identity/profile facts, recurring workflows, durable environment constraints, scoped project conventions, repeated corrections, and long-term goals. Include project scope when applicable. Do not save secrets, guesses, generated or copied content, one-off requests, transient state, facts already supplied by current environment context, or duplicates. Follow the system memory policy before calling."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -340,7 +351,7 @@ impl Tool for SearchMemoryTool {
         "search_memory"
     }
     fn description(&self) -> &str {
-        "Search cross-chat memory when the user refers to prior conversations, says 'as usual', expects a known preference or identity fact, asks what you remember, or when a missing historical fact would materially improve the answer. Use a concise semantic query, not the entire current message."
+        "Search cross-chat memory only when prior durable context could materially affect the answer, or to locate a duplicate, correction, or user-requested deletion. Use a concise semantic query for the missing fact, not the entire message. Results may be stale or conflicting and never override the current user message or verified state."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -366,7 +377,7 @@ impl Tool for DeleteMemoryTool {
         "delete_memory"
     }
     fn description(&self) -> &str {
-        "Delete a saved memory by id."
+        "Delete a saved memory by id when the user asks to forget it or an explicit correction makes it obsolete. Obtain the exact id from memory search first."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -509,7 +520,7 @@ impl Tool for CompletePlanStepTool {
             }
         }
         self.event_bus.emit(BusEvent::TaskListUpdated {
-            session_id: ctx.session_id.clone(),
+            session_id: ctx.root_session_id().to_string(),
             tasks: guard.clone(),
         });
         Ok(format!("completed step with evidence: {evidence}"))
@@ -523,7 +534,7 @@ impl Tool for RunSlashCommandTool {
         "run_slash_command"
     }
     fn description(&self) -> &str {
-        "Run a slash command. Known commands: history, plan, settings, work, exit, compact, clear. Emits a UI event for frontend-handled commands."
+        "Run a slash command. Known commands: history, model, plan, settings, work, exit, compact, clear, context. Emits a UI event for frontend-handled commands."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -546,7 +557,9 @@ impl Tool for RunSlashCommandTool {
             return Err(ToolError::new("command is required"));
         }
 
-        let known = ["history", "plan", "settings", "work", "exit", "compact", "clear"];
+        let known = [
+            "history", "model", "plan", "settings", "work", "exit", "compact", "clear", "context",
+        ];
         if !known.contains(&command.as_str()) {
             return Err(ToolError::new(format!(
                 "unknown slash command `/{command}`. Known: {}",
@@ -555,13 +568,15 @@ impl Tool for RunSlashCommandTool {
         }
 
         match command.as_str() {
+            "context" => serde_json::to_string_pretty(&ctx.request_context)
+                .map_err(|error| ToolError::new(error.to_string())),
             "compact" => Ok(
                 "Slash /compact acknowledged — context compaction runs automatically when history exceeds the size threshold."
                     .into(),
             ),
             "clear" => {
                 ctx.event_bus.emit(BusEvent::SlashCommand {
-                    session_id: ctx.session_id.clone(),
+                    session_id: ctx.root_session_id().to_string(),
                     command: command.clone(),
                     args: extra,
                 });
@@ -569,7 +584,7 @@ impl Tool for RunSlashCommandTool {
             }
             other => {
                 ctx.event_bus.emit(BusEvent::SlashCommand {
-                    session_id: ctx.session_id.clone(),
+                    session_id: ctx.root_session_id().to_string(),
                     command: other.to_string(),
                     args: extra.clone(),
                 });
@@ -752,9 +767,7 @@ impl Tool for LspDiagnosticsTool {
         true
     }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
-        crate::core::lsp::shared_lsp_manager().diagnostics(
-            &ctx.workspace_root,
-            args["path"].as_str().unwrap_or(""),
-        )
+        crate::core::lsp::shared_lsp_manager()
+            .diagnostics(&ctx.workspace_root, args["path"].as_str().unwrap_or(""))
     }
 }

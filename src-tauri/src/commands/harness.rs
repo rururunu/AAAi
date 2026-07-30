@@ -64,7 +64,10 @@ pub fn set_plan_mode(
     request: SetPlanModeRequest,
 ) -> Result<(), String> {
     shared_plan_mode_store().set_active(&request.session_id, request.active);
-    state.core.chat().emit_plan_mode_changed(&request.session_id, request.active);
+    state
+        .core
+        .chat()
+        .emit_plan_mode_changed(&request.session_id, request.active);
     Ok(())
 }
 
@@ -94,20 +97,25 @@ pub fn rewind_session(
     let mut truncated_messages = false;
 
     if restore == "code" || restore == "both" {
-        match state.core.workspaces().current() {
-            Some(workspace) => {
-                let root = std::path::PathBuf::from(&workspace.root);
-                restored_files = shared_checkpoint_store()
-                    .restore_code(&request.session_id, request.turn, &root)
-                    .map_err(|e| e.to_string())?;
-            }
-            None if restore == "code" => {
-                return Err("no workspace selected for code rewind".to_string());
-            }
-            None => {
-                // `both` without a workspace: still rewind conversation below.
-            }
-        }
+        let session_root = state
+            .core
+            .chat()
+            .conversation()
+            .workspace_for_session(&request.session_id)
+            .map(std::path::PathBuf::from);
+        let root = session_root
+            .or_else(|| {
+                state
+                    .core
+                    .workspaces()
+                    .current()
+                    .map(|workspace| workspace.root)
+            })
+            .filter(|path| !path.as_os_str().is_empty())
+            .ok_or_else(|| "no workspace selected for code rewind".to_string())?;
+        restored_files = shared_checkpoint_store()
+            .restore_code(&request.session_id, request.turn, &root)
+            .map_err(|e| e.to_string())?;
     }
 
     if restore == "conversation" || restore == "both" {

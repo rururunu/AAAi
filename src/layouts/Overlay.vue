@@ -4,6 +4,7 @@
       :mode="mode"
       :session-id="sessionId"
       :captured-context="capturedContext"
+      :context-ready="contextReady"
       @layout-change="handleLayoutChange"
       @enter-chat="enterChatMode"
       @context-consumed="capturedContext = null"
@@ -30,6 +31,7 @@ const chatStore = useChatStore();
 const settingStore = useSettingStore();
 
 const capturedContext = ref<CapturedContext | null>(null);
+const contextReady = ref(false);
 
 function removeCapturedSelection() {
   if (!capturedContext.value) return;
@@ -40,9 +42,13 @@ function removeCapturedSelection() {
 }
 
 const PANEL_WIDTH = 640;
+const DIFF_SIDEBAR_WIDTH = 760;
+const SUBAGENT_SIDEBAR_WIDTH = DIFF_SIDEBAR_WIDTH;
+const IMAGE_SIDEBAR_WIDTH = DIFF_SIDEBAR_WIDTH;
 const INPUT_HEIGHT = 82;
 const OVERLAY_MIN_HEIGHT_INPUT = INPUT_HEIGHT;
-const CHAT_HEIGHT = 420;
+const CHAT_HEIGHT_PREFERRED = 520;
+const CHAT_SCREEN_MARGIN = 48;
 const OVERLAY_MIN_HEIGHT_CHAT = 240;
 const SUGGESTION_ROW_HEIGHT = 30;
 const SUGGESTION_PADDING = 9;
@@ -54,7 +60,12 @@ const mode = ref<"input" | "chat">("input");
 const sessionId = ref("");
 const lastComposerExtraHeight = ref(0);
 const chatWindowInitialized = ref(false);
+const diffSidebarOpen = ref(false);
+const subagentSidebarOpen = ref(false);
+const runtimeSidebarOpen = ref(false);
+const imageSidebarOpen = ref(false);
 let layoutResizeQueue = Promise.resolve();
+let chatWidthBeforeSidebar = PANEL_WIDTH;
 
 // 获取当前窗口的 label，用于所有 IPC 调用
 const windowLabel = getCurrentWebviewWindow().label;
@@ -71,18 +82,32 @@ function computePickerHeight(rowCount: number) {
 async function applySizeConstraints(
   layout: "input" | "chat",
   minHeight: number,
+  designWidth = PANEL_WIDTH,
 ) {
   const window = getCurrentWebviewWindow();
   const zoom = (settingStore.zoom || 100) / 100;
 
-  const panelWidth = PANEL_WIDTH * zoom;
+  const panelWidth = designWidth * zoom;
   const height = minHeight * zoom;
+  try {
+    await window.setMaxSize(null);
+  } catch (error) {
+    console.warn("Failed to clear overlay maximum size; continuing resize:", error);
+  }
   await window.setMinSize(new LogicalSize(panelWidth, height));
 
   if (layout === "chat") {
-    await window.setMaxSize(new LogicalSize(panelWidth, 10000 * zoom));
+    try {
+      await window.setMaxSize(new LogicalSize(10000 * zoom, 10000 * zoom));
+    } catch (error) {
+      console.warn("Failed to set overlay maximum size; continuing resize:", error);
+    }
   } else {
-    await window.setMaxSize(null);
+    try {
+      await window.setMaxSize(null);
+    } catch (error) {
+      console.warn("Failed to clear overlay maximum size; continuing resize:", error);
+    }
   }
 }
 
@@ -99,31 +124,6 @@ function waitForNextFrame(count = 2): Promise<void> {
     };
     requestAnimationFrame(tick);
   });
-}
-
-async function adjustWindowHeightBy(deltaDesignHeight: number, resizable: boolean) {
-  if (Math.abs(deltaDesignHeight) < 0.5) {
-    return;
-  }
-
-  const window = getCurrentWebviewWindow();
-  const scaleFactor = await window.scaleFactor();
-  const physicalPosition = await window.outerPosition();
-  const physicalSize = await window.outerSize();
-
-  const logicalPos = physicalPosition.toLogical(scaleFactor);
-  const logicalSize = physicalSize.toLogical(scaleFactor);
-  const zoom = (settingStore.zoom || 100) / 100;
-  const scaledDelta = deltaDesignHeight * zoom;
-
-  await window.setResizable(resizable);
-  await window.setMaximizable(false);
-  await window.setSize(
-    new LogicalSize(logicalSize.width, logicalSize.height + scaledDelta),
-  );
-  await window.setPosition(
-    new LogicalPosition(logicalPos.x, logicalPos.y - scaledDelta),
-  );
 }
 
 async function resizeWindow(
@@ -211,6 +211,10 @@ function handleLayoutChange(payload: {
   mode?: "input" | "chat";
   hasImages?: boolean;
   hasFiles?: boolean;
+  diffSidebarOpen?: boolean;
+  subagentSidebarOpen?: boolean;
+  runtimeSidebarOpen?: boolean;
+  imageSidebarOpen?: boolean;
 }) {
   const pickerHeight =
     (payload.pickerHeight ?? 0) > 0
@@ -221,6 +225,28 @@ function handleLayoutChange(payload: {
           ? SUGGESTION_PADDING + payload.suggestionCount * SUGGESTION_ROW_HEIGHT
           : 0;
   const modeValue = payload.mode ?? mode.value;
+  const wasSidebarOpen =
+    diffSidebarOpen.value || subagentSidebarOpen.value || runtimeSidebarOpen.value || imageSidebarOpen.value;
+  diffSidebarOpen.value = modeValue === "chat" && Boolean(payload.diffSidebarOpen);
+  subagentSidebarOpen.value = modeValue === "chat" && Boolean(payload.subagentSidebarOpen);
+  runtimeSidebarOpen.value = modeValue === "chat" && Boolean(payload.runtimeSidebarOpen);
+  imageSidebarOpen.value = modeValue === "chat" && Boolean(payload.imageSidebarOpen);
+  const willSidebarOpen =
+    diffSidebarOpen.value || subagentSidebarOpen.value || runtimeSidebarOpen.value || imageSidebarOpen.value;
+  const sidebarOpening = !wasSidebarOpen && willSidebarOpen;
+  const sidebarClosing = wasSidebarOpen && !willSidebarOpen;
+  const sidebarWidth = payload.diffSidebarOpen
+    ? DIFF_SIDEBAR_WIDTH
+    : payload.subagentSidebarOpen
+      ? SUBAGENT_SIDEBAR_WIDTH
+      : payload.runtimeSidebarOpen
+        ? SUBAGENT_SIDEBAR_WIDTH
+      : payload.imageSidebarOpen
+        ? IMAGE_SIDEBAR_WIDTH
+      : 0;
+  const initialDesignWidth = modeValue === "chat"
+    ? chatWidthBeforeSidebar + sidebarWidth
+    : PANEL_WIDTH;
   // Chip menus are in-panel pickers now; height comes from pickerHeight.
   // Keep modelMenuHeight only for any leftover floating chrome in input mode.
   const modelMenuHeight =
@@ -247,18 +273,74 @@ function handleLayoutChange(payload: {
     if (!chatWindowInitialized.value) {
       chatWindowInitialized.value = true;
       lastComposerExtraHeight.value = extraHeight;
-      queueLayoutResize(() =>
-        resizeWindow(PANEL_WIDTH, CHAT_HEIGHT + extraHeight, true),
-      );
+      queueLayoutResize(async () => {
+        await applySizeConstraints("chat", OVERLAY_MIN_HEIGHT_CHAT, initialDesignWidth);
+        await resizeWindow(initialDesignWidth, await preferredChatHeight(extraHeight), true);
+      });
       return;
     }
 
-    if (Math.abs(deltaExtra) < 0.5) {
-      return;
-    }
     lastComposerExtraHeight.value = extraHeight;
-    queueLayoutResize(() => adjustWindowHeightBy(deltaExtra, true));
+    queueLayoutResize(async () => {
+      const window = getCurrentWebviewWindow();
+      const scaleFactor = await window.scaleFactor();
+      const logicalSize = (await window.outerSize()).toLogical(scaleFactor);
+      const zoom = (settingStore.zoom || 100) / 100;
+      const currentDesignHeight = logicalSize.height / zoom;
+      const currentDesignWidth = logicalSize.width / zoom;
+
+      if (sidebarOpening) {
+        chatWidthBeforeSidebar = Math.max(PANEL_WIDTH, currentDesignWidth);
+      }
+
+      const minimumDesignWidth = willSidebarOpen
+        ? PANEL_WIDTH + sidebarWidth
+        : PANEL_WIDTH;
+      const targetDesignWidth = willSidebarOpen
+        ? Math.max(chatWidthBeforeSidebar, minimumDesignWidth)
+        : sidebarClosing
+          ? chatWidthBeforeSidebar
+          : currentDesignWidth;
+
+      // Opening/closing changes the resize constraints even when the current
+      // window is already wide enough and no physical resize is necessary.
+      if (sidebarOpening || sidebarClosing) {
+        await applySizeConstraints("chat", OVERLAY_MIN_HEIGHT_CHAT, minimumDesignWidth);
+      }
+      if (Math.abs(deltaExtra) < 0.5 && Math.abs(currentDesignWidth - targetDesignWidth) < 0.5) {
+        return;
+      }
+      if (!sidebarOpening && !sidebarClosing) {
+        await applySizeConstraints("chat", OVERLAY_MIN_HEIGHT_CHAT, minimumDesignWidth);
+      }
+      const nextHeight = await constrainedChatHeight(currentDesignHeight + deltaExtra);
+      await resizeWindow(targetDesignWidth, nextHeight, true);
+    });
   }
+}
+
+async function monitorHeightLimit() {
+  const window = getCurrentWebviewWindow();
+  const monitor = await currentMonitor();
+  if (!monitor) return null;
+  const scaleFactor = await window.scaleFactor();
+  const monitorSize = monitor.size.toLogical(scaleFactor);
+  const zoom = (settingStore.zoom || 100) / 100;
+  return Math.max(
+    OVERLAY_MIN_HEIGHT_CHAT,
+    (monitorSize.height - CHAT_SCREEN_MARGIN) / zoom,
+  );
+}
+
+async function preferredChatHeight(extraHeight = 0) {
+  const limit = await monitorHeightLimit();
+  const preferred = CHAT_HEIGHT_PREFERRED + extraHeight;
+  return limit == null ? preferred : Math.min(preferred, limit);
+}
+
+async function constrainedChatHeight(height: number) {
+  const limit = await monitorHeightLimit();
+  return limit == null ? height : Math.min(height, limit);
 }
 
 async function enterChatMode(nextSessionId: string) {
@@ -267,11 +349,16 @@ async function enterChatMode(nextSessionId: string) {
   mode.value = "chat";
   chatWindowInitialized.value = false;
   lastComposerExtraHeight.value = 0;
+  diffSidebarOpen.value = false;
+  subagentSidebarOpen.value = false;
+  runtimeSidebarOpen.value = false;
+  imageSidebarOpen.value = false;
+  chatWidthBeforeSidebar = PANEL_WIDTH;
   await setOverlayChatMode(windowLabel, true);
   // 先切换 UI、等一帧绘制，再以底边为锚点展开，让输入框保持原位
   await waitForNextFrame();
   await applySizeConstraints("chat", OVERLAY_MIN_HEIGHT_CHAT);
-  await resizeWindow(PANEL_WIDTH, CHAT_HEIGHT, true, false, "bottom");
+  await resizeWindow(PANEL_WIDTH, await preferredChatHeight(), true, false, "bottom");
   chatWindowInitialized.value = true;
 }
 
@@ -280,6 +367,11 @@ async function resetToInputMode() {
   sessionId.value = "";
   chatWindowInitialized.value = false;
   lastComposerExtraHeight.value = 0;
+  diffSidebarOpen.value = false;
+  subagentSidebarOpen.value = false;
+  runtimeSidebarOpen.value = false;
+  imageSidebarOpen.value = false;
+  chatWidthBeforeSidebar = PANEL_WIDTH;
   chatStore.setOverlayDraftSession("");
   await setOverlayChatMode(windowLabel, false);
   await applySizeConstraints("input", OVERLAY_MIN_HEIGHT_INPUT);
@@ -300,10 +392,14 @@ onMounted(async () => {
       return;
     }
     capturedContext.value = event.payload;
+    contextReady.value = true;
+    console.debug("overlay interactive ready", { windowLabel, source: "context-captured" });
   });
   const pendingContext = await takeOverlayContext(windowLabel);
   if (pendingContext && mode.value === "input") {
     capturedContext.value = pendingContext;
+    contextReady.value = true;
+    console.debug("overlay interactive ready", { windowLabel, source: "pending-context" });
   }
   // 基础 overlay 窗口：监听 overlay-hidden 重置 UI
   // 动态窗口（overlay-N）即将被销毁，不需要 reset UI/resize
@@ -312,6 +408,7 @@ onMounted(async () => {
     void applySizeConstraints("input", OVERLAY_MIN_HEIGHT_INPUT);
     void window.listen("overlay-hidden", () => {
       capturedContext.value = null;
+      contextReady.value = false;
       void resetToInputMode();
     });
   }
@@ -321,12 +418,22 @@ watch(
   () => settingStore.zoom,
   async () => {
     if (mode.value === "chat") {
-      await applySizeConstraints("chat", OVERLAY_MIN_HEIGHT_CHAT);
+      const sidebarWidth = diffSidebarOpen.value
+        ? DIFF_SIDEBAR_WIDTH
+        : subagentSidebarOpen.value
+          ? SUBAGENT_SIDEBAR_WIDTH
+          : runtimeSidebarOpen.value
+            ? SUBAGENT_SIDEBAR_WIDTH
+          : imageSidebarOpen.value
+            ? IMAGE_SIDEBAR_WIDTH
+            : 0;
+      const designWidth = PANEL_WIDTH + sidebarWidth;
+      await applySizeConstraints("chat", OVERLAY_MIN_HEIGHT_CHAT, designWidth);
       const window = getCurrentWebviewWindow();
       const scaleFactor = await window.scaleFactor();
       const logicalSize = (await window.outerSize()).toLogical(scaleFactor);
       const zoom = (settingStore.zoom || 100) / 100;
-      await resizeWindow(logicalSize.width / zoom, logicalSize.height / zoom, true);
+      await resizeWindow(designWidth, logicalSize.height / zoom, true);
     } else {
       await applySizeConstraints("input", OVERLAY_MIN_HEIGHT_INPUT);
       await resizeWindow(PANEL_WIDTH, INPUT_HEIGHT, false, false, "bottom");

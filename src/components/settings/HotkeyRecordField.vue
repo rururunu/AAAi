@@ -4,8 +4,6 @@ import { RotateCcw } from "@lucide/vue";
 import { tr } from "@/services/i18n";
 import { useSettingStore } from "@/stores/setting";
 
-const DEFAULT_SECONDARY_HOTKEY = "Ctrl+Alt+Space";
-
 function codeToPrimary(code: string, key: string): string | null {
   if (code === "Space" || key === " ") return "Space";
   if (code === "Tab") return "Tab";
@@ -54,9 +52,14 @@ function eventToHotkey(event: KeyboardEvent): string | null {
   return parts.join("+");
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: string;
-}>();
+  settingKey: "primaryHotkey" | "secondaryHotkey";
+  mode?: "double-modifier" | "chord";
+  defaultValue: string;
+}>(), {
+  mode: "chord",
+});
 
 const emit = defineEmits<{
   "update:modelValue": [value: string];
@@ -67,7 +70,10 @@ const recording = ref(false);
 const draft = ref("");
 const buttonRef = ref<HTMLButtonElement | null>(null);
 
-const displayValue = () => props.modelValue || DEFAULT_SECONDARY_HOTKEY;
+const displayValue = () => props.modelValue || props.defaultValue;
+const formattedDisplayValue = () => props.mode === "double-modifier"
+  ? `${displayValue()} x 2`
+  : displayValue().split("+").join(" + ");
 
 function startRecording() {
   recording.value = true;
@@ -85,14 +91,22 @@ async function commitHotkey(value: string) {
   draft.value = "";
   if (value === props.modelValue) return;
   emit("update:modelValue", value);
-  await settingStore.update({ secondaryHotkey: value });
+  await settingStore.update(
+    props.settingKey === "primaryHotkey"
+      ? { primaryHotkey: value }
+      : { secondaryHotkey: value },
+  );
 }
 
 async function resetDefault() {
   cancelRecording();
-  if (props.modelValue === DEFAULT_SECONDARY_HOTKEY) return;
-  emit("update:modelValue", DEFAULT_SECONDARY_HOTKEY);
-  await settingStore.update({ secondaryHotkey: DEFAULT_SECONDARY_HOTKEY });
+  if (props.modelValue === props.defaultValue) return;
+  emit("update:modelValue", props.defaultValue);
+  await settingStore.update(
+    props.settingKey === "primaryHotkey"
+      ? { primaryHotkey: props.defaultValue }
+      : { secondaryHotkey: props.defaultValue },
+  );
 }
 
 function onKeyDown(event: KeyboardEvent) {
@@ -102,6 +116,15 @@ function onKeyDown(event: KeyboardEvent) {
 
   if (event.key === "Escape") {
     cancelRecording();
+    return;
+  }
+
+  if (props.mode === "double-modifier") {
+    const modifier = event.key === "Control" ? "Ctrl" : event.key;
+    if (["Ctrl", "Shift", "Alt", "Meta"].includes(modifier)) {
+      draft.value = `${modifier} x 2`;
+      void commitHotkey(modifier);
+    }
     return;
   }
 
@@ -155,7 +178,7 @@ onBeforeUnmount(() => {
         {{ draft || tr(settingStore.language, "settings.hotkey.recording") }}
       </span>
       <span v-else class="font-mono text-xs tracking-wide">
-        {{ displayValue().split("+").join(" + ") }}
+        {{ formattedDisplayValue() }}
       </span>
     </button>
     <div class="flex items-center gap-2">

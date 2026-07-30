@@ -16,6 +16,8 @@ pub struct ChatSendResponse {
     pub session_id: String,
     pub user_message_id: String,
     pub assistant_message_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,6 +226,10 @@ pub struct ToolActivityEvent {
     pub session_id: String,
     pub message_id: String,
     pub activity_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_activity_id: Option<String>,
     pub tool_name: String,
     pub title: String,
     pub kind: String,
@@ -233,6 +239,8 @@ pub struct ToolActivityEvent {
     pub arguments: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<crate::core::tools::preview::ToolPreview>,
     #[serde(default)]
     pub success: bool,
     pub status: String,

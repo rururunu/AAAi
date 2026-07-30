@@ -1,19 +1,36 @@
 <template>
-  <div class="markdown-body" v-html="html" @click="onLinkClick" />
+  <div ref="rootRef" class="markdown-body" v-html="html" @click="onMarkdownClick" />
 </template>
 
 <script setup lang="ts">
 import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  Braces,
+  Check,
+  CircleX,
+  Code2,
+  Copy,
+  Database,
+  FileCode2,
+  GitCompareArrows,
+  Hash,
+  SquareTerminal,
+} from "@lucide/vue";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
 import markedKatex from "marked-katex-extension";
 import { marked } from "marked";
-import { computed } from "vue";
+import { computed, h, onMounted, onUpdated, ref, render, type Component } from "vue";
 import "katex/dist/katex.min.css";
+import { copyText } from "@/services/clipboard";
 
 const props = defineProps<{
   content: string;
 }>();
+const emit = defineEmits<{
+  previewImage: [source: string];
+}>();
+const rootRef = ref<HTMLElement | null>(null);
 
 const renderer = new marked.Renderer();
 
@@ -23,14 +40,77 @@ marked.use(markedKatex({
 }));
 
 renderer.code = ({ text, lang }) => {
-  const language = lang?.trim().split(/\s+/)[0].toLowerCase();
+  const requestedLanguage = lang?.trim().split(/\s+/)[0].toLowerCase() || "";
+  const language = /^[a-z0-9_+-]+$/.test(requestedLanguage) ? requestedLanguage : "";
   const highlighted = language && hljs.getLanguage(language)
     ? hljs.highlight(text, { language }).value
     : hljs.highlightAuto(text).value;
   const languageClass = language ? ` language-${language}` : "";
+  const languageLabel = displayLanguage(language);
 
-  return `<pre><code class="hljs${languageClass}">${highlighted}</code></pre>\n`;
+  return `<div class="code-block"><div class="code-block-toolbar"><span class="code-language"><span class="code-language-icon" data-code-language-icon="${language}"></span><span>${languageLabel}</span></span><button type="button" class="code-copy-button" data-code-copy aria-label="Copy code" title="Copy code"></button></div><pre><code class="hljs${languageClass}">${highlighted}</code></pre></div>\n`;
 };
+
+function iconForLanguage(language: string): Component {
+  if (["diff", "patch"].includes(language)) {
+    return GitCompareArrows;
+  }
+  if (["bash", "shell", "sh", "zsh", "fish", "powershell", "ps1", "bat", "cmd"].includes(language)) {
+    return SquareTerminal;
+  }
+  if (["sql", "mysql", "pgsql", "postgresql", "graphql"].includes(language)) {
+    return Database;
+  }
+  if (["json", "jsonc", "yaml", "yml", "toml", "xml"].includes(language)) {
+    return Braces;
+  }
+  if (["html", "css", "scss", "less", "javascript", "js", "typescript", "ts", "jsx", "tsx", "vue", "svelte"].includes(language)) {
+    return Code2;
+  }
+  if (["csharp", "cs", "fsharp", "fs"].includes(language)) {
+    return Hash;
+  }
+  return language ? FileCode2 : Braces;
+}
+
+function displayLanguage(language: string) {
+  const labels: Record<string, string> = {
+    bash: "Shell",
+    sh: "Shell",
+    ps1: "PowerShell",
+    js: "JavaScript",
+    jsx: "JavaScript JSX",
+    ts: "TypeScript",
+    tsx: "TypeScript JSX",
+    cs: "C#",
+    csharp: "C#",
+    cpp: "C++",
+    yml: "YAML",
+    md: "Markdown",
+    py: "Python",
+    rs: "Rust",
+  };
+  return labels[language] || language || "Code";
+}
+
+function renderButtonIcon(button: HTMLButtonElement, icon: Component) {
+  render(h(icon, { size: 14, strokeWidth: 2, "aria-hidden": "true" }), button);
+}
+
+function hydrateCodeBlockIcons() {
+  const root = rootRef.value;
+  if (!root) return;
+  root.querySelectorAll<HTMLElement>("[data-code-language-icon]").forEach((element) => {
+    const language = element.dataset.codeLanguageIcon ?? "";
+    render(h(iconForLanguage(language), { size: 13, strokeWidth: 2, "aria-hidden": "true" }), element);
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-code-copy]").forEach((button) => {
+    renderButtonIcon(button, Copy);
+  });
+}
+
+onMounted(hydrateCodeBlockIcons);
+onUpdated(hydrateCodeBlockIcons);
 
 marked.setOptions({
   breaks: true,
@@ -45,9 +125,36 @@ const html = computed(() => {
   });
 });
 
-async function onLinkClick(event: MouseEvent) {
+async function onMarkdownClick(event: MouseEvent) {
   const target = event.target;
   if (!(target instanceof Element)) return;
+
+  const copyButton = target.closest("[data-code-copy]");
+  if (copyButton instanceof HTMLButtonElement) {
+    event.preventDefault();
+    event.stopPropagation();
+    const code = copyButton.closest(".code-block")?.querySelector("code");
+    if (!(code instanceof HTMLElement)) return;
+    try {
+      await copyText(code.textContent || "");
+      showCopyResult(copyButton, "Copied", true);
+    } catch (error) {
+      console.error("failed to copy code block:", error);
+      showCopyResult(copyButton, "Failed", false);
+    }
+    return;
+  }
+
+  const image = target.closest("img");
+  if (image instanceof HTMLImageElement) {
+    const source = image.getAttribute("src")?.trim();
+    if (!source) return;
+    event.preventDefault();
+    event.stopPropagation();
+    emit("previewImage", source);
+    return;
+  }
+
   const anchor = target.closest("a");
   if (!(anchor instanceof HTMLAnchorElement)) return;
 
@@ -62,6 +169,25 @@ async function onLinkClick(event: MouseEvent) {
   } catch (error) {
     console.error("failed to open url in default browser:", href, error);
   }
+}
+
+function showCopyResult(button: HTMLButtonElement, label: string, success: boolean) {
+  const previousTimer = Number(button.dataset.copyResetTimer || 0);
+  if (previousTimer) window.clearTimeout(previousTimer);
+  renderButtonIcon(button, success ? Check : CircleX);
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.classList.toggle("copied", success);
+  button.classList.toggle("copy-failed", !success);
+  const timer = window.setTimeout(() => {
+    if (!button.isConnected) return;
+    renderButtonIcon(button, Copy);
+    button.setAttribute("aria-label", "Copy code");
+    button.title = "Copy code";
+    button.classList.remove("copied", "copy-failed");
+    delete button.dataset.copyResetTimer;
+  }, 1600);
+  button.dataset.copyResetTimer = String(timer);
 }
 
 function normalizeLegacyMath(content: string) {
@@ -132,10 +258,10 @@ function isLikelyTex(value: string) {
 .markdown-body :deep(h2),
 .markdown-body :deep(h3),
 .markdown-body :deep(h4) {
-  margin: 1em 0 0.45em;
+  margin: 0.8em 0 0.35em;
   color: var(--peek-text);
   font-weight: 650;
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
 .markdown-body :deep(h1:first-child),
@@ -144,20 +270,130 @@ function isLikelyTex(value: string) {
   margin-top: 0;
 }
 
-.markdown-body :deep(h1) { font-size: 1.35em; }
-.markdown-body :deep(h2) { font-size: 1.2em; }
-.markdown-body :deep(h3) { font-size: 1.08em; }
+.markdown-body :deep(h1) { font-size: 1.18em; }
+.markdown-body :deep(h2) { font-size: 1.12em; }
+.markdown-body :deep(h3) { font-size: 1.06em; }
 .markdown-body :deep(h4) { font-size: 1em; }
 
 .markdown-body :deep(pre) {
   margin: 0.65em 0;
   padding: 10px 12px;
-  border: 1px solid var(--peek-border);
+  border: 1px solid var(--peek-code-border, var(--peek-border));
   border-radius: 6px;
   background: color-mix(in srgb, var(--peek-input-bg) 82%, transparent);
-  overflow-x: auto;
+  overflow-x: hidden;
   line-height: 1.55;
   tab-size: 2;
+}
+
+.markdown-body :deep(.code-block) {
+  margin: 0.65em 0;
+  overflow: hidden;
+  border: 1px solid var(--peek-code-border, var(--peek-border));
+  border-radius: 6px;
+  background: var(--peek-code-bg, color-mix(in srgb, var(--peek-input-bg) 82%, transparent));
+}
+
+.markdown-body :deep(.code-block-toolbar) {
+  box-sizing: border-box;
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  padding: 0 7px 0 11px;
+  overflow: hidden;
+  line-height: 1;
+  border-bottom: 1px solid var(--peek-code-border, var(--peek-border));
+  background: var(--peek-code-toolbar-bg, color-mix(in srgb, var(--peek-text) 5%, transparent));
+}
+
+.markdown-body :deep(.code-language) {
+  box-sizing: border-box;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 31px;
+  color: var(--peek-code-muted, var(--peek-muted));
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.markdown-body :deep(.code-language-icon) {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.markdown-body :deep(.code-language-icon svg) {
+  display: block;
+  width: 13px;
+  height: 13px;
+  flex: none;
+  color: var(--peek-syntax-type, color-mix(in srgb, var(--peek-accent) 78%, var(--peek-muted)));
+}
+
+.markdown-body :deep(.code-copy-button) {
+  box-sizing: border-box;
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--peek-code-border, color-mix(in srgb, var(--peek-text) 14%, var(--peek-border)));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--peek-code-fg, var(--peek-text)) 8%, transparent);
+  color: var(--peek-code-icon, var(--peek-code-fg, var(--peek-text)));
+  cursor: pointer;
+}
+
+.markdown-body :deep(.code-copy-button svg) {
+  display: block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.markdown-body :deep(.code-copy-button:hover) {
+  border-color: var(--peek-code-border, var(--peek-border));
+  background: var(--peek-code-hover-bg, color-mix(in srgb, var(--peek-text) 8%, transparent));
+  color: var(--peek-code-fg, var(--peek-text));
+}
+
+.markdown-body :deep(.code-copy-button:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--peek-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.markdown-body :deep(.code-copy-button.copied) {
+  color: #36a269;
+}
+
+.markdown-body :deep(.code-copy-button.copy-failed) {
+  color: #d35f5f;
+}
+
+.markdown-body :deep(.code-block pre) {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-body :deep(code) {
@@ -167,10 +403,19 @@ function isLikelyTex(value: string) {
 
 .markdown-body :deep(pre code) {
   display: block;
-  min-width: max-content;
+  width: 100%;
+  min-width: 0;
   background: transparent;
   padding: 0;
-  color: var(--peek-text);
+  color: var(--peek-code-fg, var(--peek-text));
+  white-space: inherit;
+  overflow-wrap: inherit;
+  word-break: inherit;
+}
+
+.markdown-body :deep(.code-block code::selection),
+.markdown-body :deep(.code-block code *::selection) {
+  background: var(--peek-code-selection, var(--peek-list-active));
 }
 
 .markdown-body :deep(:not(pre) > code) {
@@ -260,6 +505,10 @@ function isLikelyTex(value: string) {
   font-weight: 650;
 }
 
+.markdown-body :deep(img) {
+  cursor: zoom-in;
+}
+
 .markdown-body :deep(.hljs-comment),
 .markdown-body :deep(.hljs-quote) { color: #7f8c98; font-style: italic; }
 .markdown-body :deep(.hljs-keyword),
@@ -294,30 +543,45 @@ function isLikelyTex(value: string) {
   background: color-mix(in srgb, var(--destructive) 18%, transparent);
 }
 
-:global([data-theme="light"]) .markdown-body :deep(.hljs-comment),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-comment),
-:global([data-theme="light"]) .markdown-body :deep(.hljs-quote),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-quote) { color: #6a737d; }
-:global([data-theme="light"]) .markdown-body :deep(.hljs-keyword),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-keyword),
-:global([data-theme="light"]) .markdown-body :deep(.hljs-type),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-type) { color: #8250df; }
-:global([data-theme="light"]) .markdown-body :deep(.hljs-string),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-string),
-:global([data-theme="light"]) .markdown-body :deep(.hljs-addition),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-addition) { color: #116329; }
-:global([data-theme="light"]) .markdown-body :deep(.hljs-number),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-number),
-:global([data-theme="light"]) .markdown-body :deep(.hljs-variable),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-variable) { color: #953800; }
-:global([data-theme="light"]) .markdown-body :deep(.hljs-title),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-title),
-:global([data-theme="light"]) .markdown-body :deep(.hljs-section),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-section) { color: #0550ae; }
-:global([data-theme="light"]) .markdown-body :deep(.hljs-built_in),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-built_in),
-:global([data-theme="light"]) .markdown-body :deep(.hljs-meta),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-meta) { color: #9a6700; }
-:global([data-theme="light"]) .markdown-body :deep(.hljs-deletion),
-:global([data-theme="cream"]) .markdown-body :deep(.hljs-deletion) { color: #cf222e; }
+:global([data-theme="light"] .markdown-body .hljs-comment),
+:global([data-theme="light"] .markdown-body .hljs-quote) { color: #66736f; }
+:global([data-theme="light"] .markdown-body .hljs-keyword),
+:global([data-theme="light"] .markdown-body .hljs-type) { color: #7652a6; }
+:global([data-theme="light"] .markdown-body .hljs-string),
+:global([data-theme="light"] .markdown-body .hljs-addition) { color: #267045; }
+:global([data-theme="light"] .markdown-body .hljs-number),
+:global([data-theme="light"] .markdown-body .hljs-variable) { color: #a0492d; }
+:global([data-theme="light"] .markdown-body .hljs-title),
+:global([data-theme="light"] .markdown-body .hljs-section) { color: #28699c; }
+:global([data-theme="light"] .markdown-body .hljs-built_in),
+:global([data-theme="light"] .markdown-body .hljs-meta) { color: #8a661f; }
+:global([data-theme="light"] .markdown-body .hljs-deletion) { color: #b84f48; }
+
+:global([data-vscode-theme] .markdown-body .hljs-comment),
+:global([data-vscode-theme] .markdown-body .hljs-quote) { color: var(--peek-syntax-comment, var(--peek-muted)); }
+:global([data-vscode-theme] .markdown-body .hljs-keyword),
+:global([data-vscode-theme] .markdown-body .hljs-operator) { color: var(--peek-syntax-operator, var(--peek-syntax-keyword, var(--peek-accent))); }
+:global([data-vscode-theme] .markdown-body .hljs-type),
+:global([data-vscode-theme] .markdown-body .hljs-built_in) { color: var(--peek-syntax-type, var(--peek-syntax-keyword, var(--peek-accent))); }
+:global([data-vscode-theme] .markdown-body .hljs-string),
+:global([data-vscode-theme] .markdown-body .hljs-addition) { color: var(--peek-syntax-string, var(--peek-code-fg, var(--peek-text))); }
+:global([data-vscode-theme] .markdown-body .hljs-regexp) { color: var(--peek-syntax-regexp, var(--peek-syntax-string, var(--peek-code-fg, var(--peek-text)))); }
+:global([data-vscode-theme] .markdown-body .hljs-number),
+:global([data-vscode-theme] .markdown-body .hljs-symbol),
+:global([data-vscode-theme] .markdown-body .hljs-bullet) { color: var(--peek-syntax-number, var(--peek-code-fg, var(--peek-text))); }
+:global([data-vscode-theme] .markdown-body .hljs-literal) { color: var(--peek-syntax-literal, var(--peek-syntax-keyword, var(--peek-accent))); }
+:global([data-vscode-theme] .markdown-body .hljs-variable),
+:global([data-vscode-theme] .markdown-body .hljs-template-variable),
+:global([data-vscode-theme] .markdown-body .hljs-params) { color: var(--peek-syntax-variable, var(--peek-code-fg, var(--peek-text))); }
+:global([data-vscode-theme] .markdown-body .hljs-title),
+:global([data-vscode-theme] .markdown-body .hljs-section) { color: var(--peek-syntax-function, var(--peek-accent)); }
+:global([data-vscode-theme] .markdown-body .hljs-property) { color: var(--peek-syntax-property, var(--peek-syntax-variable, var(--peek-code-fg, var(--peek-text)))); }
+:global([data-vscode-theme] .markdown-body .hljs-attribute) { color: var(--peek-syntax-attribute, var(--peek-syntax-property, var(--peek-code-fg, var(--peek-text)))); }
+:global([data-vscode-theme] .markdown-body .hljs-tag),
+:global([data-vscode-theme] .markdown-body .hljs-name) { color: var(--peek-syntax-tag, var(--peek-syntax-keyword, var(--peek-accent))); }
+:global([data-vscode-theme] .markdown-body .hljs-selector-tag),
+:global([data-vscode-theme] .markdown-body .hljs-selector-class),
+:global([data-vscode-theme] .markdown-body .hljs-selector-id) { color: var(--peek-syntax-selector, var(--peek-syntax-tag, var(--peek-accent))); }
+:global([data-vscode-theme] .markdown-body .hljs-meta),
+:global([data-vscode-theme] .markdown-body .hljs-meta .hljs-keyword) { color: var(--peek-syntax-meta, var(--peek-syntax-keyword, var(--peek-accent))); }
 </style>

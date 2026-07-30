@@ -1,7 +1,8 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use glob::glob;
 use regex::Regex;
@@ -12,6 +13,7 @@ use crate::runtime::terminal::prepare_command;
 
 use super::super::context::{Tool, ToolContext};
 use super::super::error::ToolError;
+use super::super::file_io::atomic_write;
 use super::super::fuzzy::apply_old_string_edit;
 use super::super::path::resolve_tool_path;
 use super::super::path_permission::PathAccess;
@@ -46,6 +48,57 @@ pub struct EditNotebookCellTool;
 pub struct DeleteTextRangeTool;
 pub struct DeleteGoSymbolTool;
 
+fn required_string<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolError> {
+    args.get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ToolError::new(format!("{key} is required")))
+}
+
+fn apply_many_edits(content: &str, args: &Value) -> Result<(String, usize), ToolError> {
+    let edits = args
+        .get("edits")
+        .and_then(Value::as_array)
+        .filter(|edits| !edits.is_empty())
+        .ok_or_else(|| ToolError::new("edits must contain at least one replacement"))?;
+    let mut updated = content.to_string();
+    let mut fuzzy_count = 0usize;
+    for (index, edit) in edits.iter().enumerate() {
+        let old = required_string(edit, "old_string")
+            .map_err(|error| ToolError::new(format!("edit {index}: {error}")))?;
+        let new = edit
+            .get("new_string")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::new(format!("edit {index}: new_string is required")))?;
+        let applied = apply_old_string_edit(&updated, old, new, false);
+        if applied.applied != 1 {
+            return Err(ToolError::new(format!(
+                "edit {index}: old_string must appear exactly once, found {}",
+                applied.matches
+            )));
+        }
+        fuzzy_count += usize::from(applied.fuzzy);
+        updated = applied.updated;
+    }
+    Ok((updated, fuzzy_count))
+}
+
+fn single_edit_preview(path: &str, content: String, old: &str, new: &str) -> Option<ToolPreview> {
+    let applied = apply_old_string_edit(&content, old, new, false);
+    if applied.applied != 1 {
+        return None;
+    }
+    let diff = unified_diff(path, &content, &applied.updated);
+    Some(ToolPreview {
+        path: path.to_string(),
+        affected_paths: vec![path.to_string()],
+        kind: ChangeKind::Modify,
+        old_text: Some(content),
+        new_text: Some(applied.updated),
+        unified_diff: diff,
+    })
+}
+
 impl Tool for ReadFileTool {
     fn name(&self) -> &str {
         "read_file"
@@ -76,6 +129,7 @@ impl Tool for ReadFileTool {
         let reader = BufReader::new(file);
         let mut out = String::new();
         for (idx, line) in reader.lines().enumerate() {
+            ctx.ensure_not_cancelled()?;
             let line_no = idx + 1;
             if line_no < offset {
                 continue;
@@ -116,6 +170,7 @@ impl Tool for ListFolderTool {
         if !recursive {
             let mut entries = Vec::new();
             for entry in fs::read_dir(&resolved)? {
+                ctx.ensure_not_cancelled()?;
                 let entry = entry.map_err(|error| ToolError::new(error.to_string()))?;
                 let name = entry.file_name().to_string_lossy().into_owned();
                 let kind = if entry.file_type()?.is_dir() {
@@ -133,6 +188,7 @@ impl Tool for ListFolderTool {
             .into_iter()
             .filter_entry(|e| !should_skip(e.path()))
         {
+            ctx.ensure_not_cancelled()?;
             let entry = entry.map_err(|error| ToolError::new(error.to_string()))?;
             let rel = entry
                 .path()
@@ -178,6 +234,7 @@ impl Tool for FindFilesTool {
         let pattern_str = full_pattern.to_string_lossy();
         let mut hits = Vec::new();
         for entry in glob(&pattern_str).map_err(|e| ToolError::new(e.to_string()))? {
+            ctx.ensure_not_cancelled()?;
             let path = entry.map_err(|error| ToolError::new(error.to_string()))?;
             if should_skip(&path) {
                 continue;
@@ -223,8 +280,7 @@ impl Tool for SearchFilesTool {
             resolved.to_str().unwrap_or(""),
         ]);
         prepare_command(&mut rg);
-        if let Ok(output) = rg.output()
-        {
+        if let Some(output) = run_command_cancellable(ctx, &mut rg)? {
             if output.status.success() || !output.stdout.is_empty() {
                 let text = String::from_utf8_lossy(&output.stdout);
                 let lines: Vec<_> = text.lines().take(200).collect();
@@ -237,6 +293,7 @@ impl Tool for SearchFilesTool {
             .into_iter()
             .filter_entry(|e| !should_skip(e.path()))
         {
+            ctx.ensure_not_cancelled()?;
             let entry = entry.map_err(|error| ToolError::new(error.to_string()))?;
             if !entry.file_type().is_file() {
                 continue;
@@ -245,6 +302,7 @@ impl Tool for SearchFilesTool {
                 continue;
             };
             for (idx, line) in content.lines().enumerate() {
+                ctx.ensure_not_cancelled()?;
                 if re.is_match(line) {
                     hits.push(format!("{}:{}:{}", entry.path().display(), idx + 1, line));
                     if hits.len() >= 200 {
@@ -284,6 +342,7 @@ impl Tool for ListSymbolsTool {
         .map_err(|e| ToolError::new(e.to_string()))?;
         let mut out = Vec::new();
         for cap in re.captures_iter(&content) {
+            ctx.ensure_not_cancelled()?;
             out.push(format!(
                 "{} {}",
                 cap.get(2).map(|m| m.as_str()).unwrap_or(""),
@@ -337,6 +396,7 @@ impl Tool for WriteFileTool {
         let old = old_text.clone().unwrap_or_default();
         Ok(Some(ToolPreview {
             path: path.to_string(),
+            affected_paths: vec![path.to_string()],
             kind,
             old_text,
             new_text: Some(new_text.clone()),
@@ -350,7 +410,7 @@ impl Tool for ReplaceInFileTool {
         "replace_in_file"
     }
     fn description(&self) -> &str {
-        "Preferred for one localized edit to an existing file. Replace a unique string (exact match first, then narrow fuzzy match for whitespace/indentation). Path is relative to workspace root."
+        "First choice for one localized change to an existing file. Replace the smallest unique old string that remains unambiguous (exact match first, then narrow fuzzy matching for whitespace/indentation), preserving all other content. Path is relative to workspace root."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -364,9 +424,12 @@ impl Tool for ReplaceInFileTool {
         })
     }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
-        let path = args["path"].as_str().unwrap_or("");
-        let old = args["old_string"].as_str().unwrap_or("");
-        let new = args["new_string"].as_str().unwrap_or("");
+        let path = required_string(&args, "path")?;
+        let old = required_string(&args, "old_string")?;
+        let new = args
+            .get("new_string")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::new("new_string is required"))?;
         let resolved = resolve_write(ctx, self.name(), path)?;
         let content = fs::read_to_string(&resolved)?;
         let applied = apply_old_string_edit(&content, old, new, false);
@@ -376,7 +439,7 @@ impl Tool for ReplaceInFileTool {
                 applied.matches
             )));
         }
-        fs::write(&resolved, &applied.updated)?;
+        atomic_write(&resolved, &applied.updated)?;
         if applied.fuzzy {
             Ok(format!(
                 "replaced (fuzzy match, {} replacement)",
@@ -388,22 +451,15 @@ impl Tool for ReplaceInFileTool {
     }
 
     fn preview(&self, ctx: &ToolContext, args: &Value) -> Result<Option<ToolPreview>, ToolError> {
-        let path = args["path"].as_str().unwrap_or("");
-        let old = args["old_string"].as_str().unwrap_or("");
-        let new = args["new_string"].as_str().unwrap_or("");
+        let path = required_string(args, "path")?;
+        let old = required_string(args, "old_string")?;
+        let new = args
+            .get("new_string")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::new("new_string is required"))?;
         let resolved = resolve_write(ctx, self.name(), path)?;
         let content = fs::read_to_string(&resolved)?;
-        let applied = apply_old_string_edit(&content, old, new, false);
-        if applied.applied != 1 {
-            return Ok(None);
-        }
-        Ok(Some(ToolPreview {
-            path: path.to_string(),
-            kind: ChangeKind::Modify,
-            old_text: Some(content),
-            new_text: Some(applied.updated.clone()),
-            unified_diff: unified_diff(path, old, new),
-        }))
+        Ok(single_edit_preview(path, content, old, new))
     }
 }
 
@@ -412,7 +468,7 @@ impl Tool for ReplaceManyInFileTool {
         "replace_many_in_file"
     }
     fn description(&self) -> &str {
-        "Preferred for several localized edits to an existing file. Apply multiple replacements atomically (exact then fuzzy). Path is relative to workspace root."
+        "First choice for several independent localized changes in one existing file. Apply multiple unique replacements atomically (exact then narrow fuzzy matching), preserving all other content. Use apply_patch only when the changes form a structural block rewrite or require contextual insertion/deletion. Path is relative to workspace root."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -435,29 +491,12 @@ impl Tool for ReplaceManyInFileTool {
         })
     }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
-        let path = args["path"].as_str().unwrap_or("");
+        let path = required_string(&args, "path")?;
         let resolved = resolve_write(ctx, self.name(), path)?;
-        let mut content = fs::read_to_string(&resolved)?;
-        let edits = args["edits"].as_array().cloned().unwrap_or_default();
-        let mut fuzzy_count = 0usize;
-        let mut total = 0usize;
-        for edit in edits {
-            let old = edit["old_string"].as_str().unwrap_or("");
-            let new = edit["new_string"].as_str().unwrap_or("");
-            let applied = apply_old_string_edit(&content, old, new, false);
-            if applied.applied != 1 {
-                return Err(ToolError::new(format!(
-                    "old_string must appear exactly once, found {}",
-                    applied.matches
-                )));
-            }
-            if applied.fuzzy {
-                fuzzy_count += 1;
-            }
-            total += applied.applied;
-            content = applied.updated;
-        }
-        fs::write(&resolved, content)?;
+        let content = fs::read_to_string(&resolved)?;
+        let (updated, fuzzy_count) = apply_many_edits(&content, &args)?;
+        let total = args["edits"].as_array().map_or(0, Vec::len);
+        atomic_write(&resolved, updated)?;
         if fuzzy_count > 0 {
             Ok(format!(
                 "replaced ({total} total, {fuzzy_count} fuzzy match)"
@@ -468,22 +507,13 @@ impl Tool for ReplaceManyInFileTool {
     }
 
     fn preview(&self, ctx: &ToolContext, args: &Value) -> Result<Option<ToolPreview>, ToolError> {
-        let path = args["path"].as_str().unwrap_or("");
+        let path = required_string(args, "path")?;
         let resolved = resolve_write(ctx, self.name(), path)?;
         let original = fs::read_to_string(&resolved)?;
-        let mut content = original.clone();
-        let edits = args["edits"].as_array().cloned().unwrap_or_default();
-        for edit in edits {
-            let old = edit["old_string"].as_str().unwrap_or("");
-            let new = edit["new_string"].as_str().unwrap_or("");
-            let applied = apply_old_string_edit(&content, old, new, false);
-            if applied.applied != 1 {
-                return Ok(None);
-            }
-            content = applied.updated;
-        }
+        let (content, _) = apply_many_edits(&original, args)?;
         Ok(Some(ToolPreview {
             path: path.to_string(),
+            affected_paths: vec![path.to_string()],
             kind: ChangeKind::Modify,
             old_text: Some(original.clone()),
             new_text: Some(content.clone()),
@@ -628,4 +658,95 @@ impl Tool for DeleteGoSymbolTool {
 fn should_skip(path: &Path) -> bool {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     matches!(name, ".git" | "node_modules" | "target" | "dist")
+}
+
+fn run_command_cancellable(
+    ctx: &ToolContext,
+    command: &mut Command,
+) -> Result<Option<std::process::Output>, ToolError> {
+    ctx.ensure_not_cancelled()?;
+    let stdout_path =
+        std::env::temp_dir().join(format!("peek-tool-{}.stdout", uuid::Uuid::new_v4()));
+    let stderr_path =
+        std::env::temp_dir().join(format!("peek-tool-{}.stderr", uuid::Uuid::new_v4()));
+    let stdout_file = fs::File::create(&stdout_path)?;
+    let stderr_file = fs::File::create(&stderr_path)?;
+    command
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file));
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(_) => {
+            let _ = fs::remove_file(&stdout_path);
+            let _ = fs::remove_file(&stderr_path);
+            return Ok(None);
+        }
+    };
+    let status = loop {
+        if ctx.is_cancelled() {
+            crate::core::tools::shell_jobs::terminate_process_tree(&mut child);
+            let _ = child.wait();
+            let _ = fs::remove_file(&stdout_path);
+            let _ = fs::remove_file(&stderr_path);
+            return Err(ToolError::cancelled());
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(error) => {
+                let _ = fs::remove_file(&stdout_path);
+                let _ = fs::remove_file(&stderr_path);
+                return Err(ToolError::new(error.to_string()));
+            }
+        }
+    };
+    let stdout = fs::read(&stdout_path).unwrap_or_default();
+    let stderr = fs::read(&stderr_path).unwrap_or_default();
+    let _ = fs::remove_file(&stdout_path);
+    let _ = fs::remove_file(&stderr_path);
+    Ok(Some(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    }))
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use super::*;
+
+    #[test]
+    fn replace_many_requires_at_least_one_edit() {
+        let error = apply_many_edits("unchanged", &json!({ "edits": [] })).unwrap_err();
+        assert!(error.to_string().contains("at least one"));
+    }
+
+    #[test]
+    fn replace_many_is_all_or_nothing_in_memory() {
+        let original = "one\ntwo\n";
+        let error = apply_many_edits(
+            original,
+            &json!({
+                "edits": [
+                    { "old_string": "one", "new_string": "ONE" },
+                    { "old_string": "missing", "new_string": "MISSING" }
+                ]
+            }),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("edit 1"));
+        assert_eq!(original, "one\ntwo\n");
+    }
+
+    #[test]
+    fn replace_single_preview_uses_complete_file_contents() {
+        let preview =
+            single_edit_preview("file.txt", "before\nold\nafter\n".into(), "old", "new").unwrap();
+        assert_eq!(preview.old_text.as_deref(), Some("before\nold\nafter\n"));
+        assert_eq!(preview.new_text.as_deref(), Some("before\nnew\nafter\n"));
+        assert!(preview.unified_diff.contains(" before"));
+        assert!(preview.unified_diff.contains("-old"));
+        assert!(preview.unified_diff.contains("+new"));
+    }
 }

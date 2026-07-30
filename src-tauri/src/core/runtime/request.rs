@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use super::message::ChatMessage;
+use crate::core::context::models::IDEContext;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -19,8 +20,16 @@ pub struct RequestContext {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub selected_images: Vec<String>,
     pub active_window: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_file: Option<String>,
     pub workspace: Option<WorkspaceContext>,
     pub clipboard: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_shell_execution: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ide_context: Option<IDEContext>,
 }
 
 impl RequestContext {

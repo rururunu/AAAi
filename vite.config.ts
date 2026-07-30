@@ -19,6 +19,41 @@ export default defineConfig(async () => ({
     },
   },
 
+  build: {
+    rollupOptions: {
+      onwarn(warning, warn) {
+        const id = warning.id?.replaceAll("\\", "/") ?? "";
+        if (
+          warning.code === "INVALID_ANNOTATION"
+          && id.includes("/node_modules/@vueuse/core/")
+        ) {
+          return;
+        }
+        warn(warning);
+      },
+      output: {
+        onlyExplicitManualChunks: true,
+        manualChunks(id) {
+          const normalized = id.replaceAll("\\", "/");
+          const modulePath = normalized.split("/node_modules/").at(-1);
+          if (!modulePath) return undefined;
+
+          const parts = modulePath.split("/");
+          const packageName = parts[0]?.startsWith("@")
+            ? `${parts[0]}/${parts[1]}`
+            : parts[0];
+
+          if (packageName === "katex") return "vendor-katex";
+          if (packageName === "highlight.js") return "vendor-highlight";
+          if (["marked", "marked-katex-extension", "dompurify"].includes(packageName)) {
+            return "vendor-markdown";
+          }
+          return undefined;
+        },
+      },
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

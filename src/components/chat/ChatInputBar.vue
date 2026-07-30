@@ -471,8 +471,8 @@ import CommandSuggestions from "./input/CommandSuggestions.vue";
 import WorkspacePickerPanel from "./input/WorkspacePickerPanel.vue";
 import ContextUsageRing from "./ContextUsageRing.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { executeSlashCommand, slashCommands } from "@/commands/slash";
-import { getContextUsage, setOverlayPopupOpen, openImagePreview } from "@/services/ipc";
+import { executeSlashCommand, fetchEnvironmentContext, slashCommands } from "@/commands/slash";
+import { getContextUsage, setOverlayPopupOpen } from "@/services/ipc";
 import { tr } from "@/services/i18n";
 import {
   formatAttachedFilesForMessage,
@@ -556,6 +556,7 @@ const props = withDefaults(
     selectionLines?: number;
     sessionId?: string;
     capturedContext?: CapturedContext | null;
+    contextReady?: boolean;
   }>(),
   {
     sending: false,
@@ -566,6 +567,7 @@ const props = withDefaults(
     selectionLines: 0,
     sessionId: "",
     capturedContext: null,
+    contextReady: false,
   },
 );
 
@@ -580,7 +582,8 @@ const emit = defineEmits<{
   historySelect: [sessionId: string];
   historyClose: [];
   removeSelection: [];
-  enterPlan: [];
+  showContext: [context: CapturedContext];
+  previewImage: [source: string];
   layoutChange: [
     payload: {
       showSuggestions: boolean;
@@ -607,9 +610,7 @@ const attachedFiles = ref<AttachedFileChip[]>([]);
 const fileDragOver = ref(false);
 
 function previewImage(url: string) {
-  void openImagePreview(url).catch((error) => {
-    console.error("openImagePreview failed:", error);
-  });
+  emit("previewImage", url);
 }
 
 function removeAttachedImage(index: number) {
@@ -1690,6 +1691,10 @@ function selectThinkingTier(variantId: string) {
 }
 
 onMounted(async () => {
+  console.debug("slash command registration", {
+    commands: slashCommands.map((item) => item.command),
+    available: props.enableCommands && props.contextReady,
+  });
   await chatModelStore.fetch();
   if (
     chatModelStore.models.length === 0 &&
@@ -1752,8 +1757,21 @@ const isCommandMode = computed(
   () =>
     !interactivePickerOpen.value &&
     props.enableCommands &&
+    props.contextReady &&
     message.value.startsWith("/") &&
     !message.value.includes(" "),
+);
+
+watch(
+  () => [props.enableCommands, props.contextReady] as const,
+  ([enabled, ready]) => {
+    console.debug("slash command availability", {
+      enabled,
+      contextReady: ready,
+      available: enabled && ready,
+    });
+  },
+  { immediate: true },
 );
 
 const filteredCommands = computed(() => {
@@ -1762,11 +1780,16 @@ const filteredCommands = computed(() => {
   }
 
   const query = message.value.toLowerCase();
-  return slashCommands.filter(
-    (item) =>
-      item.command.toLowerCase().startsWith(query) &&
-      (item.command !== "/work" || props.showWorkspaceButton),
-  );
+  return slashCommands
+    .filter(
+      (item) =>
+        item.command.toLowerCase().startsWith(query) &&
+        (item.command !== "/work" || props.showWorkspaceButton),
+    )
+    .map((item) => ({
+      ...item,
+      description: tr(language.value, item.descriptionKey),
+    }));
 });
 
 const showCommandSuggestions = computed(
@@ -1866,6 +1889,10 @@ function restorePickerFocus() {
 }
 
 async function executeCommand(command: string) {
+  if (!props.enableCommands || !props.contextReady) {
+    console.debug("slash command blocked", { command, contextReady: props.contextReady });
+    return;
+  }
   message.value = "";
   prefixText.value = "";
   selectedIndex.value = 0;
@@ -1883,12 +1910,17 @@ async function executeCommand(command: string) {
     await openWorkspaceQuickPicker();
     return;
   }
-  if (action === "enterPlan") {
-    emit("enterPlan");
-    return;
-  }
   if (action === "clearInput") {
     reset();
+    return;
+  }
+  if (action === "showContext") {
+    try {
+      emit("showContext", await fetchEnvironmentContext());
+    } catch (error) {
+      console.error("Failed to invoke get_environment_context; using resolved overlay snapshot:", error);
+      emit("showContext", props.capturedContext ?? {});
+    }
     return;
   }
   if (action === "close") {
@@ -2139,7 +2171,11 @@ async function submit() {
     return;
   }
 
-  if (props.enableCommands && slashCommands.some((item) => item.command === text)) {
+  if (
+    props.enableCommands &&
+    props.contextReady &&
+    slashCommands.some((item) => item.command === text)
+  ) {
     await executeCommand(text);
     return;
   }

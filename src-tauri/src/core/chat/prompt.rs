@@ -1,17 +1,19 @@
 use crate::core::chat::limits::{
-    truncate_chars, ACTIVE_WINDOW_MAX_CHARS, CLIPBOARD_MAX_CHARS, CONTEXT_BLOCKS_TOTAL_MAX_CHARS,
-    MEMORIES_MAX_CHARS, RULES_MAX_CHARS, SELECTED_FILES_MAX_CHARS,
+    truncate_chars, ACTIVE_FILE_MAX_CHARS, ACTIVE_WINDOW_MAX_CHARS, CLIPBOARD_MAX_CHARS,
+    CONTEXT_BLOCKS_TOTAL_MAX_CHARS, GIT_STATUS_MAX_CHARS, IDE_SELECTION_MAX_CHARS,
+    LAST_SHELL_EXECUTION_MAX_CHARS, MEMORIES_MAX_CHARS, RULES_MAX_CHARS, SELECTED_FILES_MAX_CHARS,
 };
 use crate::core::runtime::{ChatMessage, ChatRequest, MessageStatus, RequestContext, Role};
 use crate::models::settings::{AppLanguage, ReasoningLanguage};
 
-use super::prompts::SYSTEM_PROMPT;
+use super::prompts::{MULTI_MODEL_COLLABORATION_PROMPT, SYSTEM_PROMPT};
 
 /// Prompt 组装偏好 — 来自设置，不进入稳定 system。
 #[derive(Debug, Clone, Default)]
 pub struct PromptPreferences {
     pub app_language: AppLanguage,
     pub reasoning_language: ReasoningLanguage,
+    pub collaboration_models: Vec<String>,
 }
 
 /// AI Runtime Prompt 组装 — System → History → Context → User。
@@ -39,6 +41,7 @@ impl PromptBuilder {
         inject_context(&mut messages, session_id, context);
         inject_system_block(&mut messages, session_id, "rules", project_rules);
         inject_memories(&mut messages, session_id, recalled_memories);
+        inject_collaboration_models(&mut messages, session_id, &preferences.collaboration_models);
 
         // History（排除 pending 的空 assistant）
         let (prior, current_user) = split_current_user(history);
@@ -66,6 +69,19 @@ impl PromptBuilder {
             max_tokens: None,
         }
     }
+}
+
+fn inject_collaboration_models(messages: &mut Vec<ChatMessage>, session_id: &str, models: &[String]) {
+    if models.is_empty() {
+        return;
+    }
+    let list = models
+        .iter()
+        .map(|model| format!("- `{model}`"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let content = MULTI_MODEL_COLLABORATION_PROMPT.replace("{{MODELS}}", &list);
+    inject_system_block(messages, session_id, "collaboration-models", Some(&content));
 }
 
 fn inject_system_block(
@@ -152,6 +168,41 @@ fn split_current_user(history: &[ChatMessage]) -> (Vec<ChatMessage>, Option<Chat
 fn inject_context(messages: &mut Vec<ChatMessage>, session_id: &str, context: &RequestContext) {
     let mut blocks = Vec::new();
 
+    if let Some(ide) = &context.ide_context {
+        let mut lines = vec![format!("IDE:\n{}", ide_display_name(&ide.ide))];
+        if let Some(workspace) = &ide.workspace {
+            lines.push(format!("Workspace:\n{}", workspace.display()));
+        }
+        if let Some(active_file) = &ide.active_file {
+            lines.push(format!("Active File:\n{}", active_file.display()));
+        }
+        if let Some(language) = ide
+            .language
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            lines.push(format!("Language:\n{language}"));
+        }
+        if let Some(cursor) = &ide.cursor {
+            lines.push(format!(
+                "Cursor:\nLine {}, Column {}",
+                cursor.line, cursor.column
+            ));
+        }
+        if let Some(selection) = ide
+            .selection
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            lines.push(format!(
+                "Selection:\n{}",
+                truncate_chars(selection, IDE_SELECTION_MAX_CHARS)
+            ));
+        }
+        blocks.push(format!("[IDE Context]\n{}", lines.join("\n\n")));
+    }
     if let Some(workspace) = &context.workspace {
         blocks.push(format!(
             "[Current Workspace]\nName: {}\nRoot Directory: {}\nTreat this as the exact active project. All file operations must use this root. When asked which workspace is active, answer with this name and root; never infer another workspace from the application identity, active window, or conversation history.",
@@ -159,10 +210,7 @@ fn inject_context(messages: &mut Vec<ChatMessage>, session_id: &str, context: &R
         ));
     }
     if !context.selected_files.is_empty() {
-        let files = truncate_chars(
-            &context.selected_files.join("\n"),
-            SELECTED_FILES_MAX_CHARS,
-        );
+        let files = truncate_chars(&context.selected_files.join("\n"), SELECTED_FILES_MAX_CHARS);
         blocks.push(format!(
             "[Selected Files]\nPaths are relative to the current workspace root.\n{files}"
         ));
@@ -174,6 +222,18 @@ fn inject_context(messages: &mut Vec<ChatMessage>, session_id: &str, context: &R
     if let Some(clipboard) = non_empty(&context.clipboard) {
         let capped = truncate_chars(&clipboard, CLIPBOARD_MAX_CHARS);
         blocks.push(format!("[Clipboard]\n{capped}"));
+    }
+    if let Some(active_file) = non_empty(&context.active_file) {
+        let capped = truncate_chars(&active_file, ACTIVE_FILE_MAX_CHARS);
+        blocks.push(format!("[Active File]\n{capped}"));
+    }
+    if let Some(git_status) = non_empty(&context.git_status) {
+        let capped = truncate_chars(&git_status, GIT_STATUS_MAX_CHARS);
+        blocks.push(format!("[Git Status]\n{capped}"));
+    }
+    if let Some(shell) = non_empty(&context.last_shell_execution) {
+        let capped = truncate_chars(&shell, LAST_SHELL_EXECUTION_MAX_CHARS);
+        blocks.push(format!("[Last Agent Shell Execution]\n{capped}"));
     }
 
     if blocks.is_empty() {
@@ -207,6 +267,14 @@ fn inject_context(messages: &mut Vec<ChatMessage>, session_id: &str, context: &R
         status: MessageStatus::Done,
         timestamp: 0,
     });
+}
+
+fn ide_display_name(ide: &str) -> String {
+    match ide.trim().to_ascii_lowercase().as_str() {
+        "vscode" | "visual studio code" => "VSCode".to_string(),
+        "idea" | "intellij" | "intellij idea" => "IntelliJ IDEA".to_string(),
+        _ => ide.trim().to_string(),
+    }
 }
 
 fn inject_language_blocks(content: &str, preferences: &PromptPreferences) -> String {
@@ -298,10 +366,50 @@ mod tests {
     use super::*;
 
     #[test]
+    fn collaboration_models_are_injected_only_when_configured() {
+        let request = PromptBuilder::build(
+            "request",
+            "session",
+            &[],
+            &RequestContext::default(),
+            None,
+            None,
+            None,
+            &PromptPreferences {
+                collaboration_models: vec!["model-a".into(), "model-b".into()],
+                ..PromptPreferences::default()
+            },
+        );
+        let collaboration = request.messages.iter().find(|message| message.id.starts_with("collaboration-models-"));
+        assert!(collaboration.is_some_and(|message| {
+            message.content.contains("`model-a`")
+                && message.content.contains("`model-b`")
+                && message.content.contains("Routing policy")
+                && message.content.contains("exact selected model ID")
+                && message.content.contains("Never omit `model`")
+                && message.content.contains("user-selected list defines eligibility only")
+                && !message.content.contains("general-purpose candidate")
+        }));
+
+        let without_models = PromptBuilder::build(
+            "request",
+            "session",
+            &[],
+            &RequestContext::default(),
+            None,
+            None,
+            None,
+            &PromptPreferences::default(),
+        );
+        assert!(!without_models.messages.iter().any(|message| message.id.starts_with("collaboration-models-")));
+    }
+
+    #[test]
     fn injects_reasoning_language_for_chinese_user_text() {
         let prefs = PromptPreferences {
             app_language: AppLanguage::EnUs,
             reasoning_language: ReasoningLanguage::Auto,
+            ..PromptPreferences::default()
         };
         let content = inject_language_blocks("帮我解释这段代码", &prefs);
         assert!(content.starts_with("<reasoning-language>"));
@@ -314,6 +422,7 @@ mod tests {
         let prefs = PromptPreferences {
             app_language: AppLanguage::EnUs,
             reasoning_language: ReasoningLanguage::Auto,
+            ..PromptPreferences::default()
         };
         let content = inject_language_blocks("Explain this snippet", &prefs);
         assert!(!content.contains("<reasoning-language>"));
@@ -340,6 +449,58 @@ mod tests {
             "[Current Workspace]\nName: Customer App\nRoot Directory: C:\\projects\\customer-app"
         ));
         assert!(content.contains("never infer another workspace"));
+    }
+
+    #[test]
+    fn injects_environment_context_into_agent_prompt() {
+        let context = RequestContext {
+            git_status: Some("## main\n M src/main.rs".to_string()),
+            last_shell_execution: Some(
+                "Command: cargo test\nWorking Directory: C:\\work\nResult:\nexit_code: 0"
+                    .to_string(),
+            ),
+            ..RequestContext::default()
+        };
+        let mut messages = Vec::new();
+
+        inject_context(&mut messages, "session-environment", &context);
+
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].content.contains("[Git Status]\n## main"));
+        assert!(messages[0]
+            .content
+            .contains("[Last Agent Shell Execution]\nCommand: cargo test"));
+    }
+
+    #[test]
+    fn injects_ide_context_into_agent_prompt() {
+        use crate::core::context::models::{CursorPosition, IDEContext};
+        use std::path::PathBuf;
+
+        let context = RequestContext {
+            ide_context: Some(IDEContext {
+                ide: "vscode".to_string(),
+                active_file: Some(PathBuf::from(r"C:\project\src\main.rs")),
+                workspace: Some(PathBuf::from(r"C:\project")),
+                language: Some("rust".to_string()),
+                selection: Some("fn main() {}".to_string()),
+                cursor: Some(CursorPosition {
+                    line: 15,
+                    column: 5,
+                }),
+            }),
+            ..RequestContext::default()
+        };
+        let mut messages = Vec::new();
+
+        inject_context(&mut messages, "session-ide", &context);
+
+        let content = &messages[0].content;
+        assert!(content.contains("[IDE Context]"));
+        assert!(content.contains("IDE:\nVSCode"));
+        assert!(content.contains("Language:\nrust"));
+        assert!(content.contains("Line 15, Column 5"));
+        assert!(content.contains("Selection:\nfn main() {}"));
     }
 
     #[test]
@@ -434,10 +595,7 @@ mod tests {
         let content = &messages[0].content;
         assert!(content.chars().count() <= CONTEXT_BLOCKS_TOTAL_MAX_CHARS);
         assert!(content.contains('…') || content.contains("[Clipboard]"));
-        let clipboard_body = content
-            .split("[Clipboard]\n")
-            .nth(1)
-            .unwrap_or_default();
+        let clipboard_body = content.split("[Clipboard]\n").nth(1).unwrap_or_default();
         assert!(clipboard_body.chars().count() <= CLIPBOARD_MAX_CHARS + 1);
     }
 }

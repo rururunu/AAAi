@@ -8,6 +8,12 @@ use crate::services::window::{
 
 #[tauri::command]
 pub async fn open_session_in_overlay(app: AppHandle, session_id: String) -> Result<(), String> {
+    tracing::debug!(source = "open_session_in_overlay", "overlay opening start");
+    let captured = crate::core::context::store::capture_now();
+    let context = app
+        .try_state::<crate::app_state::AppState>()
+        .map(|state| state.core.chat().environment_context())
+        .unwrap_or(captured);
     let all_windows = app.webview_windows();
     let overlay_windows: Vec<_> = all_windows
         .iter()
@@ -16,6 +22,12 @@ pub async fn open_session_in_overlay(app: AppHandle, session_id: String) -> Resu
         .collect();
 
     for window in &overlay_windows {
+        let _ = window.emit("context-captured", &context);
+        tracing::debug!(
+            label = %window.label(),
+            source = "open_session_in_overlay",
+            "overlay interactive ready"
+        );
         let _ = window.show();
         let _ = window.set_focus();
         let _ = window.emit("overlay-shown", ());
@@ -185,15 +197,12 @@ pub async fn open_image_preview(app: AppHandle, path_or_base64: String) -> Resul
 
     let url_str = "/#/image-preview";
 
-    let mut window_builder = tauri::WebviewWindowBuilder::new(
-        &app,
-        &label,
-        tauri::WebviewUrl::App(url_str.into()),
-    )
-    .title("Preview")
-    .inner_size(720.0, 520.0)
-    .resizable(true)
-    .decorations(false);
+    let mut window_builder =
+        tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url_str.into()))
+            .title("Preview")
+            .inner_size(720.0, 520.0)
+            .resizable(true)
+            .decorations(false);
 
     if let (Some(x), Some(y)) = (x_pos, y_pos) {
         window_builder = window_builder.position(x, y);

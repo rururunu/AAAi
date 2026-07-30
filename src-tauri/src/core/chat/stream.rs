@@ -146,8 +146,11 @@ impl StreamManager {
                 registry: Some(tools.registry()),
                 provider: Some(provider.clone()),
                 subagent_depth: 0,
-                max_subagent_depth: 3,
+                max_subagent_depth: 1,
+                subagent_id: None,
+                parent_activity_id: None,
                 app_handle,
+                cancelled: Arc::clone(&cancelled),
             };
 
             let runner = AgentRunner::new(provider.clone(), tools)

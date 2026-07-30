@@ -117,24 +117,30 @@ impl ToolRegistry {
             .get(name)
             .ok_or_else(|| ToolError::new(format!("unknown tool: {name}")))?;
         crate::core::tools::plan_mode::shared_plan_mode_store().authorize(
-            &ctx.session_id,
+            ctx.root_session_id(),
             tool.name(),
             tool.read_only(),
         )?;
         let preview = tool.preview(ctx, args)?;
-        if let Some(preview) = &preview {
-            let _ = crate::core::checkpoint::shared_checkpoint_store().snapshot_preview(
-                &ctx.session_id,
-                &ctx.workspace_root,
-                preview,
-            );
-        }
         crate::core::tools::tool_approval::shared_tool_approval_store().authorize(
             ctx,
             tool.as_ref(),
             args,
-            preview,
+            preview.clone(),
         )?;
+        let current_preview = tool.preview(ctx, args)?;
+        if current_preview != preview {
+            return Err(ToolError::new(
+                "file changed after the edit preview was created; inspect the latest content and retry",
+            ));
+        }
+        if let Some(preview) = &current_preview {
+            crate::core::checkpoint::shared_checkpoint_store().snapshot_preview(
+                ctx.root_session_id(),
+                &ctx.workspace_root,
+                preview,
+            )?;
+        }
         Ok(tool)
     }
 
@@ -159,10 +165,81 @@ impl ToolRegistry {
         }
         filtered
     }
+
+    /// Child agents receive execution tools but never delegation tools.
+    pub fn filter_for_subagent(&self, read_only: bool) -> ToolRegistry {
+        let mut filtered = ToolRegistry::new();
+        for name in self.names() {
+            if crate::core::tools::agent::is_async_runtime_tool(&name) {
+                continue;
+            }
+            if let Some(tool) = self.get(&name) {
+                if !read_only || tool.read_only() {
+                    filtered.register(tool);
+                }
+            }
+        }
+        filtered
+    }
 }
 
 impl Default for ToolRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct StubTool {
+        name: &'static str,
+        read_only: bool,
+    }
+
+    impl Tool for StubTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn description(&self) -> &str {
+            "test tool"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({ "type": "object" })
+        }
+
+        fn read_only(&self) -> bool {
+            self.read_only
+        }
+
+        fn execute(&self, _ctx: &ToolContext, _args: Value) -> Result<String, ToolError> {
+            Ok(String::new())
+        }
+    }
+
+    #[test]
+    fn subagent_registry_excludes_all_delegation_tools() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(StubTool { name: "read_file", read_only: true }));
+        registry.register(Arc::new(StubTool { name: "write_file", read_only: false }));
+        for name in [
+            "run_subagent",
+            "run_readonly_subagent",
+            "run_parallel_subagents",
+            "run_skill",
+            "explore_codebase",
+            "review_code",
+        ] {
+            registry.register(Arc::new(StubTool { name, read_only: true }));
+        }
+
+        let writable = registry.filter_for_subagent(false).names();
+        assert_eq!(writable, vec!["read_file", "write_file"]);
+
+        let read_only = registry.filter_for_subagent(true).names();
+        assert_eq!(read_only, vec!["read_file"]);
     }
 }

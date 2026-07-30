@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# Local OAuth credentials
+agy-oauth.local.json
+google-oauth.local.json
+client_secret.local.json
+src-tauri/agy-oauth.local.json
+src-tauri/google-oauth.local.json
+src-tauri/client_secret.local.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

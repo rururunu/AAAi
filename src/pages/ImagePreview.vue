@@ -50,6 +50,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { ZoomIn, ZoomOut, RotateCcw, X } from "@lucide/vue";
 import { getPreviewImage, setOverlayPopupOpen } from "@/services/ipc";
+import { tr } from "@/services/i18n";
 import { useSettingStore } from "@/stores/setting";
 
 const settingStore = useSettingStore();
@@ -62,18 +63,12 @@ const startX = ref(0);
 const startY = ref(0);
 let unlistenUpdated: UnlistenFn | null = null;
 
-const title = computed(() =>
-  settingStore.language === "zh-CN" ? "图片预览" : "Image preview",
-);
-const zoomInLabel = computed(() => "Zoom in");
-const zoomOutLabel = computed(() => "Zoom out");
-const resetLabel = computed(() => "Reset");
-const closeLabel = computed(() =>
-  settingStore.language === "zh-CN" ? "关闭" : "Close",
-);
-const emptyLabel = computed(() =>
-  settingStore.language === "zh-CN" ? "未加载图片" : "No image",
-);
+const title = computed(() => tr(settingStore.language, "image.preview"));
+const zoomInLabel = computed(() => tr(settingStore.language, "image.zoomIn"));
+const zoomOutLabel = computed(() => tr(settingStore.language, "image.zoomOut"));
+const resetLabel = computed(() => tr(settingStore.language, "image.reset"));
+const closeLabel = computed(() => tr(settingStore.language, "image.close"));
+const emptyLabel = computed(() => tr(settingStore.language, "image.empty"));
 
 function resolvePreviewSrc(raw: string) {
   const value = raw.trim();

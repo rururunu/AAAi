@@ -13,8 +13,8 @@
       :key="item.id"
       class="border-t border-border px-4 py-3.5"
       :class="
-        item.type === 'custom-color'
-          ? 'grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] lg:items-start'
+        item.type === 'collaboration-models'
+          ? 'collaboration-setting grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-3'
           : 'grid grid-cols-[minmax(0,1fr)_220px] items-start gap-4'
       "
     >
@@ -24,23 +24,37 @@
         <p class="text-muted-foreground text-xs leading-relaxed">{{ item.description }}</p>
       </div>
 
-      <div class="pt-0.5">
+      <div class="pt-0.5" :class="{ 'collaboration-control': item.type === 'collaboration-models' }">
         <Select
           v-if="item.type === 'select-color'"
-          :model-value="settingStore.colorScheme"
+          :model-value="selectedThemeValue"
           @update:model-value="(v) => emit('color-scheme-change', v)"
         >
           <SelectTrigger class="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem
-              v-for="option in colorSchemeSelectOptions"
-              :key="option.value"
-              :value="option.value"
-            >
-              {{ option.label }}
-            </SelectItem>
+            <SelectGroup>
+              <SelectLabel>{{ builtInThemeGroupLabel }}</SelectLabel>
+              <SelectItem
+                v-for="option in builtInThemeOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </SelectItem>
+            </SelectGroup>
+            <SelectSeparator v-if="vscodeThemeOptions.length" />
+            <SelectGroup v-if="vscodeThemeOptions.length">
+              <SelectLabel>{{ vscodeThemeGroupLabel }}</SelectLabel>
+              <SelectItem
+                v-for="option in vscodeThemeOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </SelectItem>
+            </SelectGroup>
           </SelectContent>
         </Select>
 
@@ -100,13 +114,6 @@
             </SelectItem>
           </SelectContent>
         </Select>
-
-        <AccentColorField
-          v-else-if="item.type === 'custom-color'"
-          :model-value="settingStore.customAccentColor"
-          @update:model-value="(value) => emit('custom-accent-change', value)"
-          @reset="emit('reset-custom-accent')"
-        />
 
         <div v-else-if="item.type === 'select-model'" class="space-y-1.5">
           <div class="flex items-center gap-1.5">
@@ -185,6 +192,30 @@
           <p v-if="chatModelStore.error" class="text-[10px] leading-4 text-destructive">
             {{ chatModelStore.error }}
           </p>
+        </div>
+
+        <div v-else-if="item.type === 'collaboration-models'" class="collaboration-models">
+          <button
+            type="button"
+            class="setting-toggle"
+            :class="{ active: settingStore.multiModelCollaboration }"
+            :aria-pressed="settingStore.multiModelCollaboration"
+            @click="toggleModelCollaboration"
+          >
+            <span class="setting-toggle-knob"></span>
+          </button>
+          <div v-if="settingStore.multiModelCollaboration" class="collaboration-model-list peek-scrollbar">
+            <label v-for="option in availableModelOptions" :key="option.value" class="collaboration-model-option">
+              <input
+                type="checkbox"
+                :checked="settingStore.collaborationModels.includes(option.value)"
+                @change="toggleCollaborationModel(option.value)"
+              />
+              <component :is="option.icon" v-if="option.icon" class="size-3.5 shrink-0 text-muted-foreground" />
+              <span :title="option.label">{{ option.label }}</span>
+            </label>
+            <p v-if="!availableModelOptions.length" class="text-[10px] text-muted-foreground">{{ modelStatusText }}</p>
+          </div>
         </div>
 
         <Select
@@ -310,8 +341,11 @@
 
         <HotkeyRecordField
           v-else-if="item.type === 'hotkey-record'"
-          :model-value="settingStore.secondaryHotkey"
-          @update:model-value="(value) => (settingStore.secondaryHotkey = value)"
+          :model-value="item.id === 'primaryHotkey' ? settingStore.primaryHotkey : settingStore.secondaryHotkey"
+          :setting-key="item.id === 'primaryHotkey' ? 'primaryHotkey' : 'secondaryHotkey'"
+          :mode="item.id === 'primaryHotkey' ? 'double-modifier' : 'chord'"
+          :default-value="item.id === 'primaryHotkey' ? 'Alt' : 'Ctrl+Alt+Space'"
+          @update:model-value="(value) => item.id === 'primaryHotkey' ? (settingStore.primaryHotkey = value) : (settingStore.secondaryHotkey = value)"
         />
 
         <span
@@ -325,9 +359,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { RefreshCw } from "@lucide/vue";
-import AccentColorField from "@/components/settings/AccentColorField.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SecretInput } from "@/components/ui/secret-input";
@@ -335,7 +368,10 @@ import HotkeyRecordField from "@/components/settings/HotkeyRecordField.vue";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -348,6 +384,8 @@ import {
   localizeThinkingTierLabel,
 } from "@/lib/modelThinking";
 import { tr } from "@/services/i18n";
+import { listVscodeThemes } from "@/services/ipc";
+import type { VscodeThemeSummary } from "@/services/theme/vscodeThemes";
 import type { SettingDefinition } from "@/pages/Settings/settingsDefinitions";
 import {
   colorSchemeOptions,
@@ -383,8 +421,6 @@ const emit = defineEmits<{
   "web-search-provider-change": [value: unknown];
   "default-model-change": [value: unknown];
   "multimodal-model-change": [value: unknown];
-  "custom-accent-change": [value: string];
-  "reset-custom-accent": [];
   "update:apiKeyDraft": [value: string];
   "save-api-key": [];
   "update:mem0ApiKeyDraft": [value: string];
@@ -398,6 +434,11 @@ const emit = defineEmits<{
 
 const settingStore = useSettingStore();
 const chatModelStore = useChatModelStore();
+const vscodeThemes = ref<VscodeThemeSummary[]>([]);
+
+const selectedThemeValue = computed(() =>
+  settingStore.vscodeTheme ? `vscode:${settingStore.vscodeTheme}` : `builtin:${settingStore.colorScheme}`,
+);
 
 const apiKeyPlaceholder = computed(() => tr(settingStore.language, "settings.apiKeyPlaceholder"));
 
@@ -415,12 +456,37 @@ const groups = computed(() => {
   }));
 });
 
-const colorSchemeSelectOptions = computed(() =>
+const builtInThemeOptions = computed(() =>
   colorSchemeOptions.map((option) => ({
-    value: option.value,
+    value: `builtin:${option.value}`,
     label: localizedOptionLabel(option, settingStore.language),
   })),
 );
+
+const vscodeThemeOptions = computed(() => {
+  const options = vscodeThemes.value.map((theme) => ({
+    value: `vscode:${theme.id}`,
+    label: `${theme.label} · ${theme.extensionName}`,
+  }));
+  if (settingStore.vscodeTheme && !vscodeThemes.value.some((theme) => theme.id === settingStore.vscodeTheme)) {
+    options.unshift({
+      value: `vscode:${settingStore.vscodeTheme}`,
+      label: tr(settingStore.language, "themes.unavailable"),
+    });
+  }
+  return options;
+});
+
+const builtInThemeGroupLabel = computed(() => tr(settingStore.language, "themes.builtIn"));
+const vscodeThemeGroupLabel = computed(() => tr(settingStore.language, "themes.vscodeExtensions"));
+
+onMounted(async () => {
+  try {
+    vscodeThemes.value = await listVscodeThemes();
+  } catch (error) {
+    console.warn("Could not list installed VS Code themes", error);
+  }
+});
 
 const languageSelectOptions = computed(() =>
   languageOptions.map((option) => ({
@@ -533,13 +599,29 @@ async function refreshModelList() {
   await chatModelStore.reload();
 }
 
+function toggleModelCollaboration() {
+  void settingStore.update({
+    multiModelCollaboration: !settingStore.multiModelCollaboration,
+  });
+}
+
+function toggleCollaborationModel(model: string) {
+  const selected = new Set(settingStore.collaborationModels);
+  if (selected.has(model)) selected.delete(model);
+  else selected.add(model);
+  void settingStore.update({ collaborationModels: [...selected] });
+}
+
 function toggleActive(id: string) {
   if (id === "memoryEnabled") return settingStore.memoryEnabled;
   if (id === "webSearchEnabled") return settingStore.webSearchEnabled;
   if (id === "lspEnabled") return settingStore.lspEnabled;
   if (id === "passToolReasoning") return settingStore.passToolReasoning;
+  if (id === "showReasoning") return settingStore.showReasoning;
   if (id === "multimodalSplitAnalysis") return settingStore.multimodalSplitAnalysis;
   if (id === "largeContextEnabled") return settingStore.largeContextEnabled;
+  if (id === "pixpinPinAiEnabled") return settingStore.pixpinPinAiEnabled;
+  if (id === "snipastePinAiEnabled") return settingStore.snipastePinAiEnabled;
   return false;
 }
 
@@ -600,5 +682,23 @@ function onSearchSecretInput(id: string, value: string | number) {
 
 .setting-toggle.active .setting-toggle-knob {
   transform: translateX(20px);
+}
+
+.collaboration-models { display: contents; }
+.collaboration-control { display: contents; }
+.collaboration-models > .setting-toggle { justify-self: end; }
+.collaboration-model-list { width: 100%; max-height: 216px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--background) 88%, var(--muted)); }
+.collaboration-setting .collaboration-model-list { grid-column: 1 / -1; }
+.collaboration-model-option { min-width: 0; min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); cursor: pointer; }
+.collaboration-model-option:nth-child(2n) { border-right: 0; }
+.collaboration-model-option:nth-last-child(-n + 2) { border-bottom: 0; }
+.collaboration-model-option:hover { background: var(--accent); }
+.collaboration-model-option input { flex: none; accent-color: var(--primary); }
+.collaboration-model-option span { min-width: 0; overflow: hidden; color: var(--foreground); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 520px) {
+  .collaboration-model-list { grid-template-columns: minmax(0, 1fr); }
+  .collaboration-model-option { border-right: 0; }
+  .collaboration-model-option:nth-last-child(-n + 2) { border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
+  .collaboration-model-option:last-child { border-bottom: 0; }
 }
 </style>

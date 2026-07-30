@@ -19,16 +19,23 @@ use crate::services::settings_store;
 pub fn resolve_provider(app: AppHandle) -> Arc<dyn AIProvider> {
     let settings = settings_store::get_settings(&app).unwrap_or_default();
     let model = settings.chat_model.trim().to_string();
+    resolve_provider_for_model(app, model)
+}
+
+/// Resolve a provider bound to a specific model without changing global settings.
+pub fn resolve_provider_for_model(app: AppHandle, model: String) -> Arc<dyn AIProvider> {
+    let settings = settings_store::get_settings(&app).unwrap_or_default();
+    let model = model.trim().to_string();
 
     if gemini_oauth::is_gemini_model(&model) && settings.gemini_oauth.is_logged_in() {
-        return Arc::new(AntigravityProvider::new(app));
+        return Arc::new(AntigravityProvider::for_model(app, model));
     }
 
     let resolve_api_key = {
         let app = app.clone();
+        let selected_model = model.clone();
         Arc::new(move || {
             let settings = settings_store::get_settings(&app).unwrap_or_default();
-            let model = settings.chat_model.trim().to_string();
             for custom in &settings.custom_providers {
                 let custom_ids: Vec<&str> = custom
                     .models
@@ -36,7 +43,7 @@ pub fn resolve_provider(app: AppHandle) -> Arc<dyn AIProvider> {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .collect();
-                if custom_ids.contains(&model.as_str()) {
+                if custom_ids.contains(&selected_model.as_str()) {
                     return custom.api_key.clone();
                 }
             }
@@ -45,12 +52,8 @@ pub fn resolve_provider(app: AppHandle) -> Arc<dyn AIProvider> {
     };
 
     let resolve_model = {
-        let app = app.clone();
-        Arc::new(move || {
-            settings_store::get_settings(&app)
-                .map(|settings| settings.chat_model)
-                .unwrap_or_else(|_| default_chat_model())
-        })
+        let model = model.clone();
+        Arc::new(move || model.clone())
     };
 
     let resolve_effort = {
@@ -73,9 +76,9 @@ pub fn resolve_provider(app: AppHandle) -> Arc<dyn AIProvider> {
 
     let resolve_base_url = {
         let app = app.clone();
+        let selected_model = model.clone();
         Arc::new(move || -> Option<String> {
             let settings = settings_store::get_settings(&app).unwrap_or_default();
-            let model = settings.chat_model.trim().to_string();
             for custom in &settings.custom_providers {
                 let custom_ids: Vec<&str> = custom
                     .models
@@ -83,7 +86,7 @@ pub fn resolve_provider(app: AppHandle) -> Arc<dyn AIProvider> {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .collect();
-                if custom_ids.contains(&model.as_str()) && !custom.base_url.trim().is_empty() {
+                if custom_ids.contains(&selected_model.as_str()) && !custom.base_url.trim().is_empty() {
                     return Some(custom.base_url.trim().to_string());
                 }
             }
@@ -99,8 +102,4 @@ pub fn resolve_provider(app: AppHandle) -> Arc<dyn AIProvider> {
         resolve_pass_tool_reasoning,
         Some(resolve_base_url),
     ))
-}
-
-fn default_chat_model() -> String {
-    String::new()
 }

@@ -6,7 +6,22 @@ export interface Workspace {
   name: string;
   root: string;
   description?: string;
+  source?: string | null;
   createdAt: string;
+}
+
+export function workspaceSourceLabel(source?: string | null): string {
+  switch (source?.trim().toLowerCase()) {
+    case "vscode":
+    case "visual studio code":
+      return "VS Code";
+    case "idea":
+    case "intellij":
+    case "intellij idea":
+      return "IntelliJ IDEA";
+    default:
+      return source?.trim() ?? "";
+  }
 }
 
 export function listWorkspaces(): Promise<Workspace[]> {

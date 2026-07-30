@@ -26,6 +26,7 @@ import type {
 } from "@/types/chat";
 import { IPC_COMMANDS } from "@/types/ipc";
 import type { AppSettings, AppSettingsPatch, GeminiAuthStatus } from "@/types/setting";
+import type { ResolvedVscodeTheme, VscodeThemeSummary } from "@/services/theme/vscodeThemes";
 import { invoke } from "@tauri-apps/api/core";
 
 export function ipcInvoke<TResponse>(
@@ -65,6 +66,14 @@ export function getAppSettings() {
 
 export function setAppSettings(patch: AppSettingsPatch) {
   return ipcInvoke<AppSettings>(IPC_COMMANDS.setAppSettings, { patch });
+}
+
+export function listVscodeThemes() {
+  return ipcInvoke<VscodeThemeSummary[]>(IPC_COMMANDS.listVscodeThemes);
+}
+
+export function loadVscodeTheme(themeId: string) {
+  return ipcInvoke<ResolvedVscodeTheme>(IPC_COMMANDS.loadVscodeTheme, { themeId });
 }
 
 export function geminiAuthStatus() {
@@ -109,6 +118,10 @@ export function listChatModels() {
 
 export function getContextUsage(request: ContextUsageRequest = {}) {
   return ipcInvoke<ContextUsageResponse>(IPC_COMMANDS.getContextUsage, { request });
+}
+
+export function getEnvironmentContext() {
+  return ipcInvoke<CapturedContext>(IPC_COMMANDS.getEnvironmentContext);
 }
 
 export function deleteChatSession(sessionId: string) {

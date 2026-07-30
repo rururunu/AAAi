@@ -39,6 +39,7 @@ pub async fn chat(
         session_id: result.session_id,
         user_message_id: result.user_message_id,
         assistant_message_id: result.assistant_message_id,
+        agent_run_id: result.agent_run_id,
     })
 }
 
@@ -156,7 +157,79 @@ pub fn get_context_usage(
 }
 
 #[tauri::command]
+pub fn get_environment_context(state: State<'_, AppState>) -> crate::core::runtime::RequestContext {
+    crate::core::context::store::wait_for_completed_capture();
+    let context = environment_context_from_source(state.core.chat());
+    tracing::debug!(
+        active_window = ?context.active_window,
+        active_file = ?context.active_file,
+        workspace = ?context.workspace,
+        git = ?context.git_status,
+        ide = ?context.ide_context.as_ref().map(|ide| ide.ide.as_str()),
+        "get_environment_context IPC RequestContext before serialization"
+    );
+    context
+}
+
+trait EnvironmentContextSource {
+    fn resolved_environment_context(&self) -> crate::core::runtime::RequestContext;
+}
+
+impl EnvironmentContextSource for crate::core::chat::ChatService {
+    fn resolved_environment_context(&self) -> crate::core::runtime::RequestContext {
+        self.environment_context()
+    }
+}
+
+fn environment_context_from_source(
+    source: &impl EnvironmentContextSource,
+) -> crate::core::runtime::RequestContext {
+    source.resolved_environment_context()
+}
+
+#[tauri::command]
 pub fn clear_all_chat_sessions(state: State<'_, AppState>) -> Result<(), String> {
     state.core.chat().conversation().clear_all_sessions();
     Ok(())
+}
+
+#[cfg(test)]
+mod environment_context_tests {
+    use super::*;
+    use crate::core::runtime::request::WorkspaceContext;
+    use crate::core::runtime::RequestContext;
+
+    struct ServiceContextStub(RequestContext);
+
+    impl EnvironmentContextSource for ServiceContextStub {
+        fn resolved_environment_context(&self) -> RequestContext {
+            self.0.clone()
+        }
+    }
+
+    #[test]
+    fn command_and_chat_service_use_equivalent_workspace_resolution() {
+        let service_context = RequestContext {
+            active_file: Some(r"C:\code\AAAi\src\main.rs".to_string()),
+            workspace: Some(WorkspaceContext {
+                name: "AAAi".to_string(),
+                root: r"C:\code\AAAi".to_string(),
+            }),
+            git_status: Some("## main".to_string()),
+            ..RequestContext::default()
+        };
+        let source = ServiceContextStub(service_context.clone());
+
+        let command_context = environment_context_from_source(&source);
+
+        assert_eq!(command_context.workspace, service_context.workspace);
+        assert_eq!(command_context.active_file, service_context.active_file);
+        assert_eq!(command_context.git_status, service_context.git_status);
+    }
+
+    #[test]
+    fn environment_context_ipc_is_allowed_by_chat_permission() {
+        let permission = include_str!("../../permissions/chat.toml");
+        assert!(permission.contains("\"get_environment_context\""));
+    }
 }

@@ -127,7 +127,8 @@ impl ToolApprovalStore {
         if mode == ToolApprovalMode::Auto && tool.read_only() {
             return Ok(());
         }
-        if self.session_allowed(&ctx.session_id, tool.name()) {
+        let session_id = ctx.root_session_id();
+        if self.session_allowed(session_id, tool.name()) {
             return Ok(());
         }
 
@@ -143,7 +144,7 @@ impl ToolApprovalStore {
 
         let title = crate::core::tools::display::build_activity_view(tool.name(), args, None).title;
         ctx.event_bus.emit(BusEvent::ToolApprovalRequest {
-            session_id: ctx.session_id.clone(),
+            session_id: session_id.to_string(),
             request_id: request_id.clone(),
             tool_name: tool.name().to_string(),
             title,
@@ -158,7 +159,7 @@ impl ToolApprovalStore {
         match decision {
             ApprovalDecision::AllowOnce => Ok(()),
             ApprovalDecision::AllowSession => {
-                self.grant_session(&ctx.session_id, tool.name());
+                self.grant_session(session_id, tool.name());
                 Ok(())
             }
             ApprovalDecision::Deny => Err(ToolError::user_denied("user denied tool execution")),
