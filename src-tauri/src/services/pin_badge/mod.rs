@@ -17,7 +17,9 @@ use std::time::{Duration, Instant};
 
 use tauri::AppHandle;
 use windows::Win32::Foundation::{HWND, POINT, RECT};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetCursorPos, IsWindow, PeekMessageW, TranslateMessage, WindowFromPoint, MSG,
     PM_REMOVE,
@@ -153,10 +155,7 @@ fn run_loop() {
         }
 
         // Badge hwnd map for "cursor over badge" checks.
-        let badge_map: HashMap<isize, HWND> = tracked
-            .iter()
-            .map(|(k, v)| (*k, v.badge))
-            .collect();
+        let badge_map: HashMap<isize, HWND> = tracked.iter().map(|(k, v)| (*k, v.badge)).collect();
         let over_badge = cursor_over_any_badge(&badge_map);
         let mouse_interacting = is_mouse_button_down();
 
@@ -167,21 +166,18 @@ fn run_loop() {
             }
 
             // Ensure badge window exists.
-            if !tracked.contains_key(&pin.hwnd) {
+            if let std::collections::hash_map::Entry::Vacant(entry) = tracked.entry(pin.hwnd) {
                 match create_button_for_pin(pin.hwnd) {
                     Ok(badge) => {
-                        tracked.insert(
-                            pin.hwnd,
-                            TrackedPin {
-                                badge,
-                                last_x: pin.x,
-                                last_y: pin.y,
-                                last_w: pin.width,
-                                last_h: pin.height,
-                                idle_since: Instant::now(),
-                                visible: false,
-                            },
-                        );
+                        entry.insert(TrackedPin {
+                            badge,
+                            last_x: pin.x,
+                            last_y: pin.y,
+                            last_w: pin.width,
+                            last_h: pin.height,
+                            idle_since: Instant::now(),
+                            visible: false,
+                        });
                     }
                     Err(error) => {
                         tracing::debug!(feature = "pin_badge", error = %error, "create badge failed");
@@ -271,10 +267,8 @@ fn is_pin_selected_or_dragged(
         return false;
     }
 
-    let over_pin = pt.x >= pin.x
-        && pt.x < pin.x + pin.width
-        && pt.y >= pin.y
-        && pt.y < pin.y + pin.height;
+    let over_pin =
+        pt.x >= pin.x && pt.x < pin.x + pin.width && pt.y >= pin.y && pt.y < pin.y + pin.height;
 
     // Pressing / dragging on the pin image → hide immediately.
     if over_pin {
@@ -297,7 +291,11 @@ fn handle_pin_click(pin_hwnd: isize) {
     }
 
     let Some(data_url) = capture_window_data_url(hwnd) else {
-        tracing::warn!(feature = "pin_badge", hwnd = pin_hwnd, "failed to capture pin image");
+        tracing::warn!(
+            feature = "pin_badge",
+            hwnd = pin_hwnd,
+            "failed to capture pin image"
+        );
         return;
     };
 

@@ -8,7 +8,8 @@ use image::ImageReader;
 use windows::core::w;
 use windows::Win32::Foundation::{HGLOBAL, HWND};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW,
+    CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    RegisterClipboardFormatW,
 };
 use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
 
@@ -50,11 +51,10 @@ pub fn partition_selected_files(files: Vec<PathBuf>) -> (Vec<PathBuf>, Vec<Strin
 }
 
 pub fn file_to_data_url(path: &Path) -> Result<String, CaptureError> {
-    let bytes = std::fs::read(path).map_err(|error| {
-        CaptureError::ClipboardFailed(format!("read image file failed: {error}"))
-    })?;
+    let bytes = std::fs::read(path)
+        .map_err(|error| CaptureError::Clipboard(format!("read image file failed: {error}")))?;
     if bytes.len() > MAX_IMAGE_BYTES {
-        return Err(CaptureError::ClipboardFailed(
+        return Err(CaptureError::Clipboard(
             "selected image is too large".into(),
         ));
     }
@@ -79,7 +79,7 @@ pub fn file_to_data_url(path: &Path) -> Result<String, CaptureError> {
     }
 
     encode_image_bytes_as_jpeg_data_url(&bytes)
-        .ok_or_else(|| CaptureError::ClipboardFailed("unsupported image file".into()))
+        .ok_or_else(|| CaptureError::Clipboard("unsupported image file".into()))
 }
 
 /// Read an image currently on the clipboard and return a JPEG data URL.

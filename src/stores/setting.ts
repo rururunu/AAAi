@@ -69,104 +69,75 @@ export function applyZoom(zoom: number) {
     document.documentElement.style.zoom = String(zoom / 100);
 }
 
+function normalizeOpacityValue(settings: AppSettings): number {
+    let opacityVal = settings.opacity;
+    if (opacityVal === undefined && (settings as any).frostedGlass !== undefined) {
+        opacityVal = (settings as any).frostedGlass ? 80 : 100;
+    }
+    return opacityVal ?? 100;
+}
+
+function normalizeZoomValue(settings: AppSettings): number {
+    let zoomVal = settings.zoom;
+    if (zoomVal !== undefined && zoomVal <= 2.0) {
+        zoomVal = Math.round(zoomVal * 100);
+    }
+    return zoomVal ?? 100;
+}
+
+function applyCommonSettings(target: AppSettings, settings: AppSettings) {
+    target.colorScheme = normalizeColorScheme(settings.colorScheme);
+    target.vscodeTheme = settings.vscodeTheme ?? "";
+    target.language = settings.language;
+    target.opacity = normalizeOpacityValue(settings);
+    target.chatModel = settings.chatModel ?? DEFAULT_CHAT_MODEL;
+    target.multimodalModel = settings.multimodalModel ?? "gpt-4o";
+    target.multimodalSplitAnalysis = settings.multimodalSplitAnalysis ?? true;
+    target.largeContextEnabled = settings.largeContextEnabled ?? true;
+    target.reasoningEffort = settings.reasoningEffort ?? "high";
+    target.reasoningLanguage = settings.reasoningLanguage ?? "auto";
+    target.passToolReasoning = settings.passToolReasoning ?? true;
+    target.showReasoning = settings.showReasoning ?? true;
+    target.multiModelCollaboration = settings.multiModelCollaboration ?? false;
+    target.collaborationModels = settings.collaborationModels ?? [];
+    target.memoryEnabled = settings.memoryEnabled ?? true;
+    target.mem0UserId = settings.mem0UserId ?? "peek-user";
+    target.mem0BaseUrl = settings.mem0BaseUrl ?? "https://api.mem0.ai/v1";
+    target.webSearchEnabled = settings.webSearchEnabled ?? false;
+    target.webSearchProvider = settings.webSearchProvider ?? "serper";
+    target.toolApprovalMode = settings.toolApprovalMode ?? "ask";
+    target.chatMode = settings.chatMode ?? "agent";
+    target.lspEnabled = settings.lspEnabled ?? false;
+    target.lspServers = settings.lspServers ?? [];
+    target.mcpServers = settings.mcpServers ?? [];
+    target.zoom = normalizeZoomValue(settings);
+    target.primaryHotkey = settings.primaryHotkey ?? "Alt";
+    target.secondaryHotkey = settings.secondaryHotkey ?? "Ctrl+Alt+Space";
+    target.customProviders = settings.customProviders ?? [];
+    target.pixpinPinAiEnabled = settings.pixpinPinAiEnabled ?? true;
+    target.snipastePinAiEnabled = settings.snipastePinAiEnabled ?? true;
+}
+
+function applySecretSettings(target: AppSettings, settings: AppSettings) {
+    target.deepseekApiKey = settings.deepseekApiKey ?? "";
+    target.geminiOauth = settings.geminiOauth ?? defaultGeminiOAuthSettings();
+    target.mem0ApiKey = settings.mem0ApiKey ?? "";
+    target.serperApiKey = settings.serperApiKey ?? "";
+    target.tavilyApiKey = settings.tavilyApiKey ?? "";
+}
+
 export const useSettingStore = defineStore("setting", {
     state: (): AppSettings => ({ ...defaultSettings }),
     actions: {
         applyPublicSettings(settings: AppSettings) {
-            this.colorScheme = normalizeColorScheme(settings.colorScheme);
-            this.vscodeTheme = settings.vscodeTheme ?? "";
-            this.language = settings.language;
-            
-            let opacityVal = settings.opacity;
-            if (opacityVal === undefined && (settings as any).frostedGlass !== undefined) {
-                opacityVal = (settings as any).frostedGlass ? 80 : 100;
-            }
-            this.opacity = opacityVal ?? 100;
-
-            this.chatModel = settings.chatModel ?? DEFAULT_CHAT_MODEL;
-            this.multimodalModel = settings.multimodalModel ?? "gpt-4o";
-            this.multimodalSplitAnalysis = settings.multimodalSplitAnalysis ?? true;
-            this.largeContextEnabled = settings.largeContextEnabled ?? true;
-            this.reasoningEffort = settings.reasoningEffort ?? "high";
-            this.reasoningLanguage = settings.reasoningLanguage ?? "auto";
-            this.passToolReasoning = settings.passToolReasoning ?? true;
-            this.showReasoning = settings.showReasoning ?? true;
-            this.multiModelCollaboration = settings.multiModelCollaboration ?? false;
-            this.collaborationModels = settings.collaborationModels ?? [];
-            this.memoryEnabled = settings.memoryEnabled ?? true;
-            this.mem0UserId = settings.mem0UserId ?? "peek-user";
-            this.mem0BaseUrl = settings.mem0BaseUrl ?? "https://api.mem0.ai/v1";
-            this.webSearchEnabled = settings.webSearchEnabled ?? false;
-            this.webSearchProvider = settings.webSearchProvider ?? "serper";
-            this.toolApprovalMode = settings.toolApprovalMode ?? "ask";
-            this.chatMode = settings.chatMode ?? "agent";
-            this.lspEnabled = settings.lspEnabled ?? false;
-            this.lspServers = settings.lspServers ?? [];
-            this.mcpServers = settings.mcpServers ?? [];
-
-            let zoomVal = settings.zoom;
-            if (zoomVal !== undefined && zoomVal <= 2.0) {
-                zoomVal = Math.round(zoomVal * 100);
-            }
-            this.zoom = zoomVal ?? 100;
-            this.primaryHotkey = settings.primaryHotkey ?? "Alt";
-            this.secondaryHotkey = settings.secondaryHotkey ?? "Ctrl+Alt+Space";
-            this.customProviders = settings.customProviders ?? [];
-            this.pixpinPinAiEnabled = settings.pixpinPinAiEnabled ?? true;
-            this.snipastePinAiEnabled = settings.snipastePinAiEnabled ?? true;
-
+            applyCommonSettings(this, settings);
             applyTheme(settings);
             applyZoom(this.zoom);
             void applyOpacity(this.opacity);
         },
         applySettings(settings: AppSettings) {
-            this.colorScheme = normalizeColorScheme(settings.colorScheme);
-            this.vscodeTheme = settings.vscodeTheme ?? "";
-            this.language = settings.language;
-            this.deepseekApiKey = settings.deepseekApiKey ?? "";
-            this.geminiOauth = settings.geminiOauth ?? defaultGeminiOAuthSettings();
-            this.memoryEnabled = settings.memoryEnabled ?? true;
-            this.mem0ApiKey = settings.mem0ApiKey ?? "";
-            this.mem0UserId = settings.mem0UserId ?? "peek-user";
-            this.mem0BaseUrl = settings.mem0BaseUrl ?? "https://api.mem0.ai/v1";
-            this.webSearchEnabled = settings.webSearchEnabled ?? false;
-            this.webSearchProvider = settings.webSearchProvider ?? "serper";
-            this.serperApiKey = settings.serperApiKey ?? "";
-            this.tavilyApiKey = settings.tavilyApiKey ?? "";
-            this.toolApprovalMode = settings.toolApprovalMode ?? "ask";
-            this.chatMode = settings.chatMode ?? "agent";
-            this.lspEnabled = settings.lspEnabled ?? false;
-            this.lspServers = settings.lspServers ?? [];
-            this.mcpServers = settings.mcpServers ?? [];
-            
-            let opacityVal = settings.opacity;
-            if (opacityVal === undefined && (settings as any).frostedGlass !== undefined) {
-                opacityVal = (settings as any).frostedGlass ? 80 : 100;
-            }
-            this.opacity = opacityVal ?? 100;
-
-            this.chatModel = settings.chatModel ?? DEFAULT_CHAT_MODEL;
-            this.multimodalModel = settings.multimodalModel ?? "gpt-4o";
-            this.multimodalSplitAnalysis = settings.multimodalSplitAnalysis ?? true;
-            this.largeContextEnabled = settings.largeContextEnabled ?? true;
-            this.reasoningEffort = settings.reasoningEffort ?? "high";
-            this.reasoningLanguage = settings.reasoningLanguage ?? "auto";
-            this.passToolReasoning = settings.passToolReasoning ?? true;
-            this.showReasoning = settings.showReasoning ?? true;
-            this.multiModelCollaboration = settings.multiModelCollaboration ?? false;
-            this.collaborationModels = settings.collaborationModels ?? [];
-
-            let zoomVal = settings.zoom;
-            if (zoomVal !== undefined && zoomVal <= 2.0) {
-                zoomVal = Math.round(zoomVal * 100);
-            }
-            this.zoom = zoomVal ?? 100;
-            this.primaryHotkey = settings.primaryHotkey ?? "Alt";
-            this.secondaryHotkey = settings.secondaryHotkey ?? "Ctrl+Alt+Space";
-            this.customProviders = settings.customProviders ?? [];
-            this.pixpinPinAiEnabled = settings.pixpinPinAiEnabled ?? true;
-            this.snipastePinAiEnabled = settings.snipastePinAiEnabled ?? true;
-
+            applyCommonSettings(this, settings);
+            applySecretSettings(this, settings);
             applyTheme(settings);
             applyZoom(this.zoom);
             void applyOpacity(this.opacity);

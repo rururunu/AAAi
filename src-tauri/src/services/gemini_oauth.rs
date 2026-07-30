@@ -2,10 +2,9 @@
 //! project bootstrap as jcode, so Gemini rides the free Code Assist quota.
 
 use std::collections::HashMap;
-use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -14,12 +13,19 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 use uuid::Uuid;
 
-use crate::models::chat::{ChatModelInfo, ModelThinkingVariant};
+use crate::models::chat::ChatModelInfo;
 use crate::services::settings_store::{get_settings, set_settings};
+
+mod catalog;
+mod credentials;
+
+pub use catalog::resolve_antigravity_model_id;
+use catalog::{fallback_chat_model_infos, fetch_available_models, to_chat_model_infos};
+use credentials::{load_oauth_credentials, parse_oauth_credentials_file};
 
 const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
@@ -28,12 +34,6 @@ const GOOGLE_OAUTH_USER_AGENT: &str = "google-api-nodejs-client/9.15.1";
 
 const ANTIGRAVITY_VERSION: &str = "1.18.3";
 const ANTIGRAVITY_SCOPES: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs";
-
-const OAUTH_LOCAL_FILE_NAMES: &[&str] = &[
-    "agy-oauth.local.json",
-    "google-oauth.local.json",
-    "client_secret.local.json",
-];
 
 const DEFAULT_CALLBACK_PORT: u16 = 51121;
 const REDIRECT_PATH: &str = "/oauth-callback";
@@ -171,24 +171,6 @@ pub fn antigravity_http_error_message(status: reqwest::StatusCode, body: &str) -
     }
 }
 
-/// Fallback when `fetchAvailableModels` is unreachable.
-pub const GEMINI_DEFAULT_MODELS: &[&str] = &[
-    "gemini-3-flash",
-    "gemini-3-flash-agent",
-    "gemini-3.1-pro-high",
-    "gemini-3.1-pro-low",
-    "gemini-pro-agent",
-    "gemini-3.5-flash-low",
-];
-
-/// Map catalog ids that 400 on generateContent to a working sibling (jcode parity).
-pub fn resolve_antigravity_model_id(model: &str) -> String {
-    match model.trim() {
-        "gemini-3.1-pro-high" => "gemini-pro-agent".to_string(),
-        other => other.to_string(),
-    }
-}
-
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiAuthStatus {
@@ -215,36 +197,6 @@ struct UserInfoResponse {
     email: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-struct OAuthCredentials {
-    client_id: String,
-    client_secret: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct OAuthCredentialsFile {
-    #[serde(default)]
-    #[serde(alias = "clientId")]
-    client_id: String,
-    #[serde(default)]
-    #[serde(alias = "clientSecret")]
-    client_secret: String,
-    #[serde(default)]
-    installed: Option<OAuthCredentialsBlock>,
-    #[serde(default)]
-    web: Option<OAuthCredentialsBlock>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OAuthCredentialsBlock {
-    #[serde(default)]
-    #[serde(alias = "clientId")]
-    client_id: String,
-    #[serde(default)]
-    #[serde(alias = "clientSecret")]
-    client_secret: String,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LoadCodeAssistResponse {
@@ -265,8 +217,6 @@ pub fn antigravity_user_agent() -> String {
 pub fn client_metadata_header() -> String {
     let platform = if cfg!(target_os = "windows") {
         "WINDOWS"
-    } else if cfg!(target_arch = "aarch64") {
-        "MACOS"
     } else {
         "MACOS"
     };
@@ -283,100 +233,6 @@ pub fn can_use_antigravity_for_model(
     model: &str,
 ) -> bool {
     is_gemini_model(model) && settings.gemini_oauth.is_logged_in()
-}
-
-fn load_oauth_credentials(app: &AppHandle) -> Result<OAuthCredentials, String> {
-    let env_client_id = std::env::var("AAAI_AGY_OAUTH_CLIENT_ID")
-        .or_else(|_| std::env::var("AGY_OAUTH_CLIENT_ID"))
-        .unwrap_or_default();
-    let env_client_secret = std::env::var("AAAI_AGY_OAUTH_CLIENT_SECRET")
-        .or_else(|_| std::env::var("AGY_OAUTH_CLIENT_SECRET"))
-        .unwrap_or_default();
-    if let Some(credentials) = normalize_oauth_credentials(env_client_id, env_client_secret) {
-        return Ok(credentials);
-    }
-
-    let mut candidates = Vec::new();
-    if let Ok(dir) = std::env::current_dir() {
-        push_oauth_candidates(&mut candidates, dir);
-    }
-    if let Ok(dir) = app.path().app_config_dir() {
-        push_oauth_candidates(&mut candidates, dir);
-    }
-
-    let mut seen = Vec::<PathBuf>::new();
-    for path in candidates {
-        if seen.iter().any(|seen_path| seen_path == &path) {
-            continue;
-        }
-        seen.push(path.clone());
-        if path.is_file() {
-            return parse_oauth_credentials_file(&path);
-        }
-    }
-
-    let searched = seen
-        .iter()
-        .map(|path| path.display().to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    Err(format!(
-        "Missing Antigravity OAuth credentials. Create agy-oauth.local.json with client_id and client_secret, or set AAAI_AGY_OAUTH_CLIENT_ID / AAAI_AGY_OAUTH_CLIENT_SECRET. Searched: {searched}"
-    ))
-}
-
-fn push_oauth_candidates(candidates: &mut Vec<PathBuf>, dir: PathBuf) {
-    for name in OAUTH_LOCAL_FILE_NAMES {
-        candidates.push(dir.join(name));
-    }
-    for name in OAUTH_LOCAL_FILE_NAMES {
-        candidates.push(dir.join("src-tauri").join(name));
-    }
-}
-
-fn parse_oauth_credentials_file(path: &Path) -> Result<OAuthCredentials, String> {
-    let raw = fs::read_to_string(path).map_err(|error| {
-        format!(
-            "Failed to read OAuth credentials at {}: {error}",
-            path.display()
-        )
-    })?;
-    parse_oauth_credentials_json(&raw).ok_or_else(|| {
-        format!(
-            "OAuth credentials at {} are missing client_id/client_secret",
-            path.display()
-        )
-    })
-}
-
-fn parse_oauth_credentials_json(raw: &str) -> Option<OAuthCredentials> {
-    let parsed: OAuthCredentialsFile = serde_json::from_str(raw).ok()?;
-    normalize_oauth_credentials(parsed.client_id, parsed.client_secret)
-        .or_else(|| {
-            parsed
-                .installed
-                .and_then(|block| normalize_oauth_credentials(block.client_id, block.client_secret))
-        })
-        .or_else(|| {
-            parsed
-                .web
-                .and_then(|block| normalize_oauth_credentials(block.client_id, block.client_secret))
-        })
-}
-
-fn normalize_oauth_credentials(
-    client_id: String,
-    client_secret: String,
-) -> Option<OAuthCredentials> {
-    let client_id = client_id.trim().to_string();
-    let client_secret = client_secret.trim().to_string();
-    if client_id.is_empty() || client_secret.is_empty() {
-        return None;
-    }
-    Some(OAuthCredentials {
-        client_id,
-        client_secret,
-    })
 }
 
 pub fn auth_status(app: &AppHandle) -> Result<GeminiAuthStatus, String> {
@@ -553,39 +409,6 @@ pub async fn ensure_project_id_async(app: &AppHandle) -> Result<String, String> 
         .map_err(|error| format!("Failed to resolve project: {error}"))?
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FetchAvailableModelsResponse {
-    #[serde(default)]
-    models: HashMap<String, FetchAvailableModelEntry>,
-    #[serde(default)]
-    default_agent_model_id: Option<String>,
-    #[serde(default)]
-    command_model_ids: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FetchAvailableModelEntry {
-    #[serde(default)]
-    quota_info: Option<FetchAvailableQuotaInfo>,
-    #[serde(default)]
-    recommended: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct FetchAvailableQuotaInfo {
-    #[serde(default)]
-    remaining_fraction: Option<f64>,
-}
-
-#[derive(Clone)]
-struct ParsedCatalogModel {
-    id: String,
-    recommended: bool,
-}
-
 /// Fetch Gemini models from Antigravity `fetchAvailableModels`.
 pub async fn list_models(app: &AppHandle) -> Result<Vec<ChatModelInfo>, String> {
     let app_for_token = app.clone();
@@ -625,426 +448,6 @@ pub async fn list_models(app: &AppHandle) -> Result<Vec<ChatModelInfo>, String> 
 
     eprintln!("fetchAvailableModels returned no Gemini models; using fallback list");
     Ok(fallback_chat_model_infos())
-}
-
-async fn fetch_available_models(
-    access_token: &str,
-    project_id: Option<&str>,
-) -> Result<Vec<GroupedCatalogModel>, String> {
-    let body = if let Some(project_id) = project_id.filter(|value| !value.trim().is_empty()) {
-        serde_json::json!({ "project": project_id })
-    } else {
-        serde_json::json!({})
-    };
-
-    let client = antigravity_http_client()?;
-    let url = antigravity_production_api_url("v1internal:fetchAvailableModels");
-    let mut last_error = String::from("fetchAvailableModels request failed");
-
-    for attempt in 0..MAX_ANTIGRAVITY_RETRIES {
-        if attempt > 0 {
-            tokio::time::sleep(ANTIGRAVITY_RETRY_BACKOFF * attempt).await;
-        }
-
-        let response = match client
-            .post(&url)
-            .bearer_auth(access_token)
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .header(reqwest::header::USER_AGENT, antigravity_user_agent())
-            .header("x-goog-api-client", X_GOOG_API_CLIENT)
-            .header("Client-Metadata", client_metadata_header())
-            .json(&body)
-            .send()
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => {
-                last_error = antigravity_transport_error_message(&error);
-                if attempt + 1 < MAX_ANTIGRAVITY_RETRIES {
-                    continue;
-                }
-                return Err(last_error);
-            }
-        };
-
-        let status = response.status();
-        let text = match response.text().await {
-            Ok(text) => text,
-            Err(error) => {
-                last_error = format!("Failed to read fetchAvailableModels response: {error}");
-                if attempt + 1 < MAX_ANTIGRAVITY_RETRIES {
-                    continue;
-                }
-                return Err(last_error);
-            }
-        };
-        if status.is_success() {
-            let parsed: FetchAvailableModelsResponse =
-                serde_json::from_str(&text).map_err(|error| {
-                    format!("Failed to parse fetchAvailableModels response: {error}; body={text}")
-                })?;
-            return Ok(parse_gemini_catalog(&parsed));
-        }
-
-        last_error = antigravity_http_error_message(status, &text);
-        if attempt + 1 < MAX_ANTIGRAVITY_RETRIES && is_retryable_antigravity_status(status) {
-            continue;
-        }
-        return Err(last_error);
-    }
-
-    Err(last_error)
-}
-
-fn parse_gemini_catalog(response: &FetchAvailableModelsResponse) -> Vec<GroupedCatalogModel> {
-    let mut order = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-
-    let mut push_id = |id: &str| {
-        let trimmed = id.trim();
-        if trimmed.is_empty() || !is_gemini_model(trimmed) {
-            return;
-        }
-        if seen.insert(trimmed.to_string()) {
-            order.push(trimmed.to_string());
-        }
-    };
-
-    if let Some(default_id) = response.default_agent_model_id.as_deref() {
-        push_id(default_id);
-    }
-    for id in &response.command_model_ids {
-        push_id(id);
-    }
-    for id in response.models.keys() {
-        push_id(id);
-    }
-
-    let mut models: Vec<ParsedCatalogModel> = order
-        .into_iter()
-        .filter_map(|id| {
-            let entry = response.models.get(&id);
-            let available = entry
-                .and_then(|entry| entry.quota_info.as_ref())
-                .and_then(|quota| quota.remaining_fraction)
-                .map(|remaining| remaining > 0.0)
-                .unwrap_or(true);
-            if !available {
-                return None;
-            }
-            Some(ParsedCatalogModel {
-                id: id.clone(),
-                recommended: entry.map(|entry| entry.recommended).unwrap_or(false),
-            })
-        })
-        .collect();
-
-    models.sort_by(|left, right| {
-        right
-            .recommended
-            .cmp(&left.recommended)
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    group_gemini_thinking_variants(models, response.default_agent_model_id.as_deref())
-}
-
-#[derive(Clone)]
-struct GroupedCatalogModel {
-    family_key: String,
-    default_variant_id: String,
-    variants: Vec<ModelThinkingVariant>,
-    recommended: bool,
-}
-
-/// Group high/low/agent tiers of the same Gemini family into one list entry.
-fn group_gemini_thinking_variants(
-    models: Vec<ParsedCatalogModel>,
-    default_agent_model_id: Option<&str>,
-) -> Vec<GroupedCatalogModel> {
-    let mut by_family: HashMap<String, Vec<ParsedCatalogModel>> = HashMap::new();
-    for model in models {
-        let family = gemini_family_key(&model.id);
-        by_family.entry(family).or_default().push(model);
-    }
-
-    let mut grouped: Vec<GroupedCatalogModel> = by_family
-        .into_iter()
-        .map(|(family_key, mut variants)| {
-            variants.sort_by(|left, right| {
-                thinking_tier_sort_key(&thinking_tier_label(&left.id))
-                    .cmp(&thinking_tier_sort_key(&thinking_tier_label(&right.id)))
-                    .then_with(|| left.id.cmp(&right.id))
-            });
-            variants.dedup_by(|left, right| left.id == right.id);
-
-            let default_variant_id = variants
-                .iter()
-                .max_by_key(|model| variant_selection_score(model, default_agent_model_id))
-                .map(|model| model.id.clone())
-                .unwrap_or_else(|| family_key.clone());
-
-            let thinking_variants = variants
-                .into_iter()
-                .map(|model| ModelThinkingVariant {
-                    id: model.id.clone(),
-                    label: thinking_tier_label(&model.id),
-                    recommended: model.recommended,
-                })
-                .collect::<Vec<_>>();
-
-            let recommended = thinking_variants.iter().any(|variant| variant.recommended);
-            GroupedCatalogModel {
-                family_key,
-                default_variant_id,
-                variants: thinking_variants,
-                recommended,
-            }
-        })
-        .collect();
-
-    grouped.sort_by(|left, right| {
-        right.recommended.cmp(&left.recommended).then_with(|| {
-            prettify_gemini_family_display(&left.family_key)
-                .cmp(&prettify_gemini_family_display(&right.family_key))
-        })
-    });
-    grouped
-}
-
-fn thinking_tier_label(id: &str) -> String {
-    let lower = id.trim().to_ascii_lowercase();
-    if lower.ends_with("-agent") {
-        "Agent".to_string()
-    } else if lower.ends_with("-high") {
-        "High".to_string()
-    } else if lower.ends_with("-low") {
-        "Low".to_string()
-    } else {
-        "Default".to_string()
-    }
-}
-
-fn thinking_tier_sort_key(label: &str) -> i32 {
-    match label {
-        "Low" => 0,
-        "Default" => 1,
-        "High" => 2,
-        "Agent" => 3,
-        _ => 4,
-    }
-}
-
-fn gemini_family_key(id: &str) -> String {
-    let normalized = id.trim().to_ascii_lowercase();
-    if normalized == "gemini-pro-agent" || normalized.starts_with("gemini-3.1-pro") {
-        return "gemini-3.1-pro".to_string();
-    }
-
-    let rest = normalized
-        .strip_prefix("gemini-")
-        .unwrap_or(normalized.as_str());
-    for suffix in ["-high", "-low", "-agent"] {
-        if let Some(body) = rest.strip_suffix(suffix) {
-            let body = body.trim_end_matches('-');
-            if body.is_empty() {
-                return normalized.clone();
-            }
-            return format!("gemini-{body}");
-        }
-    }
-    format!("gemini-{rest}")
-}
-
-fn variant_selection_score(
-    model: &ParsedCatalogModel,
-    default_agent_model_id: Option<&str>,
-) -> i32 {
-    let id = model.id.trim();
-    let lower = id.to_ascii_lowercase();
-    let mut score = 0;
-    if model.recommended {
-        score += 1_000;
-    }
-    if default_agent_model_id.is_some_and(|default_id| default_id.eq_ignore_ascii_case(id)) {
-        score += 500;
-    }
-    if id == "gemini-pro-agent" {
-        score += 1_100;
-    }
-    if lower.ends_with("-high") && id != "gemini-3.1-pro-high" {
-        score += 80;
-    }
-    if !lower.ends_with("-low") && !lower.ends_with("-agent") {
-        score += 50;
-    }
-    if lower.ends_with("-agent") && id != "gemini-pro-agent" {
-        score += 30;
-    }
-    if lower.ends_with("-low") {
-        score += 10;
-    }
-    if id == "gemini-3.1-pro-high" {
-        score -= 200;
-    }
-    score
-}
-
-fn prettify_gemini_family_display(id: &str) -> String {
-    prettify_gemini_model_id(&gemini_family_key(id))
-}
-
-fn to_chat_model_infos(groups: Vec<GroupedCatalogModel>) -> Vec<ChatModelInfo> {
-    groups
-        .into_iter()
-        .map(|group| {
-            let display = prettify_gemini_family_display(&group.family_key);
-            let thinking_variants = if group.variants.len() > 1 {
-                Some(group.variants)
-            } else {
-                None
-            };
-            ChatModelInfo {
-                id: group.default_variant_id,
-                owned_by: "Google".to_string(),
-                provider: "gemini".to_string(),
-                display_name: Some(display),
-                thinking_variants,
-            }
-        })
-        .collect()
-}
-
-fn fallback_chat_model_infos() -> Vec<ChatModelInfo> {
-    let models: Vec<ParsedCatalogModel> = GEMINI_DEFAULT_MODELS
-        .iter()
-        .map(|id| ParsedCatalogModel {
-            id: (*id).to_string(),
-            recommended: false,
-        })
-        .collect();
-    to_chat_model_infos(group_gemini_thinking_variants(models, None))
-}
-
-fn prettify_gemini_model_id(id: &str) -> String {
-    let raw = id.trim();
-    let rest = raw
-        .strip_prefix("gemini-")
-        .or_else(|| raw.strip_prefix("Gemini-"))
-        .unwrap_or(raw);
-
-    let lower = rest.to_ascii_lowercase();
-    let (body, tier) = if lower.ends_with("-agent") {
-        (&rest[..rest.len().saturating_sub(6)], "Agent")
-    } else if lower.ends_with("-high") {
-        (&rest[..rest.len().saturating_sub(5)], "High")
-    } else if lower.ends_with("-low") {
-        (&rest[..rest.len().saturating_sub(4)], "Low")
-    } else {
-        (rest, "")
-    };
-
-    let body = body.trim_end_matches('-');
-    let parts: Vec<&str> = body.split('-').filter(|part| !part.is_empty()).collect();
-    if parts.len() >= 2 {
-        let version = parts[0];
-        let family = parts[1..]
-            .iter()
-            .map(|part| capitalize_ascii_word(part))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let base = format!("Gemini {version} {family}");
-        if tier.is_empty() {
-            return base;
-        }
-        return format!("{base} ({tier})");
-    }
-
-    if parts.len() == 1 {
-        return format!("Gemini {}", capitalize_ascii_word(parts[0]));
-    }
-
-    format!("Gemini {body}")
-}
-
-fn capitalize_ascii_word(value: &str) -> String {
-    let mut chars = value.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(first) => first.to_uppercase().chain(chars).collect(),
-    }
-}
-
-#[cfg(test)]
-mod gemini_display_name_tests {
-    use super::*;
-
-    #[test]
-    fn prettify_common_gemini_ids() {
-        assert_eq!(prettify_gemini_model_id("gemini-3-flash"), "Gemini 3 Flash");
-        assert_eq!(
-            prettify_gemini_model_id("gemini-3-flash-agent"),
-            "Gemini 3 Flash (Agent)"
-        );
-        assert_eq!(
-            prettify_gemini_model_id("gemini-3.1-pro-high"),
-            "Gemini 3.1 Pro (High)"
-        );
-        assert_eq!(
-            prettify_gemini_model_id("gemini-3.5-flash-low"),
-            "Gemini 3.5 Flash (Low)"
-        );
-    }
-
-    #[test]
-    fn group_thinking_tiers_by_family() {
-        let models = vec![
-            ParsedCatalogModel {
-                id: "gemini-3.1-pro-high".into(),
-                recommended: true,
-            },
-            ParsedCatalogModel {
-                id: "gemini-3.1-pro-low".into(),
-                recommended: false,
-            },
-            ParsedCatalogModel {
-                id: "gemini-pro-agent".into(),
-                recommended: false,
-            },
-            ParsedCatalogModel {
-                id: "gemini-3-flash".into(),
-                recommended: true,
-            },
-            ParsedCatalogModel {
-                id: "gemini-3-flash-agent".into(),
-                recommended: false,
-            },
-        ];
-        let grouped = group_gemini_thinking_variants(models, Some("gemini-3-flash"));
-        assert_eq!(grouped.len(), 2);
-
-        let pro = grouped
-            .iter()
-            .find(|group| group.family_key == "gemini-3.1-pro")
-            .expect("pro family");
-        assert_eq!(pro.default_variant_id, "gemini-pro-agent");
-        assert_eq!(pro.variants.len(), 3);
-        assert!(pro.variants.iter().any(|variant| variant.label == "Agent"));
-
-        let flash = grouped
-            .iter()
-            .find(|group| group.family_key == "gemini-3-flash")
-            .expect("flash family");
-        assert_eq!(flash.default_variant_id, "gemini-3-flash");
-        assert_eq!(flash.variants.len(), 2);
-    }
-
-    #[test]
-    fn resolve_broken_high_pro_route() {
-        assert_eq!(
-            resolve_antigravity_model_id("gemini-3.1-pro-high"),
-            "gemini-pro-agent"
-        );
-    }
 }
 
 fn wait_for_auth_code(listener: TcpListener, expected_state: &str) -> Result<String, String> {

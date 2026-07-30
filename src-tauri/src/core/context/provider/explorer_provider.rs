@@ -59,7 +59,7 @@ fn capture_selected_files(target_hwnd: HWND) -> Result<Vec<PathBuf>, CaptureErro
         let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         let com_initialized = hr.is_ok() || hr == windows::core::HRESULT(0x80010106u32 as i32);
         if !com_initialized {
-            return Err(CaptureError::ComInitFailed(format!("{hr:?}")));
+            return Err(CaptureError::ComInit(format!("{hr:?}")));
         }
 
         let result = capture_selected_files_inner(target_hwnd);
@@ -75,25 +75,25 @@ fn capture_selected_files(target_hwnd: HWND) -> Result<Vec<PathBuf>, CaptureErro
 unsafe fn capture_selected_files_inner(target_hwnd: HWND) -> Result<Vec<PathBuf>, CaptureError> {
     let shell_windows: IShellWindows = CoCreateInstance(&ShellWindows, None, CLSCTX_LOCAL_SERVER)
         .map_err(|error| {
-        CaptureError::ExplorerFailed(format!("CoCreateInstance ShellWindows failed: {error}"))
+        CaptureError::Explorer(format!("CoCreateInstance ShellWindows failed: {error}"))
     })?;
 
     let count = shell_windows
         .Count()
-        .map_err(|error| CaptureError::ExplorerFailed(format!("Count failed: {error}")))?;
+        .map_err(|error| CaptureError::Explorer(format!("Count failed: {error}")))?;
 
     for index in 0..count {
         let item = shell_windows
             .Item(&VARIANT::from(index))
-            .map_err(|error| CaptureError::ExplorerFailed(format!("Item failed: {error}")))?;
+            .map_err(|error| CaptureError::Explorer(format!("Item failed: {error}")))?;
 
-        let browser: IWebBrowserApp = item.cast().map_err(|error| {
-            CaptureError::ExplorerFailed(format!("cast browser failed: {error}"))
-        })?;
+        let browser: IWebBrowserApp = item
+            .cast()
+            .map_err(|error| CaptureError::Explorer(format!("cast browser failed: {error}")))?;
 
         let hwnd_ptr = browser
             .HWND()
-            .map_err(|error| CaptureError::ExplorerFailed(format!("HWND failed: {error}")))?;
+            .map_err(|error| CaptureError::Explorer(format!("HWND failed: {error}")))?;
         let browser_hwnd = HWND(hwnd_ptr.0 as *mut _);
 
         if !hwnd_matches_explorer(browser_hwnd, target_hwnd) {
@@ -103,22 +103,20 @@ unsafe fn capture_selected_files_inner(target_hwnd: HWND) -> Result<Vec<PathBuf>
         let service_provider = browser
             .cast::<windows::Win32::System::Com::IServiceProvider>()
             .map_err(|error| {
-                CaptureError::ExplorerFailed(format!("cast service provider failed: {error}"))
+                CaptureError::Explorer(format!("cast service provider failed: {error}"))
             })?;
 
         let shell_browser: IShellBrowser = service_provider
             .QueryService(&SID_STopLevelBrowser)
-            .map_err(|error| {
-                CaptureError::ExplorerFailed(format!("QueryService failed: {error}"))
-            })?;
+            .map_err(|error| CaptureError::Explorer(format!("QueryService failed: {error}")))?;
 
         let shell_view: IShellView = shell_browser.QueryActiveShellView().map_err(|error| {
-            CaptureError::ExplorerFailed(format!("QueryActiveShellView failed: {error}"))
+            CaptureError::Explorer(format!("QueryActiveShellView failed: {error}"))
         })?;
 
-        let folder_view: IFolderView = shell_view.cast().map_err(|error| {
-            CaptureError::ExplorerFailed(format!("cast folder view failed: {error}"))
-        })?;
+        let folder_view: IFolderView = shell_view
+            .cast()
+            .map_err(|error| CaptureError::Explorer(format!("cast folder view failed: {error}")))?;
 
         return read_selected_paths(&folder_view);
     }
@@ -160,12 +158,12 @@ unsafe fn read_selected_paths(folder_view: &IFolderView) -> Result<Vec<PathBuf>,
 unsafe fn shell_item_array_paths(items: &IShellItemArray) -> Result<Vec<PathBuf>, CaptureError> {
     let count = items
         .GetCount()
-        .map_err(|error| CaptureError::ExplorerFailed(format!("GetCount failed: {error}")))?;
+        .map_err(|error| CaptureError::Explorer(format!("GetCount failed: {error}")))?;
 
     let mut paths = Vec::with_capacity(count as usize);
     for index in 0..count {
         let item = items.GetItemAt(index).map_err(|error| {
-            CaptureError::ExplorerFailed(format!("GetItemAt({index}) failed: {error}"))
+            CaptureError::Explorer(format!("GetItemAt({index}) failed: {error}"))
         })?;
         let name = match item.GetDisplayName(SIGDN_FILESYSPATH) {
             Ok(name) => name,

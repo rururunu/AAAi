@@ -21,7 +21,7 @@ impl ProviderError {
 
 impl From<String> for ProviderError {
     fn from(value: String) -> Self {
-        Self::Message(value.into())
+        Self::Message(value)
     }
 }
 

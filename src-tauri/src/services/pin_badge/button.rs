@@ -341,7 +341,7 @@ unsafe fn update_layered_badge(hwnd: HWND, accent: (u8, u8, u8), hovered: bool) 
             biHeight: -BUTTON_HEIGHT,
             biPlanes: 1,
             biBitCount: 32,
-            biCompression: BI_RGB.0 as u32,
+            biCompression: BI_RGB.0,
             ..Default::default()
         },
         ..Default::default()
@@ -497,10 +497,10 @@ fn point_in_polygon(x: f32, y: f32, points: &[(f32, f32); 8]) -> bool {
 /// Cardinal four-point star (N/E/S/W tips) with concave sides — AAAi sparkle mark.
 fn four_point_star_points(cx: f32, cy: f32, outer_r: f32, inner_r: f32) -> [(f32, f32); 8] {
     let mut points = [(0.0, 0.0); 8];
-    for i in 0..8 {
+    for (i, point) in points.iter_mut().enumerate() {
         let angle = -PI as f32 / 2.0 + i as f32 * (PI as f32 / 4.0);
         let r = if i % 2 == 0 { outer_r } else { inner_r };
-        points[i] = (cx + r * angle.cos(), cy + r * angle.sin());
+        *point = (cx + r * angle.cos(), cy + r * angle.sin());
     }
     points
 }
@@ -527,8 +527,7 @@ mod tests {
     #[test]
     fn original_star_remains_centered_and_high_contrast() {
         let pixels = render_badge_pixels((59, 142, 234), false);
-        let center = ((MAIN_CENTER_Y as usize * BUTTON_WIDTH as usize + MAIN_CENTER_X as usize) * 4)
-            as usize;
+        let center = (MAIN_CENTER_Y as usize * BUTTON_WIDTH as usize + MAIN_CENTER_X as usize) * 4;
         let pixel = &pixels[center..center + 4];
 
         assert_eq!(pixel[3], 255);

@@ -8,7 +8,8 @@ use image::{ImageBuffer, Rgba};
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
-    ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ, SRCCOPY,
+    ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ,
+    SRCCOPY,
 };
 use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
 
@@ -77,15 +78,7 @@ fn capture_window_bgra(hwnd: HWND) -> Option<(u32, u32, Vec<u8>)> {
 
         let old = SelectObject(mem_dc, HGDIOBJ(bitmap.0));
         let blt_ok = BitBlt(
-            mem_dc,
-            0,
-            0,
-            width,
-            height,
-            screen_dc,
-            rect.left,
-            rect.top,
-            SRCCOPY,
+            mem_dc, 0, 0, width, height, screen_dc, rect.left, rect.top, SRCCOPY,
         )
         .is_ok();
 
@@ -96,7 +89,7 @@ fn capture_window_bgra(hwnd: HWND) -> Option<(u32, u32, Vec<u8>)> {
                 biHeight: -height, // top-down
                 biPlanes: 1,
                 biBitCount: 32,
-                biCompression: BI_RGB.0 as u32,
+                biCompression: BI_RGB.0,
                 ..Default::default()
             },
             ..Default::default()
@@ -127,9 +120,7 @@ fn capture_window_bgra(hwnd: HWND) -> Option<(u32, u32, Vec<u8>)> {
         }
 
         for chunk in pixels.chunks_exact_mut(4) {
-            if chunk[3] == 0 && (chunk[0] != 0 || chunk[1] != 0 || chunk[2] != 0) {
-                chunk[3] = 255;
-            } else if chunk[3] == 0 {
+            if chunk[3] == 0 {
                 chunk[3] = 255;
             }
         }

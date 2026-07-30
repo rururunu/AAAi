@@ -19,7 +19,7 @@ pub enum AgentDebugEvent {
     },
     ContextSnapshot {
         run_id: String,
-        context: RequestContext,
+        context: Box<RequestContext>,
     },
     RuntimeEvent {
         record: AgentEventRecord,
@@ -92,6 +92,21 @@ mod tests {
         assert_eq!(value["type"], "toolCall");
         assert_eq!(value["data"]["runId"], "run-1");
         assert_eq!(value["data"]["arguments"]["command"], "cargo check");
+    }
+
+    #[test]
+    fn boxed_context_snapshot_preserves_frontend_payload() {
+        let context = RequestContext::default();
+        let expected = serde_json::to_value(&context).unwrap();
+        let value = serde_json::to_value(AgentDebugEvent::ContextSnapshot {
+            run_id: "run-1".to_string(),
+            context: Box::new(context),
+        })
+        .unwrap();
+
+        assert_eq!(value["type"], "contextSnapshot");
+        assert_eq!(value["data"]["runId"], "run-1");
+        assert_eq!(value["data"]["context"], expected);
     }
 
     #[test]

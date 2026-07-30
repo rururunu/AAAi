@@ -33,6 +33,22 @@ pub fn unified_diff(path: &str, old: &str, new: &str) -> String {
         .to_string()
 }
 
+/// Optional preview hook used by approval and checkpoints.
+#[allow(dead_code)]
+pub trait Previewer: Tool {
+    fn preview(&self, ctx: &ToolContext, args: &Value) -> Result<Option<ToolPreview>, ToolError>;
+}
+
+/// Downcast helpers for tools that implement preview via the Tool trait method.
+#[allow(dead_code)]
+pub fn tool_preview(
+    tool: &dyn Tool,
+    ctx: &ToolContext,
+    args: &Value,
+) -> Result<Option<ToolPreview>, ToolError> {
+    tool.preview(ctx, args)
+}
+
 #[cfg(test)]
 mod tests {
     use super::unified_diff;
@@ -53,20 +69,4 @@ mod tests {
             1
         );
     }
-}
-
-/// Optional preview hook used by approval and checkpoints.
-#[allow(dead_code)]
-pub trait Previewer: Tool {
-    fn preview(&self, ctx: &ToolContext, args: &Value) -> Result<Option<ToolPreview>, ToolError>;
-}
-
-/// Downcast helpers for tools that implement preview via the Tool trait method.
-#[allow(dead_code)]
-pub fn tool_preview(
-    tool: &dyn Tool,
-    ctx: &ToolContext,
-    args: &Value,
-) -> Result<Option<ToolPreview>, ToolError> {
-    tool.preview(ctx, args)
 }

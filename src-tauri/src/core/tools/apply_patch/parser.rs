@@ -46,23 +46,24 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 #[derive(Debug, PartialEq, Clone)]
+#[allow(clippy::enum_variant_names)]
 pub enum Hunk {
-    AddFile {
+    Add {
         path: PathBuf,
         contents: String,
     },
-    DeleteFile {
+    Delete {
         path: PathBuf,
     },
-    UpdateFile {
+    Update {
         path: PathBuf,
         move_path: Option<PathBuf>,
-        chunks: Vec<UpdateFileChunk>,
+        chunks: Vec<UpdateChunk>,
     },
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct UpdateFileChunk {
+pub struct UpdateChunk {
     pub change_context: Option<String>,
     pub old_lines: Vec<String>,
     pub new_lines: Vec<String>,
@@ -127,10 +128,7 @@ fn parse_patch_strict(patch: &str) -> Result<ApplyPatchArgs, ParseError> {
                     // ignore blank separators
                 } else {
                     return Err(ParseError::InvalidHunk {
-                        message: format!(
-                            "Add File lines must start with '+', got '{}'",
-                            body_trim
-                        ),
+                        message: format!("Add File lines must start with '+', got '{}'", body_trim),
                         line_number: i + 1,
                     });
                 }
@@ -142,11 +140,11 @@ fn parse_patch_strict(patch: &str) -> Result<ApplyPatchArgs, ParseError> {
                     line_number: i,
                 });
             }
-            hunks.push(Hunk::AddFile { path, contents });
+            hunks.push(Hunk::Add { path, contents });
             continue;
         }
         if let Some(path) = trimmed.strip_prefix(DELETE_FILE_MARKER) {
-            hunks.push(Hunk::DeleteFile {
+            hunks.push(Hunk::Delete {
                 path: PathBuf::from(path.trim()),
             });
             i += 1;
@@ -163,8 +161,8 @@ fn parse_patch_strict(patch: &str) -> Result<ApplyPatchArgs, ParseError> {
                     i += 1;
                 }
             }
-            let mut chunks: Vec<UpdateFileChunk> = Vec::new();
-            let mut current: Option<UpdateFileChunk> = None;
+            let mut chunks: Vec<UpdateChunk> = Vec::new();
+            let mut current: Option<UpdateChunk> = None;
             while i < lines.len() - 1 {
                 let raw = lines[i];
                 let t = raw.trim_end();
@@ -193,7 +191,7 @@ fn parse_patch_strict(patch: &str) -> Result<ApplyPatchArgs, ParseError> {
                     } else {
                         Some(t[CHANGE_CONTEXT_MARKER.len()..].to_string())
                     };
-                    current = Some(UpdateFileChunk {
+                    current = Some(UpdateChunk {
                         change_context: ctx,
                         old_lines: Vec::new(),
                         new_lines: Vec::new(),
@@ -204,7 +202,7 @@ fn parse_patch_strict(patch: &str) -> Result<ApplyPatchArgs, ParseError> {
                 }
                 if current.is_none() {
                     // Implicit chunk without @@ — start one.
-                    current = Some(UpdateFileChunk {
+                    current = Some(UpdateChunk {
                         change_context: None,
                         old_lines: Vec::new(),
                         new_lines: Vec::new(),
@@ -246,7 +244,7 @@ fn parse_patch_strict(patch: &str) -> Result<ApplyPatchArgs, ParseError> {
                     line_number: hunk_line,
                 });
             }
-            hunks.push(Hunk::UpdateFile {
+            hunks.push(Hunk::Update {
                 path,
                 move_path,
                 chunks,
@@ -340,10 +338,7 @@ fn strip_code_fences(raw: &str) -> String {
     {
         lines.remove(0);
     }
-    if lines
-        .last()
-        .is_some_and(|l| l.trim() == "```")
-    {
+    if lines.last().is_some_and(|l| l.trim() == "```") {
         lines.pop();
     }
     lines.join("\n")
@@ -427,10 +422,7 @@ fn unified_diff_to_v4a(text: &str) -> Option<String> {
     {
         lines.remove(0);
     }
-    if lines
-        .last()
-        .is_some_and(|l| l.trim() == END_PATCH_MARKER)
-    {
+    if lines.last().is_some_and(|l| l.trim() == END_PATCH_MARKER) {
         lines.pop();
     }
 
@@ -586,21 +578,24 @@ mod tests {
         .unwrap();
         assert_eq!(args.hunks.len(), 3);
         match &args.hunks[0] {
-            Hunk::AddFile { path, contents } => {
+            Hunk::Add { path, contents } => {
                 assert_eq!(path, PathBuf::from("path/add.py").as_path());
                 assert_eq!(contents, "abc\ndef\n");
             }
             _ => panic!("expected add"),
         }
-        assert!(matches!(args.hunks[1], Hunk::DeleteFile { .. }));
+        assert!(matches!(args.hunks[1], Hunk::Delete { .. }));
         match &args.hunks[2] {
-            Hunk::UpdateFile {
+            Hunk::Update {
                 path,
                 move_path,
                 chunks,
             } => {
                 assert_eq!(path, PathBuf::from("path/update.py").as_path());
-                assert_eq!(move_path.as_ref().unwrap(), &PathBuf::from("path/update2.py"));
+                assert_eq!(
+                    move_path.as_ref().unwrap(),
+                    &PathBuf::from("path/update2.py")
+                );
                 assert_eq!(chunks.len(), 1);
                 assert_eq!(chunks[0].change_context.as_deref(), Some("def f():"));
                 assert_eq!(chunks[0].old_lines, vec!["    pass".to_string()]);
@@ -623,7 +618,7 @@ mod tests {
         .unwrap();
         assert!(matches!(
             &args.hunks[0],
-            Hunk::UpdateFile { path, .. } if path == PathBuf::from("README.md").as_path()
+            Hunk::Update { path, .. } if path == PathBuf::from("README.md").as_path()
         ));
     }
 
@@ -634,7 +629,7 @@ mod tests {
         )
         .unwrap();
         match &args.hunks[0] {
-            Hunk::UpdateFile { path, chunks, .. } => {
+            Hunk::Update { path, chunks, .. } => {
                 assert_eq!(path, PathBuf::from("README.md").as_path());
                 assert_eq!(
                     chunks[0].old_lines,
@@ -661,7 +656,7 @@ mod tests {
         .unwrap();
         assert!(matches!(
             &args.hunks[0],
-            Hunk::UpdateFile { path, .. } if path == PathBuf::from("src/app.rs").as_path()
+            Hunk::Update { path, .. } if path == PathBuf::from("src/app.rs").as_path()
         ));
     }
 }

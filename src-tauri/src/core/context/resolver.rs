@@ -196,7 +196,7 @@ mod tests {
         let resolved = ContextResolver::new().resolve_request(
             RequestContext::default(),
             Some(&current),
-            &[current.clone()],
+            std::slice::from_ref(&current),
         );
         assert_eq!(resolved.workspace.unwrap().name, "Current");
     }
@@ -244,7 +244,7 @@ mod tests {
         let resolved = ContextResolver::new().resolve_request_with_ide(
             context,
             Some(&window_workspace),
-            &[window_workspace.clone()],
+            std::slice::from_ref(&window_workspace),
             Some(ide),
         );
 
@@ -278,7 +278,7 @@ mod tests {
         let resolved = ContextResolver::new().resolve_request_with_ide(
             context,
             Some(&current),
-            &[current.clone()],
+            std::slice::from_ref(&current),
             None,
         );
 

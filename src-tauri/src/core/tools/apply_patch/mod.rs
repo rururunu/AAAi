@@ -14,7 +14,7 @@ use super::file_io::atomic_write;
 use super::path::{normalize_path, resolve_tool_path};
 use super::path_permission::PathAccess;
 use super::preview::{unified_diff, ChangeKind, ToolPreview};
-use parser::{parse_patch, Hunk, ParseError, UpdateFileChunk};
+use parser::{parse_patch, Hunk, ParseError, UpdateChunk};
 use seek_sequence::seek_sequence;
 
 pub fn register(registry: &mut super::registry::ToolRegistry) {
@@ -157,7 +157,7 @@ fn reject_overlapping_operations(ops: &[PlannedOp]) -> Result<(), ToolError> {
 
 fn plan_hunk(ctx: &ToolContext, hunk: Hunk) -> Result<PlannedOp, ToolError> {
     match hunk {
-        Hunk::AddFile { path, contents } => {
+        Hunk::Add { path, contents } => {
             let display = path_to_display(&path)?;
             let absolute = resolve_write(ctx, &display)?;
             if absolute.exists() {
@@ -176,7 +176,7 @@ fn plan_hunk(ctx: &ToolContext, hunk: Hunk) -> Result<PlannedOp, ToolError> {
                 diff: unified_diff(&display, "", &contents),
             })
         }
-        Hunk::DeleteFile { path } => {
+        Hunk::Delete { path } => {
             let display = path_to_display(&path)?;
             let absolute = resolve_write(ctx, &display)?;
             if !absolute.is_file() {
@@ -196,7 +196,7 @@ fn plan_hunk(ctx: &ToolContext, hunk: Hunk) -> Result<PlannedOp, ToolError> {
                 diff: unified_diff(&display, &old, ""),
             })
         }
-        Hunk::UpdateFile {
+        Hunk::Update {
             path,
             move_path,
             chunks,
@@ -324,7 +324,7 @@ fn path_to_display(path: &Path) -> Result<String, ToolError> {
 fn apply_chunks_to_contents(
     original: &str,
     path: &str,
-    chunks: &[UpdateFileChunk],
+    chunks: &[UpdateChunk],
 ) -> Result<String, ToolError> {
     let newline = if original.contains("\r\n") {
         "\r\n"
@@ -353,7 +353,7 @@ fn apply_chunks_to_contents(
 fn compute_replacements(
     original_lines: &[String],
     path: &str,
-    chunks: &[UpdateFileChunk],
+    chunks: &[UpdateChunk],
 ) -> Result<Vec<(usize, usize, Vec<String>)>, ToolError> {
     let mut replacements = Vec::new();
     let mut line_index = 0usize;

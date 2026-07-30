@@ -8,7 +8,7 @@ use crate::models::chat::{
     ChatSendResponse, ContextUsageRequest, ContextUsageResponse, ListChatSessionsResponse,
 };
 use crate::services::gemini_oauth;
-use crate::services::settings_store::get_settings;
+use crate::services::settings_store::{apply_chat_request_settings, get_settings};
 
 #[tauri::command]
 pub async fn chat(
@@ -22,8 +22,7 @@ pub async fn chat(
     // tokio worker panics — keep configure off the async path.
     let settings_for_cfg = settings.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        crate::core::tools::memory::shared_memory_store().configure(&settings_for_cfg);
-        crate::runtime::search::shared_search_runtime().configure(&settings_for_cfg);
+        apply_chat_request_settings(&settings_for_cfg);
     })
     .await
     .map_err(|error| format!("configure runtimes failed: {error}"))?;

@@ -7,8 +7,9 @@ use rdev::Key;
 pub const DEFAULT_SECONDARY_HOTKEY: &str = "Ctrl+Alt+Space";
 pub const DEFAULT_PRIMARY_HOTKEY: &str = "Alt";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PrimaryHotkey {
+    #[default]
     Alt,
     Ctrl,
     Shift,
@@ -32,12 +33,6 @@ impl PrimaryHotkey {
             Self::Shift => "Shift",
             Self::Meta => "Meta",
         }
-    }
-}
-
-impl Default for PrimaryHotkey {
-    fn default() -> Self {
-        Self::Alt
     }
 }
 
@@ -315,82 +310,82 @@ fn primary_key_label(key: ChordKey) -> &'static str {
 }
 
 fn key_matches(chord_key: ChordKey, key: Key) -> bool {
-    match (chord_key, key) {
-        (ChordKey::Space, Key::Space) => true,
-        (ChordKey::Tab, Key::Tab) => true,
-        (ChordKey::Enter, Key::Return) => true,
-        (ChordKey::Backspace, Key::Backspace) => true,
-        (ChordKey::Delete, Key::Delete) => true,
-        (ChordKey::Insert, Key::Insert) => true,
-        (ChordKey::Home, Key::Home) => true,
-        (ChordKey::End, Key::End) => true,
-        (ChordKey::PageUp, Key::PageUp) => true,
-        (ChordKey::PageDown, Key::PageDown) => true,
-        (ChordKey::Left, Key::LeftArrow) => true,
-        (ChordKey::Right, Key::RightArrow) => true,
-        (ChordKey::Up, Key::UpArrow) => true,
-        (ChordKey::Down, Key::DownArrow) => true,
-        (ChordKey::Semicolon, Key::SemiColon) => true,
-        (ChordKey::Quote, Key::Quote) => true,
-        (ChordKey::Comma, Key::Comma) => true,
-        (ChordKey::Period, Key::Dot) => true,
-        (ChordKey::Slash, Key::Slash) => true,
-        (ChordKey::BackSlash, Key::BackSlash) => true,
-        (ChordKey::Minus, Key::Minus) => true,
-        (ChordKey::Equal, Key::Equal) => true,
-        (ChordKey::LeftBracket, Key::LeftBracket) => true,
-        (ChordKey::RightBracket, Key::RightBracket) => true,
-        (ChordKey::BackQuote, Key::BackQuote) => true,
-        (ChordKey::F(n), Key::F1) if n == 1 => true,
-        (ChordKey::F(n), Key::F2) if n == 2 => true,
-        (ChordKey::F(n), Key::F3) if n == 3 => true,
-        (ChordKey::F(n), Key::F4) if n == 4 => true,
-        (ChordKey::F(n), Key::F5) if n == 5 => true,
-        (ChordKey::F(n), Key::F6) if n == 6 => true,
-        (ChordKey::F(n), Key::F7) if n == 7 => true,
-        (ChordKey::F(n), Key::F8) if n == 8 => true,
-        (ChordKey::F(n), Key::F9) if n == 9 => true,
-        (ChordKey::F(n), Key::F10) if n == 10 => true,
-        (ChordKey::F(n), Key::F11) if n == 11 => true,
-        (ChordKey::F(n), Key::F12) if n == 12 => true,
-        (ChordKey::Digit(n), Key::Num0) if n == 0 => true,
-        (ChordKey::Digit(n), Key::Num1) if n == 1 => true,
-        (ChordKey::Digit(n), Key::Num2) if n == 2 => true,
-        (ChordKey::Digit(n), Key::Num3) if n == 3 => true,
-        (ChordKey::Digit(n), Key::Num4) if n == 4 => true,
-        (ChordKey::Digit(n), Key::Num5) if n == 5 => true,
-        (ChordKey::Digit(n), Key::Num6) if n == 6 => true,
-        (ChordKey::Digit(n), Key::Num7) if n == 7 => true,
-        (ChordKey::Digit(n), Key::Num8) if n == 8 => true,
-        (ChordKey::Digit(n), Key::Num9) if n == 9 => true,
-        (ChordKey::Letter('a'), Key::KeyA) => true,
-        (ChordKey::Letter('b'), Key::KeyB) => true,
-        (ChordKey::Letter('c'), Key::KeyC) => true,
-        (ChordKey::Letter('d'), Key::KeyD) => true,
-        (ChordKey::Letter('e'), Key::KeyE) => true,
-        (ChordKey::Letter('f'), Key::KeyF) => true,
-        (ChordKey::Letter('g'), Key::KeyG) => true,
-        (ChordKey::Letter('h'), Key::KeyH) => true,
-        (ChordKey::Letter('i'), Key::KeyI) => true,
-        (ChordKey::Letter('j'), Key::KeyJ) => true,
-        (ChordKey::Letter('k'), Key::KeyK) => true,
-        (ChordKey::Letter('l'), Key::KeyL) => true,
-        (ChordKey::Letter('m'), Key::KeyM) => true,
-        (ChordKey::Letter('n'), Key::KeyN) => true,
-        (ChordKey::Letter('o'), Key::KeyO) => true,
-        (ChordKey::Letter('p'), Key::KeyP) => true,
-        (ChordKey::Letter('q'), Key::KeyQ) => true,
-        (ChordKey::Letter('r'), Key::KeyR) => true,
-        (ChordKey::Letter('s'), Key::KeyS) => true,
-        (ChordKey::Letter('t'), Key::KeyT) => true,
-        (ChordKey::Letter('u'), Key::KeyU) => true,
-        (ChordKey::Letter('v'), Key::KeyV) => true,
-        (ChordKey::Letter('w'), Key::KeyW) => true,
-        (ChordKey::Letter('x'), Key::KeyX) => true,
-        (ChordKey::Letter('y'), Key::KeyY) => true,
-        (ChordKey::Letter('z'), Key::KeyZ) => true,
-        _ => false,
-    }
+    matches!(
+        (chord_key, key),
+        (ChordKey::Space, Key::Space)
+            | (ChordKey::Tab, Key::Tab)
+            | (ChordKey::Enter, Key::Return)
+            | (ChordKey::Backspace, Key::Backspace)
+            | (ChordKey::Delete, Key::Delete)
+            | (ChordKey::Insert, Key::Insert)
+            | (ChordKey::Home, Key::Home)
+            | (ChordKey::End, Key::End)
+            | (ChordKey::PageUp, Key::PageUp)
+            | (ChordKey::PageDown, Key::PageDown)
+            | (ChordKey::Left, Key::LeftArrow)
+            | (ChordKey::Right, Key::RightArrow)
+            | (ChordKey::Up, Key::UpArrow)
+            | (ChordKey::Down, Key::DownArrow)
+            | (ChordKey::Semicolon, Key::SemiColon)
+            | (ChordKey::Quote, Key::Quote)
+            | (ChordKey::Comma, Key::Comma)
+            | (ChordKey::Period, Key::Dot)
+            | (ChordKey::Slash, Key::Slash)
+            | (ChordKey::BackSlash, Key::BackSlash)
+            | (ChordKey::Minus, Key::Minus)
+            | (ChordKey::Equal, Key::Equal)
+            | (ChordKey::LeftBracket, Key::LeftBracket)
+            | (ChordKey::RightBracket, Key::RightBracket)
+            | (ChordKey::BackQuote, Key::BackQuote)
+            | (ChordKey::F(1), Key::F1)
+            | (ChordKey::F(2), Key::F2)
+            | (ChordKey::F(3), Key::F3)
+            | (ChordKey::F(4), Key::F4)
+            | (ChordKey::F(5), Key::F5)
+            | (ChordKey::F(6), Key::F6)
+            | (ChordKey::F(7), Key::F7)
+            | (ChordKey::F(8), Key::F8)
+            | (ChordKey::F(9), Key::F9)
+            | (ChordKey::F(10), Key::F10)
+            | (ChordKey::F(11), Key::F11)
+            | (ChordKey::F(12), Key::F12)
+            | (ChordKey::Digit(0), Key::Num0)
+            | (ChordKey::Digit(1), Key::Num1)
+            | (ChordKey::Digit(2), Key::Num2)
+            | (ChordKey::Digit(3), Key::Num3)
+            | (ChordKey::Digit(4), Key::Num4)
+            | (ChordKey::Digit(5), Key::Num5)
+            | (ChordKey::Digit(6), Key::Num6)
+            | (ChordKey::Digit(7), Key::Num7)
+            | (ChordKey::Digit(8), Key::Num8)
+            | (ChordKey::Digit(9), Key::Num9)
+            | (ChordKey::Letter('a'), Key::KeyA)
+            | (ChordKey::Letter('b'), Key::KeyB)
+            | (ChordKey::Letter('c'), Key::KeyC)
+            | (ChordKey::Letter('d'), Key::KeyD)
+            | (ChordKey::Letter('e'), Key::KeyE)
+            | (ChordKey::Letter('f'), Key::KeyF)
+            | (ChordKey::Letter('g'), Key::KeyG)
+            | (ChordKey::Letter('h'), Key::KeyH)
+            | (ChordKey::Letter('i'), Key::KeyI)
+            | (ChordKey::Letter('j'), Key::KeyJ)
+            | (ChordKey::Letter('k'), Key::KeyK)
+            | (ChordKey::Letter('l'), Key::KeyL)
+            | (ChordKey::Letter('m'), Key::KeyM)
+            | (ChordKey::Letter('n'), Key::KeyN)
+            | (ChordKey::Letter('o'), Key::KeyO)
+            | (ChordKey::Letter('p'), Key::KeyP)
+            | (ChordKey::Letter('q'), Key::KeyQ)
+            | (ChordKey::Letter('r'), Key::KeyR)
+            | (ChordKey::Letter('s'), Key::KeyS)
+            | (ChordKey::Letter('t'), Key::KeyT)
+            | (ChordKey::Letter('u'), Key::KeyU)
+            | (ChordKey::Letter('v'), Key::KeyV)
+            | (ChordKey::Letter('w'), Key::KeyW)
+            | (ChordKey::Letter('x'), Key::KeyX)
+            | (ChordKey::Letter('y'), Key::KeyY)
+            | (ChordKey::Letter('z'), Key::KeyZ)
+    )
 }
 
 fn is_ctrl_key(key: Key) -> bool {

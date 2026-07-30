@@ -22,7 +22,9 @@ use commands::{
     app, ask, chat, gemini, harness, mcp, permission, settings, skills, themes, window, workspace,
 };
 use services::overlay_native::clear_minimize_pending;
-use services::settings_store::{load_settings, SettingsState};
+use services::settings_store::{
+    apply_runtime_settings, load_settings, register_enabled_mcp_tools, SettingsState,
+};
 use services::window::{
     cleanup_overlay_state, configure_overlay_window, handle_overlay_focused, is_overlay_label,
     mark_blur_guard, should_keep_overlay_visible, show_settings_window, toggle_overlay,
@@ -160,54 +162,6 @@ fn start_hotkey_listener(app: AppHandle) {
     });
 }
 
-#[cfg(test)]
-mod double_modifier_tests {
-    use super::*;
-
-    #[test]
-    fn key_repeat_during_long_press_does_not_trigger() {
-        let mut detector = DoubleModifierDetector::default();
-        let modifier = crate::services::hotkey::PrimaryHotkey::Alt;
-        detector.key_press(Key::Alt, 1_000, modifier);
-        detector.key_press(Key::Alt, 1_010, modifier);
-        assert!(!detector.key_release(Key::Alt, 1_020, modifier));
-    }
-
-    #[test]
-    fn two_complete_taps_trigger_on_second_release() {
-        let mut detector = DoubleModifierDetector::default();
-        let modifier = crate::services::hotkey::PrimaryHotkey::Alt;
-        detector.key_press(Key::Alt, 1_000, modifier);
-        assert!(!detector.key_release(Key::Alt, 1_050, modifier));
-        detector.key_press(Key::Alt, 1_250, modifier);
-        assert!(detector.key_release(Key::Alt, 1_280, modifier));
-        // Next press must not immediately fire without a new arming tap.
-        detector.key_press(Key::Alt, 1_300, modifier);
-        assert!(!detector.key_release(Key::Alt, 1_320, modifier));
-    }
-
-    #[test]
-    fn alt_chord_does_not_count_as_a_tap() {
-        let mut detector = DoubleModifierDetector::default();
-        let modifier = crate::services::hotkey::PrimaryHotkey::Alt;
-        detector.key_press(Key::Alt, 1_000, modifier);
-        detector.key_press(Key::KeyC, 1_010, modifier);
-        assert!(!detector.key_release(Key::Alt, 1_020, modifier));
-        detector.key_press(Key::Alt, 1_100, modifier);
-        assert!(!detector.key_release(Key::Alt, 1_120, modifier));
-    }
-
-    #[test]
-    fn configured_ctrl_double_tap_triggers() {
-        let mut detector = DoubleModifierDetector::default();
-        let modifier = crate::services::hotkey::PrimaryHotkey::Ctrl;
-        detector.key_press(Key::ControlLeft, 1_000, modifier);
-        assert!(!detector.key_release(Key::ControlLeft, 1_050, modifier));
-        detector.key_press(Key::ControlRight, 1_200, modifier);
-        assert!(detector.key_release(Key::ControlRight, 1_240, modifier));
-    }
-}
-
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -249,27 +203,12 @@ pub fn run() {
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
             crate::core::chat::telemetry::init_logging(&config_dir);
             let settings = load_settings(app.handle());
-            crate::core::tools::memory::shared_memory_store().configure(&settings);
-            crate::runtime::search::shared_search_runtime().configure(&settings);
-            crate::services::hotkey::configure_primary_hotkey(&settings.primary_hotkey);
-            crate::services::hotkey::configure_secondary_hotkey(&settings.secondary_hotkey);
-            crate::core::tools::tool_approval::shared_tool_approval_store()
-                .configure(settings.tool_approval_mode);
-            crate::core::lsp::shared_lsp_manager().configure(&settings);
-            crate::core::mcp::shared_mcp_manager().configure(&settings);
-            crate::services::pin_badge::configure_from_settings(&settings);
+            apply_runtime_settings(&settings);
             crate::services::pin_badge::start(app.handle().clone());
             app.manage(SettingsState::new(settings.clone()));
             app.manage(AppState::new(app.handle().clone()));
             crate::core::context::providers::local_api::start_server(app.handle().clone());
-            // Never block app startup on MCP cold-start / missing npx.
-            if let Some(state) = app.try_state::<AppState>() {
-                let registry = state.core.tools().registry();
-                tauri::async_runtime::spawn_blocking(move || {
-                    let _ =
-                        crate::core::mcp::shared_mcp_manager().register_enabled(registry.as_ref());
-                });
-            }
+            register_enabled_mcp_tools(app.handle());
             setup_tray(app)?;
             if let Some(window) = app.get_webview_window("overlay") {
                 configure_overlay_window(&window);
@@ -378,4 +317,51 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod double_modifier_tests {
+    use super::*;
+
+    #[test]
+    fn key_repeat_during_long_press_does_not_trigger() {
+        let mut detector = DoubleModifierDetector::default();
+        let modifier = crate::services::hotkey::PrimaryHotkey::Alt;
+        detector.key_press(Key::Alt, 1_000, modifier);
+        detector.key_press(Key::Alt, 1_010, modifier);
+        assert!(!detector.key_release(Key::Alt, 1_020, modifier));
+    }
+
+    #[test]
+    fn two_complete_taps_trigger_on_second_release() {
+        let mut detector = DoubleModifierDetector::default();
+        let modifier = crate::services::hotkey::PrimaryHotkey::Alt;
+        detector.key_press(Key::Alt, 1_000, modifier);
+        assert!(!detector.key_release(Key::Alt, 1_050, modifier));
+        detector.key_press(Key::Alt, 1_250, modifier);
+        assert!(detector.key_release(Key::Alt, 1_280, modifier));
+        detector.key_press(Key::Alt, 1_300, modifier);
+        assert!(!detector.key_release(Key::Alt, 1_320, modifier));
+    }
+
+    #[test]
+    fn alt_chord_does_not_count_as_a_tap() {
+        let mut detector = DoubleModifierDetector::default();
+        let modifier = crate::services::hotkey::PrimaryHotkey::Alt;
+        detector.key_press(Key::Alt, 1_000, modifier);
+        detector.key_press(Key::KeyC, 1_010, modifier);
+        assert!(!detector.key_release(Key::Alt, 1_020, modifier));
+        detector.key_press(Key::Alt, 1_100, modifier);
+        assert!(!detector.key_release(Key::Alt, 1_120, modifier));
+    }
+
+    #[test]
+    fn configured_ctrl_double_tap_triggers() {
+        let mut detector = DoubleModifierDetector::default();
+        let modifier = crate::services::hotkey::PrimaryHotkey::Ctrl;
+        detector.key_press(Key::ControlLeft, 1_000, modifier);
+        assert!(!detector.key_release(Key::ControlLeft, 1_050, modifier));
+        detector.key_press(Key::ControlRight, 1_200, modifier);
+        assert!(detector.key_release(Key::ControlRight, 1_240, modifier));
+    }
 }

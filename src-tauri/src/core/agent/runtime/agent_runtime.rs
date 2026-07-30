@@ -13,7 +13,7 @@ use crate::core::agent::tools::{AgentToolError, AgentToolOutput, AgentToolRegist
 use crate::core::ai::provider::AIProvider;
 use crate::core::chat::conversation_manager::ConversationManager;
 use crate::core::chat::error::ChatError;
-use crate::core::chat::stream::StreamManager;
+use crate::core::chat::stream::{StreamManager, StreamSpawnInput};
 use crate::core::event::{BusEvent, EventBus};
 use crate::core::runtime::{ChatRequest, RequestContext};
 use crate::core::tools::context::{AskStore, PathPermissionStore, TaskItem, ToolContext};
@@ -30,6 +30,22 @@ pub struct AgentRun {
     pub context: Option<RequestContext>,
     pub plan: Option<AgentPlan>,
     pub events: Vec<AgentEventRecord>,
+}
+
+pub struct AgentSpawnInput {
+    pub run_id: String,
+    pub provider: Arc<dyn AIProvider>,
+    pub tools: Arc<ToolManager>,
+    pub conversation: Arc<ConversationManager>,
+    pub ask_store: Arc<AskStore>,
+    pub path_permission_store: Arc<PathPermissionStore>,
+    pub tasks: Arc<Mutex<Vec<TaskItem>>>,
+    pub app_handle: Option<tauri::AppHandle>,
+    pub request: ChatRequest,
+    pub assistant_message_id: String,
+    pub session_id: String,
+    pub max_turn_tokens: usize,
+    pub model: String,
 }
 
 impl AgentRun {
@@ -189,7 +205,7 @@ impl AgentRuntime {
         self.inner.event_bus.emit(BusEvent::AgentDebugEvent {
             event: AgentDebugEvent::ContextSnapshot {
                 run_id: run_id.to_string(),
-                context: context.clone(),
+                context: Box::new(context.clone()),
             },
         });
         self.transition(run_id, AgentState::Planning)?;
@@ -226,23 +242,22 @@ impl AgentRuntime {
         self.stream_manager.soft_inject(session_id, content)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn spawn(
-        &self,
-        run_id: String,
-        provider: Arc<dyn AIProvider>,
-        tools: Arc<ToolManager>,
-        conversation: Arc<ConversationManager>,
-        ask_store: Arc<AskStore>,
-        path_permission_store: Arc<PathPermissionStore>,
-        tasks: Arc<Mutex<Vec<TaskItem>>>,
-        app_handle: Option<tauri::AppHandle>,
-        request: ChatRequest,
-        assistant_message_id: String,
-        session_id: String,
-        max_turn_tokens: usize,
-        model: String,
-    ) -> Result<(), AgentTransitionError> {
+    pub fn spawn(&self, input: AgentSpawnInput) -> Result<(), AgentTransitionError> {
+        let AgentSpawnInput {
+            run_id,
+            provider,
+            tools,
+            conversation,
+            ask_store,
+            path_permission_store,
+            tasks,
+            app_handle,
+            request,
+            assistant_message_id,
+            session_id,
+            max_turn_tokens,
+            model,
+        } = input;
         self.transition(&run_id, AgentState::Executing)?;
         if let Ok(mut message_runs) = self.inner.message_runs.lock() {
             message_runs.insert(assistant_message_id.clone(), run_id.clone());
@@ -251,7 +266,7 @@ impl AgentRuntime {
             inner: Arc::clone(&self.inner),
             run_id,
         });
-        self.stream_manager.spawn(
+        self.stream_manager.spawn(StreamSpawnInput {
             provider,
             tools,
             event_bus,
@@ -265,7 +280,7 @@ impl AgentRuntime {
             session_id,
             max_turn_tokens,
             model,
-        );
+        });
         Ok(())
     }
 
@@ -835,7 +850,7 @@ mod tests {
             event,
             BusEvent::AgentDebugEvent {
                 event: AgentDebugEvent::ContextSnapshot { context: snapshot, .. }
-            } if snapshot == &context
+            } if snapshot.as_ref() == &context
         )));
         assert!(events.iter().any(|event| matches!(
             event,

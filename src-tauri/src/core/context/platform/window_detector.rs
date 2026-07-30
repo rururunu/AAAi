@@ -14,15 +14,13 @@ impl WindowDetector {
         unsafe {
             let hwnd = GetForegroundWindow();
             if hwnd.0.is_null() {
-                return Err(CaptureError::WindowDetectionFailed(
-                    "no foreground window".into(),
-                ));
+                return Err(CaptureError::WindowDetection("no foreground window".into()));
             }
 
             let mut pid = 0u32;
             GetWindowThreadProcessId(hwnd, Some(&mut pid));
             if pid == 0 {
-                return Err(CaptureError::WindowDetectionFailed(
+                return Err(CaptureError::WindowDetection(
                     "failed to read process id".into(),
                 ));
             }
@@ -41,15 +39,13 @@ impl WindowDetector {
 }
 
 unsafe fn read_process_name(pid: u32) -> Result<String, CaptureError> {
-    let process =
-        OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid).map_err(|error| {
-            CaptureError::WindowDetectionFailed(format!("OpenProcess failed: {error}"))
-        })?;
+    let process = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
+        .map_err(|error| CaptureError::WindowDetection(format!("OpenProcess failed: {error}")))?;
 
     let mut buffer = [0u16; 260];
     let len = GetModuleBaseNameW(process, None, &mut buffer);
     if len == 0 {
-        return Err(CaptureError::WindowDetectionFailed(
+        return Err(CaptureError::WindowDetection(
             "GetModuleBaseNameW returned zero".into(),
         ));
     }

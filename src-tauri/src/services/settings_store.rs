@@ -38,7 +38,11 @@ pub fn load_settings(app: &AppHandle) -> AppSettings {
         Err(_) => return AppSettings::default(),
     };
 
-    let mut settings: AppSettings = serde_json::from_str(&raw).unwrap_or_default();
+    let settings: AppSettings = serde_json::from_str(&raw).unwrap_or_default();
+    normalize_settings(settings)
+}
+
+fn normalize_settings(mut settings: AppSettings) -> AppSettings {
     settings.primary_hotkey =
         crate::services::hotkey::normalize_primary_hotkey(&settings.primary_hotkey);
     settings.secondary_hotkey =
@@ -72,6 +76,7 @@ pub fn get_settings(app: &AppHandle) -> Result<AppSettings, String> {
 }
 
 pub fn set_settings(app: &AppHandle, next: AppSettings) -> Result<AppSettings, String> {
+    let next = normalize_settings(next);
     persist_settings(app, &next)?;
 
     let state = app
@@ -83,28 +88,56 @@ pub fn set_settings(app: &AppHandle, next: AppSettings) -> Result<AppSettings, S
         *settings = next.clone();
     }
 
-    crate::core::tools::memory::shared_memory_store().configure(&next);
-    crate::runtime::search::shared_search_runtime().configure(&next);
-    crate::services::hotkey::configure_primary_hotkey(&next.primary_hotkey);
-    crate::services::hotkey::configure_secondary_hotkey(&next.secondary_hotkey);
+    apply_runtime_settings(&next);
+    register_enabled_mcp_tools(app);
+
+    broadcast_settings(app, &next);
+    Ok(next)
+}
+
+pub fn apply_runtime_settings(settings: &AppSettings) {
+    apply_chat_request_settings(settings);
+    crate::services::hotkey::configure_primary_hotkey(&settings.primary_hotkey);
+    crate::services::hotkey::configure_secondary_hotkey(&settings.secondary_hotkey);
     crate::core::tools::tool_approval::shared_tool_approval_store()
-        .configure(next.tool_approval_mode);
-    crate::core::lsp::shared_lsp_manager().configure(&next);
-    crate::core::mcp::shared_mcp_manager().configure(&next);
-    crate::services::pin_badge::configure_from_settings(&next);
-    // Connecting MCP (npx/uvx cold start) can block for a long time — never hold
-    // set_app_settings / the settings UI on that work.
+        .configure(settings.tool_approval_mode);
+    crate::core::lsp::shared_lsp_manager().configure(settings);
+    crate::core::mcp::shared_mcp_manager().configure(settings);
+    crate::services::pin_badge::configure_from_settings(settings);
+}
+
+pub fn apply_chat_request_settings(settings: &AppSettings) {
+    crate::core::tools::memory::shared_memory_store().configure(settings);
+    crate::runtime::search::shared_search_runtime().configure(settings);
+}
+
+pub fn register_enabled_mcp_tools(app: &AppHandle) {
+    // Connecting MCP (npx/uvx cold start) can block for a long time; never
+    // hold startup or the settings UI on that work.
     if let Some(app_state) = app.try_state::<crate::app_state::AppState>() {
         let registry: Arc<_> = app_state.core.tools().registry();
         tauri::async_runtime::spawn_blocking(move || {
             let _ = crate::core::mcp::shared_mcp_manager().register_enabled(registry.as_ref());
         });
     }
-
-    broadcast_settings(app, &next);
-    Ok(next)
 }
 
 pub fn broadcast_settings(app: &AppHandle, settings: &AppSettings) {
     let _ = app.emit("settings-changed", settings.clone());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_settings;
+    use crate::models::settings::AppSettings;
+
+    #[test]
+    fn normalizes_runtime_only_settings_before_storage() {
+        let mut settings = AppSettings::default();
+        settings.gemini_oauth.client_secret = "secret-from-ui".into();
+
+        let normalized = normalize_settings(settings);
+
+        assert!(normalized.gemini_oauth.client_secret.is_empty());
+    }
 }

@@ -14,6 +14,15 @@ use crate::models::settings::ReasoningEffort;
 
 use super::provider::{AIProvider, ProviderError};
 
+mod multimodal;
+
+#[cfg(test)]
+use multimodal::{
+    antigravity_model_for_image_describe, multimodal_http_error_message,
+    multimodal_transport_error_message, should_retry_multimodal_as_stream,
+};
+use multimodal::{describe_image, multimodal_http_client, resolve_multimodal_endpoint};
+
 const API_URL: &str = "https://api.deepseek.com/chat/completions";
 const MODELS_URL: &str = "https://api.deepseek.com/models";
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -168,9 +177,10 @@ impl AIProvider for DeepSeekProvider {
         let pass_tool_reasoning = self.pass_tool_reasoning();
         let include_thinking = !primary_url.contains("generativelanguage.googleapis.com");
 
-        let has_images = request.messages.iter().any(|msg| {
-            msg.role == Role::User && msg.content.contains("![image](")
-        });
+        let has_images = request
+            .messages
+            .iter()
+            .any(|msg| msg.role == Role::User && msg.content.contains("![image]("));
 
         let _ = tx.send(StreamEvent::Start).await;
         let client = reqwest::Client::new();
@@ -198,13 +208,7 @@ impl AIProvider for DeepSeekProvider {
                             &primary_model,
                         ) =>
                 {
-                    match apply_image_input_fallback(
-                        &mut request,
-                        &settings,
-                        &self.app,
-                        &tx,
-                    )
-                    .await
+                    match apply_image_input_fallback(&mut request, &settings, &self.app, &tx).await
                     {
                         Ok(FallbackPlan::RetryPrimary) => {
                             model = primary_model;
@@ -327,11 +331,8 @@ async fn apply_split_image_analysis(
         let original = stored.clone();
 
         for image_markdown in &image_markdowns {
-            if crate::core::ai::image_analysis::usable_analysis_after_image(
-                &stored,
-                image_markdown,
-            )
-            .is_some()
+            if crate::core::ai::image_analysis::usable_analysis_after_image(&stored, image_markdown)
+                .is_some()
             {
                 continue;
             }
@@ -408,10 +409,9 @@ async fn apply_split_image_analysis(
             && (message.content.contains("![image](")
                 || message.content.contains("peek-image-analysis"))
         {
-            message.content =
-                crate::core::ai::image_analysis::replace_images_with_analysis_text(
-                    &message.content,
-                );
+            message.content = crate::core::ai::image_analysis::replace_images_with_analysis_text(
+                &message.content,
+            );
         }
     }
 
@@ -961,28 +961,6 @@ pub async fn list_models(api_key: &str) -> Result<Vec<ChatModelInfo>, ProviderEr
         .collect())
 }
 
-fn load_image_as_base64(path_or_data: &str) -> Result<String, String> {
-    if path_or_data.starts_with("data:") {
-        return Ok(path_or_data.to_string());
-    }
-    let bytes = std::fs::read(path_or_data)
-        .map_err(|e| format!("Failed to read image file: {e}"))?;
-
-    let ext = if path_or_data.ends_with(".jpg") || path_or_data.ends_with(".jpeg") {
-        "jpeg"
-    } else if path_or_data.ends_with(".gif") {
-        "gif"
-    } else if path_or_data.ends_with(".webp") {
-        "webp"
-    } else {
-        "png"
-    };
-
-    use base64::{engine::general_purpose, Engine as _};
-    let b64 = general_purpose::STANDARD.encode(bytes);
-    Ok(format!("data:image/{ext};base64,{b64}"))
-}
-
 /// Normalize an OpenAI-compatible base URL to a chat completions endpoint.
 ///
 /// Bare hosts such as `https://www.micuapi.ai` (NewAPI) must become
@@ -1003,10 +981,7 @@ fn has_versioned_api_path(base: &str) -> bool {
     if path.is_empty() || path == "/" {
         return false;
     }
-    path == "/v1"
-        || path.ends_with("/v1")
-        || path.contains("/v1/")
-        || path.contains("/v1beta")
+    path == "/v1" || path.ends_with("/v1") || path.contains("/v1/") || path.contains("/v1beta")
 }
 
 fn url_path(base: &str) -> &str {
@@ -1018,331 +993,6 @@ fn url_path(base: &str) -> &str {
         Some(index) => &rest[index..],
         None => "",
     }
-}
-
-#[derive(Debug)]
-struct MultimodalEndpoint {
-    api_key: String,
-    url: String,
-}
-
-fn resolve_multimodal_endpoint(
-    settings: &crate::models::settings::AppSettings,
-    mm_model: &str,
-) -> Result<MultimodalEndpoint, ProviderError> {
-    for custom in &settings.custom_providers {
-        let custom_ids: Vec<&str> = custom
-            .models
-            .split([',', '\n'])
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .collect();
-        if !custom_ids.contains(&mm_model) {
-            continue;
-        }
-        if custom.api_key.trim().is_empty() {
-            return Err(ProviderError::message(
-                "API Key for the multimodal provider is not configured. Please set it in Settings.",
-            ));
-        }
-        if custom.base_url.trim().is_empty() {
-            return Err(ProviderError::message(
-                "Base URL for the multimodal provider is not configured. Please set it in Settings.",
-            ));
-        }
-        return Ok(MultimodalEndpoint {
-            api_key: custom.api_key.trim().to_string(),
-            url: normalize_chat_completions_url(&custom.base_url),
-        });
-    }
-
-    Err(ProviderError::message(format!(
-        "Multimodal model \"{mm_model}\" is not configured under any custom provider. Add a vision-capable provider (Base URL, API Key, and model name) in Settings, or disable multimodal split analysis."
-    )))
-}
-
-fn format_reqwest_error_chain(error: &reqwest::Error) -> String {
-    let mut parts = vec![error.to_string()];
-    let mut source = std::error::Error::source(error);
-    while let Some(err) = source {
-        let text = err.to_string();
-        if parts.last().is_none_or(|last| last != &text) {
-            parts.push(text);
-        }
-        source = err.source();
-    }
-    parts.join(" | ")
-}
-
-pub(crate) fn multimodal_transport_error_message(error: &reqwest::Error) -> String {
-    let detail = format_reqwest_error_chain(error);
-    let lower = detail.to_lowercase();
-
-    let reason = if lower.contains("timed out") || lower.contains("timeout") {
-        "Connection timed out: the multimodal provider did not respond, or the network/proxy is too slow."
-    } else if lower.contains("dns")
-        || lower.contains("name resolution")
-        || lower.contains("no such host")
-    {
-        "DNS resolution failed: could not resolve the multimodal provider host. Check network or DNS settings."
-    } else if lower.contains("certificate") || lower.contains("tls") || lower.contains("ssl") {
-        "TLS/certificate verification failed: check system time, or whether a proxy is intercepting the certificate."
-    } else if lower.contains("connection refused") {
-        "Connection refused: the provider address is unreachable, or the local proxy port is not running."
-    } else if lower.contains("error sending request") {
-        "Could not establish a network connection to the multimodal provider. If you use Clash/V2Ray (especially fake-ip mode), enable the system proxy or add AAAi to proxy rules and retry."
-    } else {
-        "The network request could not be sent. Check network, system proxy, and the multimodal Base URL."
-    };
-
-    format!("{reason} Details: {detail}")
-}
-
-pub(crate) fn multimodal_http_error_message(status: reqwest::StatusCode, body: &str) -> String {
-    let code = status.as_u16();
-    let reason = match code {
-        401 | 403 => "Authentication failed: the API Key is invalid, or it cannot call this vision model.",
-        404 => "Endpoint or model name is incorrect: check the custom provider Base URL and multimodal model name.",
-        413 => "Request body too large: the image exceeds the provider limit. Try a smaller image.",
-        429 => "Rate limited or quota exceeded: retry later, or check the provider quota.",
-        500 => "Vision model internal error: usually a temporary upstream failure. Retry later.",
-        502 => "Bad gateway (502): the multimodal proxy/upstream did not respond correctly. Common causes include an oversized image, temporary upstream outage, or a wrong Base URL/proxy setup.",
-        503 => "Service unavailable (503): the upstream vision service is overloaded or under maintenance. Retry later.",
-        504 => "Gateway timeout (504): image analysis took too long or the upstream did not respond. Retry later or use a smaller image.",
-        _ if status.is_client_error() => {
-            "Request rejected by the provider: check the multimodal model name, Base URL, and whether the image format is supported."
-        }
-        _ if status.is_server_error() => {
-            "Vision model server error: retry later, or switch multimodal providers."
-        }
-        _ => "Multimodal API call failed.",
-    };
-
-    let detail = body.trim();
-    if detail.is_empty() || detail == "unknown error" {
-        format!("Multimodal API returned {code}. {reason}")
-    } else {
-        let truncated = if detail.len() > 240 {
-            format!("{}…", &detail[..240])
-        } else {
-            detail.to_string()
-        };
-        format!("Multimodal API returned {code}. {reason} Response: {truncated}")
-    }
-}
-
-const MAX_MULTIMODAL_RETRIES: u32 = 2;
-const MULTIMODAL_REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
-const MULTIMODAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-const MULTIMODAL_IMAGE_PROMPT: &str = "You are a professional visual analyst. Provide a detailed, structured description of this image covering: (1) all visible text transcribed via precise OCR; (2) primary subjects and scene content; (3) charts, diagrams, or layout structure; (4) key information; and (5) color palette and visual style. Output the analysis directly—no preamble, greetings, or closing remarks.";
-
-async fn request_multimodal_image_description(
-    client: &reqwest::Client,
-    endpoint: &MultimodalEndpoint,
-    mm_model: &str,
-    b64_url: &str,
-    stream: bool,
-) -> Result<String, ProviderError> {
-    let mut body = json!({
-        "model": mm_model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": b64_url
-                        }
-                    },
-                    {
-                        "type": "text",
-                        "text": MULTIMODAL_IMAGE_PROMPT
-                    }
-                ]
-            }
-        ],
-        "stream": stream
-    });
-
-    if wants_max_completion_tokens(mm_model) {
-        body.as_object_mut()
-            .expect("request object")
-            .insert("max_completion_tokens".into(), json!(4096));
-    } else if wants_max_tokens(mm_model) {
-        body.as_object_mut()
-            .expect("request object")
-            .insert("max_tokens".into(), json!(4096));
-    }
-
-    let response = client
-        .post(&endpoint.url)
-        .header("Authorization", format!("Bearer {}", endpoint.api_key))
-        .header("Content-Type", "application/json")
-        .header("Accept", "application/json, text/event-stream")
-        .timeout(MULTIMODAL_REQUEST_TIMEOUT)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|error| ProviderError::message(multimodal_transport_error_message(&error)))?;
-
-    let status = response.status();
-    let content_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-    let response_text = read_multimodal_response_text(response).await?;
-
-    if !status.is_success() {
-        return Err(ProviderError::message(multimodal_http_error_message(
-            status,
-            &response_text,
-        )));
-    }
-
-    if content_type.to_ascii_lowercase().contains("text/html")
-        || super::multimodal_response::body_looks_like_html(&response_text)
-    {
-        return Err(ProviderError::message(
-            super::multimodal_response::html_instead_of_json_error(
-                &response_text,
-                Some(&endpoint.url),
-                Some(&content_type),
-            ),
-        ));
-    }
-
-    super::multimodal_response::parse_multimodal_description_body(&response_text)
-        .map_err(ProviderError::message)
-}
-
-fn multimodal_http_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .connect_timeout(MULTIMODAL_CONNECT_TIMEOUT)
-        .timeout(MULTIMODAL_REQUEST_TIMEOUT)
-        // Match Antigravity: HTTP/1.1 + system proxy avoid flaky HTTP/2 / proxy body reads
-        // that surface as "error decoding response body".
-        .http1_only()
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
-}
-
-async fn read_multimodal_response_text(
-    response: reqwest::Response,
-) -> Result<String, ProviderError> {
-    let bytes = response.bytes().await.map_err(|error| {
-        ProviderError::message(format!(
-            "Failed to read multimodal response: {}. If the multimodal model is reached via a proxy (Clash/V2Ray), enable the system proxy or switch multimodal analysis to a Gemini model with Antigravity login.",
-            format_reqwest_error_chain(&error)
-        ))
-    })?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
-}
-
-/// Use Antigravity only when the *configured multimodal model* is Gemini + OAuth.
-/// (Split analysis itself should not run for Gemini chat primaries.)
-fn antigravity_model_for_image_describe(
-    settings: &crate::models::settings::AppSettings,
-    mm_model: &str,
-) -> Option<String> {
-    if crate::services::gemini_oauth::can_use_antigravity_for_model(settings, mm_model) {
-        Some(mm_model.to_string())
-    } else {
-        None
-    }
-}
-
-fn should_retry_multimodal_as_stream(error: &ProviderError) -> bool {
-    match error {
-        ProviderError::Cancelled => false,
-        ProviderError::Message(message) => {
-            let lower = message.to_ascii_lowercase();
-            // Retry stream only for empty/unparseable JSON bodies — not transport/decode failures.
-            (lower.contains("failed to extract")
-                || lower.contains("empty")
-                || lower.contains("parse")
-                || lower.contains("snippet"))
-                && !lower.contains("failed to read multimodal response")
-                && !lower.contains("timed out")
-                && !lower.contains("connection")
-                && !lower.contains("html")
-        }
-    }
-}
-
-fn wants_max_completion_tokens(model: &str) -> bool {
-    let lower = model.to_ascii_lowercase();
-    lower.starts_with("o1")
-        || lower.starts_with("o3")
-        || lower.starts_with("o4")
-        || lower.contains("gpt-5")
-}
-
-fn wants_max_tokens(model: &str) -> bool {
-    let lower = model.to_ascii_lowercase();
-    lower.contains("gpt-4") || lower.contains("gpt-3.5") || lower.contains("chatgpt")
-}
-
-async fn describe_image(
-    client: &reqwest::Client,
-    app: &tauri::AppHandle,
-    image_payload: &str,
-) -> Result<String, ProviderError> {
-    let settings = crate::services::settings_store::get_settings(app).unwrap_or_default();
-    let mm_model = if settings.multimodal_model.trim().is_empty() {
-        "gpt-4o".to_string()
-    } else {
-        settings.multimodal_model.trim().to_string()
-    };
-
-    if let Some(ag_model) = antigravity_model_for_image_describe(&settings, &mm_model) {
-        return super::antigravity::describe_image_via_antigravity(app, &ag_model, image_payload)
-            .await;
-    }
-
-    let endpoint = resolve_multimodal_endpoint(&settings, &mm_model)?;
-
-    let b64_url = load_image_as_base64(image_payload)
-        .map_err(|e| ProviderError::message(format!("Failed to load image: {e}")))?;
-
-    let mut last_error = ProviderError::message("Multimodal model call failed");
-
-    for attempt in 0..MAX_MULTIMODAL_RETRIES {
-        if attempt > 0 {
-            tokio::time::sleep(RETRY_BACKOFF * attempt).await;
-        }
-
-        match request_multimodal_image_description(
-            client,
-            &endpoint,
-            &mm_model,
-            &b64_url,
-            false,
-        )
-        .await
-        {
-            Ok(description) => return Ok(description),
-            Err(error) if should_retry_multimodal_as_stream(&error) => {
-                match request_multimodal_image_description(
-                    client,
-                    &endpoint,
-                    &mm_model,
-                    &b64_url,
-                    true,
-                )
-                .await
-                {
-                    Ok(description) => return Ok(description),
-                    Err(stream_error) => last_error = stream_error,
-                }
-            }
-            Err(error) => last_error = error,
-        }
-    }
-
-    Err(last_error)
 }
 
 #[cfg(test)]
@@ -1556,7 +1206,8 @@ mod tests {
     #[test]
     fn build_api_body_includes_tools_when_present() {
         let mut request = sample_request(vec![]);
-        request.tools = std::sync::Arc::from([json!({"type": "function", "function": {"name": "read_file"}})]);
+        request.tools =
+            std::sync::Arc::from([json!({"type": "function", "function": {"name": "read_file"}})]);
         let body = build_api_body(
             &request,
             "deepseek-chat",
@@ -1615,13 +1266,15 @@ mod tests {
     #[test]
     fn resolve_multimodal_endpoint_uses_custom_provider() {
         let mut settings = crate::models::settings::AppSettings::default();
-        settings.custom_providers.push(crate::models::settings::CustomProviderConfig {
-            id: "openai".into(),
-            name: "OpenAI".into(),
-            base_url: "https://api.openai.com/v1/chat/completions".into(),
-            api_key: "sk-test".into(),
-            models: "gpt-4o, gpt-4o-mini".into(),
-        });
+        settings
+            .custom_providers
+            .push(crate::models::settings::CustomProviderConfig {
+                id: "openai".into(),
+                name: "OpenAI".into(),
+                base_url: "https://api.openai.com/v1/chat/completions".into(),
+                api_key: "sk-test".into(),
+                models: "gpt-4o, gpt-4o-mini".into(),
+            });
         let endpoint = resolve_multimodal_endpoint(&settings, "gpt-4o").unwrap();
         assert_eq!(endpoint.api_key, "sk-test");
         assert_eq!(endpoint.url, "https://api.openai.com/v1/chat/completions");
@@ -1680,9 +1333,11 @@ mod tests {
 
     #[test]
     fn antigravity_describe_model_only_when_multimodal_is_gemini() {
-        let mut settings = crate::models::settings::AppSettings::default();
-        settings.chat_model = "gemini-3.5-flash-low".into();
-        settings.multimodal_model = "gpt-4o".into();
+        let mut settings = crate::models::settings::AppSettings {
+            chat_model: "gemini-3.5-flash-low".into(),
+            multimodal_model: "gpt-4o".into(),
+            ..Default::default()
+        };
         settings.gemini_oauth.refresh_token = "rt".into();
         // Chat Gemini must not hijack multimodal describe — chat already sees images natively.
         assert!(antigravity_model_for_image_describe(&settings, "gpt-4o").is_none());

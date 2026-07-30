@@ -16,20 +16,32 @@ pub struct PromptPreferences {
     pub collaboration_models: Vec<String>,
 }
 
+pub struct PromptBuildInput<'a> {
+    pub request_id: &'a str,
+    pub session_id: &'a str,
+    pub history: &'a [ChatMessage],
+    pub context: &'a RequestContext,
+    pub project_rules: Option<&'a str>,
+    pub recalled_memories: Option<&'a str>,
+    pub provider: Option<String>,
+    pub preferences: &'a PromptPreferences,
+}
+
 /// AI Runtime Prompt 组装 — System → History → Context → User。
 pub struct PromptBuilder;
 
 impl PromptBuilder {
-    pub fn build(
-        request_id: &str,
-        session_id: &str,
-        history: &[ChatMessage],
-        context: &RequestContext,
-        project_rules: Option<&str>,
-        recalled_memories: Option<&str>,
-        provider: Option<String>,
-        preferences: &PromptPreferences,
-    ) -> ChatRequest {
+    pub fn build(input: PromptBuildInput<'_>) -> ChatRequest {
+        let PromptBuildInput {
+            request_id,
+            session_id,
+            history,
+            context,
+            project_rules,
+            recalled_memories,
+            provider,
+            preferences,
+        } = input;
         let mut messages = Vec::with_capacity(history.len() + 4);
 
         // System
@@ -71,7 +83,11 @@ impl PromptBuilder {
     }
 }
 
-fn inject_collaboration_models(messages: &mut Vec<ChatMessage>, session_id: &str, models: &[String]) {
+fn inject_collaboration_models(
+    messages: &mut Vec<ChatMessage>,
+    session_id: &str,
+    models: &[String],
+) {
     if models.is_empty() {
         return;
     }
@@ -367,41 +383,52 @@ mod tests {
 
     #[test]
     fn collaboration_models_are_injected_only_when_configured() {
-        let request = PromptBuilder::build(
-            "request",
-            "session",
-            &[],
-            &RequestContext::default(),
-            None,
-            None,
-            None,
-            &PromptPreferences {
-                collaboration_models: vec!["model-a".into(), "model-b".into()],
-                ..PromptPreferences::default()
-            },
-        );
-        let collaboration = request.messages.iter().find(|message| message.id.starts_with("collaboration-models-"));
+        let context = RequestContext::default();
+        let preferences = PromptPreferences {
+            collaboration_models: vec!["model-a".into(), "model-b".into()],
+            ..PromptPreferences::default()
+        };
+        let request = PromptBuilder::build(PromptBuildInput {
+            request_id: "request",
+            session_id: "session",
+            history: &[],
+            context: &context,
+            project_rules: None,
+            recalled_memories: None,
+            provider: None,
+            preferences: &preferences,
+        });
+        let collaboration = request
+            .messages
+            .iter()
+            .find(|message| message.id.starts_with("collaboration-models-"));
         assert!(collaboration.is_some_and(|message| {
             message.content.contains("`model-a`")
                 && message.content.contains("`model-b`")
                 && message.content.contains("Routing policy")
                 && message.content.contains("exact selected model ID")
                 && message.content.contains("Never omit `model`")
-                && message.content.contains("user-selected list defines eligibility only")
+                && message
+                    .content
+                    .contains("user-selected list defines eligibility only")
                 && !message.content.contains("general-purpose candidate")
         }));
 
-        let without_models = PromptBuilder::build(
-            "request",
-            "session",
-            &[],
-            &RequestContext::default(),
-            None,
-            None,
-            None,
-            &PromptPreferences::default(),
-        );
-        assert!(!without_models.messages.iter().any(|message| message.id.starts_with("collaboration-models-")));
+        let default_preferences = PromptPreferences::default();
+        let without_models = PromptBuilder::build(PromptBuildInput {
+            request_id: "request",
+            session_id: "session",
+            history: &[],
+            context: &context,
+            project_rules: None,
+            recalled_memories: None,
+            provider: None,
+            preferences: &default_preferences,
+        });
+        assert!(!without_models
+            .messages
+            .iter()
+            .any(|message| message.id.starts_with("collaboration-models-")));
     }
 
     #[test]
@@ -531,16 +558,17 @@ mod tests {
             ..RequestContext::default()
         };
 
-        let request = PromptBuilder::build(
-            "request-1",
-            "session-1",
-            &history,
-            &context,
-            None,
-            None,
-            None,
-            &PromptPreferences::default(),
-        );
+        let preferences = PromptPreferences::default();
+        let request = PromptBuilder::build(PromptBuildInput {
+            request_id: "request-1",
+            session_id: "session-1",
+            history: &history,
+            context: &context,
+            project_rules: None,
+            recalled_memories: None,
+            provider: None,
+            preferences: &preferences,
+        });
 
         assert!(request.messages[0].id.starts_with("system-"));
         assert!(request.messages[1].id.starts_with("context-"));
@@ -550,16 +578,18 @@ mod tests {
 
     #[test]
     fn recalled_memories_are_injected_as_untrusted_system_context() {
-        let request = PromptBuilder::build(
-            "request-1",
-            "session-1",
-            &[],
-            &RequestContext::default(),
-            None,
-            Some("<relevant-memories>\nUses pnpm\n</relevant-memories>"),
-            None,
-            &PromptPreferences::default(),
-        );
+        let context = RequestContext::default();
+        let preferences = PromptPreferences::default();
+        let request = PromptBuilder::build(PromptBuildInput {
+            request_id: "request-1",
+            session_id: "session-1",
+            history: &[],
+            context: &context,
+            project_rules: None,
+            recalled_memories: Some("<relevant-memories>\nUses pnpm\n</relevant-memories>"),
+            provider: None,
+            preferences: &preferences,
+        });
 
         assert_eq!(request.messages.len(), 2);
         assert_eq!(request.messages[1].role, Role::System);
@@ -569,16 +599,18 @@ mod tests {
 
     #[test]
     fn project_rules_are_injected_as_system_context() {
-        let request = PromptBuilder::build(
-            "request-1",
-            "session-1",
-            &[],
-            &RequestContext::default(),
-            Some("<project-rules>\nUse pnpm\n</project-rules>"),
-            None,
-            None,
-            &PromptPreferences::default(),
-        );
+        let context = RequestContext::default();
+        let preferences = PromptPreferences::default();
+        let request = PromptBuilder::build(PromptBuildInput {
+            request_id: "request-1",
+            session_id: "session-1",
+            history: &[],
+            context: &context,
+            project_rules: Some("<project-rules>\nUse pnpm\n</project-rules>"),
+            recalled_memories: None,
+            provider: None,
+            preferences: &preferences,
+        });
 
         assert_eq!(request.messages[1].id, "rules-session-1");
         assert!(request.messages[1].content.contains("Use pnpm"));

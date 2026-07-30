@@ -1,13 +1,13 @@
 use std::sync::{Arc, Mutex};
 
-use crate::core::agent::AgentRuntime;
+use crate::core::agent::{AgentRuntime, AgentSpawnInput};
 use crate::core::ai::provider::AIProvider;
 use crate::core::chat::compact::{self, context_window_tokens};
 use crate::core::chat::conversation_manager::{create_message, ConversationManager};
 use crate::core::chat::error::ChatError;
 use crate::core::chat::limits::max_turn_tokens_for;
 use crate::core::chat::preferences::SendPreferences;
-use crate::core::chat::prompt::{PromptBuilder, PromptPreferences};
+use crate::core::chat::prompt::{PromptBuildInput, PromptBuilder, PromptPreferences};
 use crate::core::context::ContextResolver;
 use crate::core::event::{BusEvent, EventBus};
 use crate::core::runtime::{ChatMessage, MessageStatus, Role, DEFAULT_SESSION_ID};
@@ -216,16 +216,16 @@ impl ChatService {
             reasoning_language: preferences.reasoning_language,
             collaboration_models,
         };
-        let request = PromptBuilder::build(
-            &assistant_message.id,
-            &session_id,
-            &compact.messages,
-            &context,
-            task_rules.project_rules.as_deref(),
-            task_rules.recalled_memories.as_deref(),
-            Some(provider.id().to_string()),
-            &prompt_preferences,
-        );
+        let request = PromptBuilder::build(PromptBuildInput {
+            request_id: &assistant_message.id,
+            session_id: &session_id,
+            history: &compact.messages,
+            context: &context,
+            project_rules: task_rules.project_rules.as_deref(),
+            recalled_memories: task_rules.recalled_memories.as_deref(),
+            provider: Some(provider.id().to_string()),
+            preferences: &prompt_preferences,
+        });
 
         let turn = history
             .iter()
@@ -257,21 +257,21 @@ impl ChatService {
             .map(|settings| settings.chat_model)
             .unwrap_or_default();
 
-        let spawn_result = self.agent_runtime.spawn(
-            agent_run_id.clone(),
+        let spawn_result = self.agent_runtime.spawn(AgentSpawnInput {
+            run_id: agent_run_id.clone(),
             provider,
             tools,
-            Arc::clone(&self.conversation),
-            Arc::clone(&self.ask_store),
-            Arc::clone(&self.path_permission_store),
-            Arc::clone(&self.tasks),
-            self.app_handle.clone(),
+            conversation: Arc::clone(&self.conversation),
+            ask_store: Arc::clone(&self.ask_store),
+            path_permission_store: Arc::clone(&self.path_permission_store),
+            tasks: Arc::clone(&self.tasks),
+            app_handle: self.app_handle.clone(),
             request,
-            assistant_message.id.clone(),
-            session_id.clone(),
+            assistant_message_id: assistant_message.id.clone(),
+            session_id: session_id.clone(),
             max_turn_tokens,
             model,
-        );
+        });
         if let Err(error) = spawn_result {
             self.agent_runtime
                 .fail_run(&agent_run_id, "agent runtime failed to start");
@@ -290,10 +290,10 @@ impl ChatService {
         let Some(ide) = context.ide_context.as_ref() else {
             return;
         };
-        if !ide
+        if ide
             .selection
             .as_deref()
-            .is_some_and(|selection| !selection.trim().is_empty())
+            .is_none_or(|selection| selection.trim().is_empty())
         {
             return;
         }

@@ -224,7 +224,7 @@ fn simulate_key_combo(
         ];
         let sent = SendInput(&inputs, size_of::<INPUT>() as i32);
         if sent != inputs.len() as u32 {
-            return Err(CaptureError::ClipboardFailed(
+            return Err(CaptureError::Clipboard(
                 "SendInput failed to send all keys".into(),
             ));
         }
@@ -246,7 +246,7 @@ where
         GetWindowThreadProcessId(target, Some(&mut target_thread));
 
         if target_thread == 0 {
-            return Err(CaptureError::ClipboardFailed(
+            return Err(CaptureError::Clipboard(
                 "failed to resolve target thread".into(),
             ));
         }
@@ -383,7 +383,7 @@ fn read_clipboard_text() -> Result<Option<String>, CaptureError> {
 
         let result = (|| {
             let handle = GetClipboardData(CF_UNICODETEXT).map_err(|error| {
-                CaptureError::ClipboardFailed(format!("GetClipboardData failed: {error}"))
+                CaptureError::Clipboard(format!("GetClipboardData failed: {error}"))
             })?;
             if handle.0.is_null() {
                 return Ok(None);
@@ -415,7 +415,7 @@ fn open_clipboard_with_retry() -> Result<(), CaptureError> {
         }
     }
 
-    Err(CaptureError::ClipboardFailed(
+    Err(CaptureError::Clipboard(
         "OpenClipboard failed after retries".into(),
     ))
 }
@@ -434,7 +434,7 @@ fn restore_clipboard_text(backup: Option<String>) -> Result<(), CaptureError> {
 
         let result = (|| {
             EmptyClipboard().map_err(|error| {
-                CaptureError::ClipboardFailed(format!("EmptyClipboard failed: {error}"))
+                CaptureError::Clipboard(format!("EmptyClipboard failed: {error}"))
             })?;
 
             if let Some(text) = backup {
@@ -454,27 +454,22 @@ fn write_clipboard_text(text: &str) -> Result<(), CaptureError> {
     let byte_len = wide.len() * 2;
 
     unsafe {
-        let global = GlobalAlloc(GMEM_MOVEABLE, byte_len).map_err(|error| {
-            CaptureError::ClipboardFailed(format!("GlobalAlloc failed: {error}"))
-        })?;
+        let global = GlobalAlloc(GMEM_MOVEABLE, byte_len)
+            .map_err(|error| CaptureError::Clipboard(format!("GlobalAlloc failed: {error}")))?;
         if global.0.is_null() {
-            return Err(CaptureError::ClipboardFailed(
-                "GlobalAlloc returned null".into(),
-            ));
+            return Err(CaptureError::Clipboard("GlobalAlloc returned null".into()));
         }
 
         let ptr = GlobalLock(global);
         if ptr.is_null() {
-            return Err(CaptureError::ClipboardFailed(
-                "GlobalLock returned null".into(),
-            ));
+            return Err(CaptureError::Clipboard("GlobalLock returned null".into()));
         }
 
         std::ptr::copy_nonoverlapping(wide.as_ptr() as *const u8, ptr as *mut u8, byte_len);
         let _ = GlobalUnlock(global);
 
         SetClipboardData(CF_UNICODETEXT, HANDLE(global.0)).map_err(|error| {
-            CaptureError::ClipboardFailed(format!("SetClipboardData failed: {error}"))
+            CaptureError::Clipboard(format!("SetClipboardData failed: {error}"))
         })?;
     }
 

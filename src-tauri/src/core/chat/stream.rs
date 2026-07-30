@@ -32,6 +32,22 @@ pub struct StreamManager {
     epoch_counter: Arc<AtomicU64>,
 }
 
+pub(crate) struct StreamSpawnInput {
+    pub provider: Arc<dyn AIProvider>,
+    pub tools: Arc<ToolManager>,
+    pub event_bus: Arc<dyn EventBus>,
+    pub conversation: Arc<ConversationManager>,
+    pub ask_store: Arc<AskStore>,
+    pub path_permission_store: Arc<PathPermissionStore>,
+    pub tasks: Arc<Mutex<Vec<TaskItem>>>,
+    pub app_handle: Option<tauri::AppHandle>,
+    pub request: ChatRequest,
+    pub assistant_message_id: String,
+    pub session_id: String,
+    pub max_turn_tokens: usize,
+    pub model: String,
+}
+
 impl StreamManager {
     pub fn new() -> Self {
         Self {
@@ -68,22 +84,22 @@ impl StreamManager {
         Ok(message_id)
     }
 
-    pub fn spawn(
-        &self,
-        provider: Arc<dyn AIProvider>,
-        tools: Arc<ToolManager>,
-        event_bus: Arc<dyn EventBus>,
-        conversation: Arc<ConversationManager>,
-        ask_store: Arc<AskStore>,
-        path_permission_store: Arc<PathPermissionStore>,
-        tasks: Arc<Mutex<Vec<TaskItem>>>,
-        app_handle: Option<tauri::AppHandle>,
-        request: ChatRequest,
-        assistant_message_id: String,
-        session_id: String,
-        max_turn_tokens: usize,
-        model: String,
-    ) {
+    pub(crate) fn spawn(&self, input: StreamSpawnInput) {
+        let StreamSpawnInput {
+            provider,
+            tools,
+            event_bus,
+            conversation,
+            ask_store,
+            path_permission_store,
+            tasks,
+            app_handle,
+            request,
+            assistant_message_id,
+            session_id,
+            max_turn_tokens,
+            model,
+        } = input;
         let cancelled = Arc::new(AtomicBool::new(false));
         let soft_queue = Arc::new(Mutex::new(VecDeque::new()));
         let content_ref = Arc::new(Mutex::new(String::new()));
@@ -153,14 +169,18 @@ impl StreamManager {
                 cancelled: Arc::clone(&cancelled),
             };
 
-            let runner = AgentRunner::new(provider.clone(), tools)
-                .with_max_turn_tokens(max_turn_tokens);
+            let runner =
+                AgentRunner::new(provider.clone(), tools).with_max_turn_tokens(max_turn_tokens);
             let agent_task = async_runtime::spawn({
                 let request = request.clone();
                 let tx = tx.clone();
                 let cancelled = cancelled.clone();
                 let soft_queue = Arc::clone(&soft_queue);
-                async move { runner.run(request, tool_ctx, tx, cancelled, soft_queue).await }
+                async move {
+                    runner
+                        .run(request, tool_ctx, tx, cancelled, soft_queue)
+                        .await
+                }
             });
             drop(tx);
 
@@ -266,7 +286,10 @@ impl StreamManager {
                             kind,
                         });
                     }
-                    StreamEvent::UserContentPatch { message_id, content } => {
+                    StreamEvent::UserContentPatch {
+                        message_id,
+                        content,
+                    } => {
                         let status = conversation
                             .find_message(&message_id)
                             .map(|(_, msg)| msg.status)
@@ -439,8 +462,7 @@ impl StreamManager {
             .remove(message_id);
 
         let Some(task) = active else {
-            if let Some((session_id, message)) =
-                conversation.settle_interrupted_message(message_id)
+            if let Some((session_id, message)) = conversation.settle_interrupted_message(message_id)
             {
                 event_bus.emit(BusEvent::ChatFinished {
                     session_id,
