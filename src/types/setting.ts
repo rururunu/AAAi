@@ -108,7 +108,9 @@ export interface AppSettings {
     mcpServers: McpServerConfig[];
     opacity: number;
     chatModel: string;
+    chatModelProvider: string;
     multimodalModel: string;
+    multimodalModelProvider: string;
     multimodalSplitAnalysis: boolean;
     /** Use 1M-token context window for compaction / turn budgets. */
     largeContextEnabled: boolean;
@@ -151,7 +153,9 @@ export interface AppSettingsPatch {
     mcpServers?: McpServerConfig[];
     opacity?: number;
     chatModel?: string;
+    chatModelProvider?: string;
     multimodalModel?: string;
+    multimodalModelProvider?: string;
     multimodalSplitAnalysis?: boolean;
     largeContextEnabled?: boolean;
     reasoningEffort?: ReasoningEffort;
@@ -166,6 +170,11 @@ export interface AppSettingsPatch {
     customProviders?: CustomProviderConfig[];
     pixpinPinAiEnabled?: boolean;
     snipastePinAiEnabled?: boolean;
+}
+
+export interface ModelSelection {
+    id: string;
+    provider: string;
 }
 
 export interface SelectOption<T extends string> {

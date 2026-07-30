@@ -11,23 +11,28 @@ export function modelHasThinkingVariants(
 export function findModelEntry(
   models: ChatModelInfo[],
   variantOrDefaultId: string,
+  provider = "",
 ): ChatModelInfo | undefined {
   const id = variantOrDefaultId.trim();
   if (!id) return undefined;
+  const providerId = provider.trim();
 
   return models.find(
     (model) =>
-      model.id === id ||
-      model.thinkingVariants?.some((variant) => variant.id === id),
+      (!providerId || model.provider === providerId) &&
+      (model.id === id ||
+        model.thinkingVariants?.some((variant) => variant.id === id)),
   );
 }
 
 export function isModelEntrySelected(
   entry: ChatModelInfo,
   variantOrDefaultId: string,
+  provider = "",
 ): boolean {
   const id = variantOrDefaultId.trim();
   if (!id) return false;
+  if (provider.trim() && entry.provider !== provider.trim()) return false;
   if (entry.id === id) return true;
   return entry.thinkingVariants?.some((variant) => variant.id === id) ?? false;
 }
@@ -70,6 +75,7 @@ export function localizeThinkingTierLabel(
 export function isKnownModelSelection(
   models: ChatModelInfo[],
   variantOrDefaultId: string,
+  provider = "",
 ): boolean {
-  return !!findModelEntry(models, variantOrDefaultId);
+  return !!findModelEntry(models, variantOrDefaultId, provider);
 }

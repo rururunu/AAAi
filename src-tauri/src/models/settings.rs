@@ -220,8 +220,12 @@ pub struct AppSettings {
     pub opacity: u32,
     #[serde(default = "default_chat_model")]
     pub chat_model: String,
+    #[serde(default)]
+    pub chat_model_provider: String,
     #[serde(default = "default_multimodal_model")]
     pub multimodal_model: String,
+    #[serde(default)]
+    pub multimodal_model_provider: String,
     #[serde(default)]
     pub reasoning_effort: ReasoningEffort,
     #[serde(default)]
@@ -318,7 +322,9 @@ pub struct AppSettingsPatch {
     pub mcp_servers: Option<Vec<McpServerConfig>>,
     pub opacity: Option<u32>,
     pub chat_model: Option<String>,
+    pub chat_model_provider: Option<String>,
     pub multimodal_model: Option<String>,
+    pub multimodal_model_provider: Option<String>,
     pub reasoning_effort: Option<ReasoningEffort>,
     pub reasoning_language: Option<ReasoningLanguage>,
     pub pass_tool_reasoning: Option<bool>,
@@ -358,7 +364,9 @@ impl Default for AppSettings {
             mcp_servers: Vec::new(),
             opacity: 100,
             chat_model: default_chat_model(),
+            chat_model_provider: String::new(),
             multimodal_model: default_multimodal_model(),
+            multimodal_model_provider: String::new(),
             reasoning_effort: ReasoningEffort::default(),
             reasoning_language: ReasoningLanguage::default(),
             pass_tool_reasoning: true,
@@ -446,9 +454,15 @@ impl AppSettings {
                 .unwrap_or_else(|| self.mcp_servers.clone()),
             opacity: patch.opacity.unwrap_or(self.opacity),
             chat_model: patch.chat_model.unwrap_or_else(|| self.chat_model.clone()),
+            chat_model_provider: patch
+                .chat_model_provider
+                .unwrap_or_else(|| self.chat_model_provider.clone()),
             multimodal_model: patch
                 .multimodal_model
                 .unwrap_or_else(|| self.multimodal_model.clone()),
+            multimodal_model_provider: patch
+                .multimodal_model_provider
+                .unwrap_or_else(|| self.multimodal_model_provider.clone()),
             reasoning_effort: patch.reasoning_effort.unwrap_or(self.reasoning_effort),
             reasoning_language: patch.reasoning_language.unwrap_or(self.reasoning_language),
             pass_tool_reasoning: patch
@@ -506,6 +520,8 @@ mod tests {
         assert!(settings.show_reasoning);
         assert!(!settings.multi_model_collaboration);
         assert!(settings.collaboration_models.is_empty());
+        assert!(settings.chat_model_provider.is_empty());
+        assert!(settings.multimodal_model_provider.is_empty());
     }
 
     #[test]
@@ -533,5 +549,18 @@ mod tests {
             ..AppSettingsPatch::default()
         };
         assert!(!settings.merge(patch).show_reasoning);
+    }
+
+    #[test]
+    fn model_provider_patch_is_optional_and_mergeable() {
+        let settings = AppSettings::default();
+        let patch = AppSettingsPatch {
+            chat_model_provider: Some("provider-a".into()),
+            multimodal_model_provider: Some("provider-b".into()),
+            ..AppSettingsPatch::default()
+        };
+        let merged = settings.merge(patch);
+        assert_eq!(merged.chat_model_provider, "provider-a");
+        assert_eq!(merged.multimodal_model_provider, "provider-b");
     }
 }

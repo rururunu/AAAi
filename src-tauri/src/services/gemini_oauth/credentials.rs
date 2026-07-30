@@ -9,6 +9,10 @@ const OAUTH_LOCAL_FILE_NAMES: &[&str] = &[
     "google-oauth.local.json",
     "client_secret.local.json",
 ];
+const EMBEDDED_OAUTH_BYTES: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/agy-oauth-credentials.bin"));
+const EMBEDDED_OAUTH_MAGIC: &[u8] = b"AAAI-OAUTH-1";
+const EMBEDDED_OAUTH_KEY: &[u8] = b"AAAi-build-credential";
 
 #[derive(Debug, Clone)]
 pub(super) struct OAuthCredentials {
@@ -70,6 +74,10 @@ pub(super) fn load_oauth_credentials(app: &AppHandle) -> Result<OAuthCredentials
         }
     }
 
+    if let Some(credentials) = embedded_oauth_credentials() {
+        return Ok(credentials);
+    }
+
     let searched = seen
         .iter()
         .map(|path| path.display().to_string())
@@ -78,6 +86,29 @@ pub(super) fn load_oauth_credentials(app: &AppHandle) -> Result<OAuthCredentials
     Err(format!(
         "Missing Antigravity OAuth credentials. Create agy-oauth.local.json with client_id and client_secret, or set AAAI_AGY_OAUTH_CLIENT_ID / AAAI_AGY_OAUTH_CLIENT_SECRET. Searched: {searched}"
     ))
+}
+
+fn embedded_oauth_credentials() -> Option<OAuthCredentials> {
+    let mut payload = EMBEDDED_OAUTH_BYTES.strip_prefix(EMBEDDED_OAUTH_MAGIC)?;
+    let client_id = read_obfuscated_field(&mut payload)?;
+    let client_secret = read_obfuscated_field(&mut payload)?;
+    if !payload.is_empty() {
+        return None;
+    }
+    normalize_oauth_credentials(client_id, client_secret)
+}
+
+fn read_obfuscated_field(payload: &mut &[u8]) -> Option<String> {
+    let length_bytes: [u8; 4] = payload.get(..4)?.try_into().ok()?;
+    let length = usize::try_from(u32::from_le_bytes(length_bytes)).ok()?;
+    let encrypted = payload.get(4..4 + length)?;
+    let decoded = encrypted
+        .iter()
+        .enumerate()
+        .map(|(index, byte)| byte ^ EMBEDDED_OAUTH_KEY[index % EMBEDDED_OAUTH_KEY.len()])
+        .collect::<Vec<_>>();
+    *payload = payload.get(4 + length..)?;
+    String::from_utf8(decoded).ok()
 }
 
 fn push_oauth_candidates(candidates: &mut Vec<PathBuf>, dir: PathBuf) {
@@ -136,7 +167,7 @@ fn normalize_oauth_credentials(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_oauth_credentials_json;
+    use super::{embedded_oauth_credentials, parse_oauth_credentials_json, OAUTH_LOCAL_FILE_NAMES};
 
     #[test]
     fn parses_flat_local_credentials() {
@@ -163,5 +194,17 @@ mod tests {
     #[test]
     fn rejects_incomplete_credentials() {
         assert!(parse_oauth_credentials_json(r#"{"client_id":"only-client"}"#).is_none());
+    }
+
+    #[test]
+    fn local_build_credentials_are_embedded_when_present() {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let has_local_credentials = OAUTH_LOCAL_FILE_NAMES
+            .iter()
+            .any(|name| manifest_dir.join(name).is_file());
+
+        if has_local_credentials {
+            assert!(embedded_oauth_credentials().is_some());
+        }
     }
 }

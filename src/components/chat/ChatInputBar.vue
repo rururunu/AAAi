@@ -77,6 +77,7 @@
         key="model-list"
         :models="modelPickerModels"
         :selected-model-id="chatModel"
+        :selected-provider="chatModelProvider"
         :selected-index="selectedIndex"
         :loading="chatModelStore.loading"
         :refreshing="chatModelStore.refreshing"
@@ -510,6 +511,7 @@ import type {
   AskDisplayOption,
   AskUserQuestion,
   CapturedContext,
+  ChatModelInfo,
   ContextUsageSnapshot,
   ChatSessionSummary,
   PathPermissionDecision,
@@ -794,14 +796,24 @@ function formatTime(timestamp: number) {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-// Bound to global settings — backend resolve_provider reads settings.chatModel only.
+// Bound to global settings used by backend provider resolution.
 const chatModel = ref(settingStore.chatModel);
+const chatModelProvider = ref(settingStore.chatModelProvider);
 
 watch(
   () => settingStore.chatModel,
   (next) => {
     if (next !== chatModel.value) {
       chatModel.value = next;
+    }
+  },
+);
+
+watch(
+  () => settingStore.chatModelProvider,
+  (next) => {
+    if (next !== chatModelProvider.value) {
+      chatModelProvider.value = next;
     }
   },
 );
@@ -818,9 +830,11 @@ const availableModels = computed(() => {
   if (
     current &&
     models.length > 0 &&
-    !models.some((model) => isModelEntrySelected(model, current))
+    !models.some((model) =>
+      isModelEntrySelected(model, current, chatModelProvider.value),
+    )
   ) {
-    models.unshift({ id: current, ownedBy: "", provider: "" });
+    models.unshift({ id: current, ownedBy: "", provider: chatModelProvider.value });
   }
 
   return models;
@@ -878,7 +892,7 @@ const modelPickerEmptyText = computed(() => {
 });
 
 const currentModelEntry = computed(() =>
-  findModelEntry(availableModels.value, chatModel.value),
+  findModelEntry(availableModels.value, chatModel.value, chatModelProvider.value),
 );
 
 const showThinkingTierPicker = computed(() => {
@@ -1525,7 +1539,7 @@ async function openModelPicker() {
   await prepareChipPicker();
   beginModelFilterSession();
   const currentIdx = modelPickerModels.value.findIndex((model) =>
-    isModelEntrySelected(model, chatModel.value),
+    isModelEntrySelected(model, chatModel.value, chatModelProvider.value),
   );
   selectedIndex.value = currentIdx >= 0 ? currentIdx : 0;
   modelPickerOpen.value = true;
@@ -1639,16 +1653,17 @@ function flashModelChipConfirm() {
   }, 120);
 }
 
-function selectModel(modelId: string) {
+function selectModel(entry: ChatModelInfo) {
   closeModelPicker();
-  const entry = availableModels.value.find((model) => model.id === modelId);
-  const nextId = entry?.id ?? modelId;
-  if (nextId === chatModel.value) {
+  const nextId = entry.id;
+  const nextProvider = entry.provider;
+  if (nextId === chatModel.value && nextProvider === chatModelProvider.value) {
     return;
   }
   chatModel.value = nextId;
+  chatModelProvider.value = nextProvider;
   flashModelChipConfirm();
-  void settingStore.update({ chatModel: nextId });
+  void settingStore.update({ chatModel: nextId, chatModelProvider: nextProvider });
   emit("modelChange", nextId);
 }
 
@@ -1686,7 +1701,10 @@ function selectThinkingTier(variantId: string) {
     return;
   }
   chatModel.value = variantId;
-  void settingStore.update({ chatModel: variantId });
+  void settingStore.update({
+    chatModel: variantId,
+    chatModelProvider: chatModelProvider.value,
+  });
   emit("modelChange", variantId);
 }
 
@@ -1701,18 +1719,31 @@ onMounted(async () => {
     chatModel.value.trim() === "deepseek-chat"
   ) {
     chatModel.value = "";
+    chatModelProvider.value = "";
     if (settingStore.chatModel.trim() === "deepseek-chat") {
-      void settingStore.update({ chatModel: "" });
+      void settingStore.update({ chatModel: "", chatModelProvider: "" });
     }
   } else if (
     chatModelStore.models.length > 0 &&
     (!chatModel.value.trim() ||
-      !isKnownModelSelection(chatModelStore.models, chatModel.value))
+      !isKnownModelSelection(
+        chatModelStore.models,
+        chatModel.value,
+        chatModelProvider.value,
+      ))
   ) {
     const fallbackId = chatModelStore.models[0].id;
+    const fallbackProvider = chatModelStore.models[0].provider;
     chatModel.value = fallbackId;
-    if (fallbackId !== settingStore.chatModel) {
-      void settingStore.update({ chatModel: fallbackId });
+    chatModelProvider.value = fallbackProvider;
+    if (
+      fallbackId !== settingStore.chatModel ||
+      fallbackProvider !== settingStore.chatModelProvider
+    ) {
+      void settingStore.update({
+        chatModel: fallbackId,
+        chatModelProvider: fallbackProvider,
+      });
     }
   }
   void refreshContextUsage();
@@ -2089,7 +2120,7 @@ async function submit() {
     const models = modelPickerModels.value;
     if (selectedIndex.value < models.length) {
       const model = models[selectedIndex.value];
-      if (model) selectModel(model.id);
+      if (model) selectModel(model);
     } else {
       void refreshModelList();
     }
@@ -2348,7 +2379,7 @@ function handleKeydown(event: KeyboardEvent) {
       event.preventDefault();
       if (selectedIndex.value < modelCount) {
         const model = modelPickerModels.value[selectedIndex.value];
-        if (model) selectModel(model.id);
+        if (model) selectModel(model);
       } else {
         void refreshModelList();
       }
@@ -2790,7 +2821,7 @@ watch(
     }
     const models = modelPickerModels.value;
     const currentIdx = models.findIndex((model) =>
-      isModelEntrySelected(model, chatModel.value),
+      isModelEntrySelected(model, chatModel.value, chatModelProvider.value),
     );
     selectedIndex.value = currentIdx >= 0 ? currentIdx : 0;
     emitLayoutChange();

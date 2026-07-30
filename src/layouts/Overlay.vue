@@ -45,7 +45,8 @@ const PANEL_WIDTH = 640;
 const DIFF_SIDEBAR_WIDTH = 760;
 const SUBAGENT_SIDEBAR_WIDTH = DIFF_SIDEBAR_WIDTH;
 const IMAGE_SIDEBAR_WIDTH = DIFF_SIDEBAR_WIDTH;
-const INPUT_HEIGHT = 82;
+// The input bar is 82px tall; include the composer's 1px top and bottom borders.
+const INPUT_HEIGHT = 84;
 const OVERLAY_MIN_HEIGHT_INPUT = INPUT_HEIGHT;
 const CHAT_HEIGHT_PREFERRED = 520;
 const CHAT_SCREEN_MARGIN = 48;

@@ -455,11 +455,6 @@ const contextPreview = computed(() => {
       : tr(settingStore.language, "selectedImages", { count });
   }
 
-  if (context.activeWindow?.trim()) {
-    const firstLine = context.activeWindow.split("\n")[0]?.trim();
-    return firstLine ? `[Active Window] ${firstLine}` : "";
-  }
-
   return "";
 });
 const chatTitle = computed(() => {

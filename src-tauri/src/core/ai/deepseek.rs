@@ -264,6 +264,8 @@ async fn apply_image_input_fallback(
     let mm_model = settings.multimodal_model.trim();
 
     if !mm_model.is_empty()
+        && (settings.multimodal_model_provider.trim().is_empty()
+            || settings.multimodal_model_provider.trim() == "gemini")
         && crate::services::gemini_oauth::can_use_antigravity_for_model(settings, mm_model)
         && !settings.multimodal_split_analysis
     {
@@ -282,13 +284,20 @@ async fn apply_image_input_fallback(
         ));
     }
 
-    if crate::services::gemini_oauth::can_use_antigravity_for_model(settings, mm_model) {
+    if (settings.multimodal_model_provider.trim().is_empty()
+        || settings.multimodal_model_provider.trim() == "gemini")
+        && crate::services::gemini_oauth::can_use_antigravity_for_model(settings, mm_model)
+    {
         return Err(ProviderError::message(
             "Gemini multimodal models cannot be switched wholesale to the OpenAI API. Enable multimodal split analysis, or use a model such as gpt-4o.",
         ));
     }
 
-    let endpoint = resolve_multimodal_endpoint(settings, mm_model)?;
+    let endpoint = resolve_multimodal_endpoint(
+        settings,
+        mm_model,
+        settings.multimodal_model_provider.trim(),
+    )?;
     Ok(FallbackPlan::SwitchToMultimodal {
         model: mm_model.to_string(),
         api_key: endpoint.api_key,
@@ -1254,7 +1263,7 @@ mod tests {
     #[test]
     fn resolve_multimodal_endpoint_requires_custom_provider() {
         let settings = crate::models::settings::AppSettings::default();
-        let err = resolve_multimodal_endpoint(&settings, "gpt-4o").unwrap_err();
+        let err = resolve_multimodal_endpoint(&settings, "gpt-4o", "").unwrap_err();
         match err {
             ProviderError::Message(msg) => {
                 assert!(msg.contains("not configured under any custom provider"));
@@ -1275,9 +1284,29 @@ mod tests {
                 api_key: "sk-test".into(),
                 models: "gpt-4o, gpt-4o-mini".into(),
             });
-        let endpoint = resolve_multimodal_endpoint(&settings, "gpt-4o").unwrap();
+        let endpoint = resolve_multimodal_endpoint(&settings, "gpt-4o", "openai").unwrap();
         assert_eq!(endpoint.api_key, "sk-test");
         assert_eq!(endpoint.url, "https://api.openai.com/v1/chat/completions");
+    }
+
+    #[test]
+    fn resolve_multimodal_endpoint_disambiguates_duplicate_model_ids() {
+        let provider = |id: &str, key: &str| crate::models::settings::CustomProviderConfig {
+            id: id.into(),
+            name: id.into(),
+            base_url: format!("https://{id}.example/v1"),
+            api_key: key.into(),
+            models: "shared-vision-model".into(),
+        };
+        let settings = crate::models::settings::AppSettings {
+            custom_providers: vec![provider("first", "key-1"), provider("second", "key-2")],
+            ..Default::default()
+        };
+
+        let endpoint =
+            resolve_multimodal_endpoint(&settings, "shared-vision-model", "second").unwrap();
+        assert_eq!(endpoint.api_key, "key-2");
+        assert_eq!(endpoint.url, "https://second.example/v1/chat/completions");
     }
 
     #[test]
@@ -1345,5 +1374,8 @@ mod tests {
             antigravity_model_for_image_describe(&settings, "gemini-3-flash").as_deref(),
             Some("gemini-3-flash")
         );
+
+        settings.multimodal_model_provider = "custom-gemini".into();
+        assert!(antigravity_model_for_image_describe(&settings, "gemini-3-flash").is_none());
     }
 }

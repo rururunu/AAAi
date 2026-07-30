@@ -169,6 +169,7 @@ import type {
   ColorScheme,
   ReasoningEffort,
   ReasoningLanguage,
+  ModelSelection,
   WebSearchProvider,
   ToolApprovalMode,
 } from "@/types/setting";
@@ -381,14 +382,23 @@ async function saveApiKey() {
   await chatModelStore.refresh();
 }
 
+function isModelSelection(value: unknown): value is ModelSelection {
+  if (!value || typeof value !== "object") return false;
+  const selection = value as Partial<ModelSelection>;
+  return typeof selection.id === "string" && typeof selection.provider === "string";
+}
+
 function onDefaultModelChange(value: unknown) {
-  if (typeof value !== "string" || !value.trim()) return;
-  void settingStore.update({ chatModel: value });
+  if (!isModelSelection(value) || !value.id.trim()) return;
+  void settingStore.update({ chatModel: value.id, chatModelProvider: value.provider });
 }
 
 function onMultimodalModelChange(value: unknown) {
-  if (typeof value !== "string" || !value.trim()) return;
-  void settingStore.update({ multimodalModel: value });
+  if (!isModelSelection(value) || !value.id.trim()) return;
+  void settingStore.update({
+    multimodalModel: value.id,
+    multimodalModelProvider: value.provider,
+  });
 }
 
 function onToggle(id: string) {

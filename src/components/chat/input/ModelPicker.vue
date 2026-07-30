@@ -30,16 +30,16 @@
         </li>
         <li
           v-for="entry in group.entries"
-          :key="entry.model.id"
+          :key="`${entry.model.provider}:${entry.model.id}`"
           class="command-item model-picker-item"
           :class="{
             active: entry.index === selectedIndex,
-            current: isModelEntrySelected(entry.model, selectedModelId),
+            current: isModelEntrySelected(entry.model, selectedModelId, selectedProvider),
           }"
           role="option"
           :aria-selected="entry.index === selectedIndex"
           @mouseenter="$emit('hover', entry.index)"
-          @mousedown.prevent="$emit('select', entry.model.id)"
+          @mousedown.prevent="$emit('select', entry.model)"
         >
           <span class="model-name">{{ getModelDisplayLabel(entry.model) }}</span>
 
@@ -49,7 +49,7 @@
           >{{ getModelDisplaySubtitle(entry.model) }}</span>
 
           <Check
-            v-if="isModelEntrySelected(entry.model, selectedModelId)"
+            v-if="isModelEntrySelected(entry.model, selectedModelId, selectedProvider)"
             :size="13"
             class="model-check"
             aria-hidden="true"
@@ -92,6 +92,7 @@ import { isModelEntrySelected } from "@/lib/modelThinking";
 const props = defineProps<{
   models: ChatModelInfo[];
   selectedModelId: string;
+  selectedProvider: string;
   selectedIndex: number;
   loading: boolean;
   refreshing?: boolean;
@@ -104,7 +105,7 @@ const props = defineProps<{
 
 defineEmits<{
   hover: [index: number];
-  select: [modelId: string];
+  select: [model: ChatModelInfo];
   refresh: [];
 }>();
 

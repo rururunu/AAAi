@@ -36,8 +36,12 @@ pub(super) struct MultimodalEndpoint {
 pub(super) fn resolve_multimodal_endpoint(
     settings: &AppSettings,
     mm_model: &str,
+    provider_hint: &str,
 ) -> Result<MultimodalEndpoint, ProviderError> {
     for custom in &settings.custom_providers {
+        if !provider_hint.is_empty() && custom.id != provider_hint {
+            continue;
+        }
         let custom_ids: Vec<&str> = custom
             .models
             .split([',', '\n'])
@@ -254,7 +258,10 @@ pub(super) fn antigravity_model_for_image_describe(
     settings: &AppSettings,
     mm_model: &str,
 ) -> Option<String> {
-    if crate::services::gemini_oauth::can_use_antigravity_for_model(settings, mm_model) {
+    let provider = settings.multimodal_model_provider.trim();
+    if (provider.is_empty() || provider == "gemini")
+        && crate::services::gemini_oauth::can_use_antigravity_for_model(settings, mm_model)
+    {
         Some(mm_model.to_string())
     } else {
         None
@@ -313,7 +320,11 @@ pub(super) async fn describe_image(
         .await;
     }
 
-    let endpoint = resolve_multimodal_endpoint(&settings, &mm_model)?;
+    let endpoint = resolve_multimodal_endpoint(
+        &settings,
+        &mm_model,
+        settings.multimodal_model_provider.trim(),
+    )?;
 
     let b64_url = load_image_as_base64(image_payload)
         .map_err(|e| ProviderError::message(format!("Failed to load image: {e}")))?;

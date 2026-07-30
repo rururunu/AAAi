@@ -37,7 +37,9 @@ const defaultSettings: AppSettings = {
     mcpServers: [],
     opacity: 100,
     chatModel: DEFAULT_CHAT_MODEL,
+    chatModelProvider: "",
     multimodalModel: "gpt-4o",
+    multimodalModelProvider: "",
     multimodalSplitAnalysis: true,
     largeContextEnabled: true,
     reasoningEffort: "high",
@@ -91,7 +93,9 @@ function applyCommonSettings(target: AppSettings, settings: AppSettings) {
     target.language = settings.language;
     target.opacity = normalizeOpacityValue(settings);
     target.chatModel = settings.chatModel ?? DEFAULT_CHAT_MODEL;
+    target.chatModelProvider = settings.chatModelProvider ?? "";
     target.multimodalModel = settings.multimodalModel ?? "gpt-4o";
+    target.multimodalModelProvider = settings.multimodalModelProvider ?? "";
     target.multimodalSplitAnalysis = settings.multimodalSplitAnalysis ?? true;
     target.largeContextEnabled = settings.largeContextEnabled ?? true;
     target.reasoningEffort = settings.reasoningEffort ?? "high";
