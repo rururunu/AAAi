@@ -339,6 +339,8 @@ impl StreamManager {
                             json!({ "message": message }),
                         );
                         turn_span.finish_err(&message);
+                        let _ = crate::core::checkpoint::shared_checkpoint_store()
+                            .finish_turn(&session_id);
                         if epoch_still_active(&active_tasks, &assistant_message_id, epoch) {
                             finish_with_error(
                                 &event_bus,
@@ -350,8 +352,6 @@ impl StreamManager {
                                 message,
                             );
                         }
-                        let _ = crate::core::checkpoint::shared_checkpoint_store()
-                            .finish_turn(&session_id);
                         active_tasks
                             .lock()
                             .ok()
@@ -391,6 +391,8 @@ impl StreamManager {
                 return;
             }
 
+            // Checkpoints must be visible before the completion event refreshes the UI.
+            let _ = crate::core::checkpoint::shared_checkpoint_store().finish_turn(&session_id);
             match result {
                 Ok(()) => {
                     journal.append(
@@ -445,7 +447,6 @@ impl StreamManager {
                     );
                 }
             }
-            let _ = crate::core::checkpoint::shared_checkpoint_store().finish_turn(&session_id);
         });
     }
 
@@ -464,6 +465,7 @@ impl StreamManager {
         let Some(task) = active else {
             if let Some((session_id, message)) = conversation.settle_interrupted_message(message_id)
             {
+                let _ = crate::core::checkpoint::shared_checkpoint_store().finish_turn(&session_id);
                 event_bus.emit(BusEvent::ChatFinished {
                     session_id,
                     message_id: message_id.to_string(),
@@ -501,7 +503,7 @@ impl StreamManager {
         );
 
         let (session_id, message) = conversation.find_message(message_id)?;
-        if let Some(message) = conversation.update_message(
+        let updated = conversation.update_message(
             &session_id,
             message_id,
             MessageStatus::Cancelled,
@@ -511,7 +513,9 @@ impl StreamManager {
                 content
             }),
             Some(non_empty_string(reasoning)),
-        ) {
+        );
+        let _ = crate::core::checkpoint::shared_checkpoint_store().finish_turn(&session_id);
+        if let Some(message) = updated {
             event_bus.emit(BusEvent::ChatFinished {
                 session_id: session_id.clone(),
                 message_id: message_id.to_string(),
@@ -520,8 +524,6 @@ impl StreamManager {
                 finish_reason: Some("cancelled".to_string()),
             });
         }
-        let _ = crate::core::checkpoint::shared_checkpoint_store().finish_turn(&session_id);
-
         Ok(())
     }
 }

@@ -236,6 +236,7 @@ impl ChatService {
             turn,
             &user_message.content,
             Some(user_message.id.clone()),
+            context.workspace.as_ref().map(|workspace| std::path::Path::new(&workspace.root)),
         );
 
         let chat_mode = self

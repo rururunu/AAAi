@@ -4,6 +4,8 @@ export interface CodeChangeEntry {
   id: string;
   path: string;
   diff: string;
+  oldText?: string | null;
+  newText?: string | null;
   added: number;
   removed: number;
 }
@@ -30,6 +32,10 @@ function changesForActivity(messageId: string, activity: ToolActivity): CodeChan
     id: `${messageId}:${activity.id}:${index}`,
     path: section.path,
     diff: section.diff,
+    // A preview describes one file. Multi-file patches intentionally use the
+    // unified-diff fallback in Rust so no unrelated text is paired together.
+    oldText: sections.length === 1 ? preview.oldText : undefined,
+    newText: sections.length === 1 ? preview.newText : undefined,
     ...countChanges(section.diff),
   }));
 }
@@ -113,7 +119,7 @@ function fallbackEntry(
     ...toLines(oldText).map((line) => `-${line}`),
     ...toLines(newText).map((line) => `+${line}`),
   ].join("\n");
-  return [{ id: `${messageId}:${activityId}`, path, diff, ...countChanges(diff) }];
+  return [{ id: `${messageId}:${activityId}`, path, diff, oldText, newText, ...countChanges(diff) }];
 }
 
 function previewDiff(preview: ToolPreviewPayload) {
@@ -170,6 +176,8 @@ function mergeChangesByPath(changes: CodeChangeEntry[]) {
     }
     current.id = `${current.id}:${change.id}`;
     current.diff = `${current.diff}\n\n${change.diff}`;
+    current.oldText = undefined;
+    current.newText = undefined;
     current.added += change.added;
     current.removed += change.removed;
   }

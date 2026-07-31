@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-input-shell">
+  <div class="chat-input-shell" :class="{ 'overlay-pickers': props.overlayPickers }">
     <Transition :css="false" mode="out-in" @enter="gsapPickerEnter" @leave="gsapPickerLeave">
       <WorkspacePickerPanel
         v-if="workspacePickerOpen"
@@ -559,6 +559,7 @@ const props = withDefaults(
     sessionId?: string;
     capturedContext?: CapturedContext | null;
     contextReady?: boolean;
+    overlayPickers?: boolean;
   }>(),
   {
     sending: false,
@@ -570,6 +571,7 @@ const props = withDefaults(
     sessionId: "",
     capturedContext: null,
     contextReady: false,
+    overlayPickers: false,
   },
 );
 
@@ -2936,8 +2938,22 @@ defineExpose({ focusInput, reset, setMessage });
 
 <style scoped>
 .chat-input-shell {
+  position: relative;
   display: flex;
   flex-direction: column;
+}
+
+/* Pickers float above the composer in chat mode instead of changing its layout. */
+.chat-input-shell.overlay-pickers :deep(.command-list) {
+  position: absolute;
+  z-index: 30;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  border: 1px solid var(--peek-border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  box-shadow: 0 -10px 28px color-mix(in srgb, #000 24%, transparent);
 }
 
 .input-bar {

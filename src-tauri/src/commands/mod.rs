@@ -1,6 +1,7 @@
 pub mod app;
 pub mod ask;
 pub mod chat;
+pub mod diff;
 pub mod gemini;
 pub mod harness;
 pub mod mcp;

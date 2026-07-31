@@ -144,6 +144,7 @@
             :label="activityLabel(item.message)!"
           />
           <CodeChangesSummary
+            v-if="item.message.status === 'done'"
             :message="item.message"
             :can-undo="Boolean(checkpointForAssistant(item.message))"
             :busy="rewindBusy"

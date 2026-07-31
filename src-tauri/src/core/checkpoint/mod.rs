@@ -26,6 +26,8 @@ pub struct Checkpoint {
     pub files: Vec<FileSnap>,
     #[serde(default)]
     pub user_message_id: Option<String>,
+    #[serde(default)]
+    pub workspace_root: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -38,6 +40,7 @@ struct ActiveTurn {
     turn: usize,
     prompt: String,
     user_message_id: Option<String>,
+    workspace_root: Option<String>,
     snapped: HashMap<String, FileSnap>,
 }
 
@@ -68,6 +71,7 @@ impl CheckpointStore {
         turn: usize,
         prompt: &str,
         user_message_id: Option<String>,
+        workspace_root: Option<&Path>,
     ) {
         if let Ok(mut active) = self.active.lock() {
             active.insert(
@@ -76,6 +80,7 @@ impl CheckpointStore {
                     turn,
                     prompt: prompt.to_string(),
                     user_message_id,
+                    workspace_root: workspace_root.map(|path| path.to_string_lossy().into_owned()),
                     snapped: HashMap::new(),
                 },
             );
@@ -146,6 +151,7 @@ impl CheckpointStore {
             prompt: turn.prompt,
             files: turn.snapped.into_values().collect(),
             user_message_id: turn.user_message_id,
+            workspace_root: turn.workspace_root,
         };
         index.checkpoints.retain(|c| c.turn != checkpoint.turn);
         index.checkpoints.push(checkpoint);
@@ -250,7 +256,13 @@ mod tests {
         fs::write(workspace.join("one.txt"), "old one\n").unwrap();
         fs::write(workspace.join("two.txt"), "old two\n").unwrap();
 
-        store.begin_turn("session", 1, "edit both", Some("user-1".into()));
+        store.begin_turn(
+            "session",
+            1,
+            "edit both",
+            Some("user-1".into()),
+            Some(&workspace),
+        );
         store
             .snapshot_preview(
                 "session",

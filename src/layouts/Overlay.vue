@@ -42,9 +42,6 @@ function removeCapturedSelection() {
 }
 
 const PANEL_WIDTH = 640;
-const DIFF_SIDEBAR_WIDTH = 760;
-const SUBAGENT_SIDEBAR_WIDTH = DIFF_SIDEBAR_WIDTH;
-const IMAGE_SIDEBAR_WIDTH = DIFF_SIDEBAR_WIDTH;
 // The input bar is 82px tall; include the composer's 1px top and bottom borders.
 const INPUT_HEIGHT = 84;
 const OVERLAY_MIN_HEIGHT_INPUT = INPUT_HEIGHT;
@@ -66,7 +63,8 @@ const subagentSidebarOpen = ref(false);
 const runtimeSidebarOpen = ref(false);
 const imageSidebarOpen = ref(false);
 let layoutResizeQueue = Promise.resolve();
-let chatWidthBeforeSidebar = PANEL_WIDTH;
+let windowWidthBeforeSidebar = PANEL_WIDTH;
+let windowWidthWithSidebar = PANEL_WIDTH;
 
 // 获取当前窗口的 label，用于所有 IPC 调用
 const windowLabel = getCurrentWebviewWindow().label;
@@ -86,6 +84,12 @@ async function applySizeConstraints(
   designWidth = PANEL_WIDTH,
 ) {
   const window = getCurrentWebviewWindow();
+  // Native size and constraint changes restore a maximized window. Layout
+  // updates still occur while a user is interacting with the chat, so they
+  // must become no-ops until the user explicitly restores the window.
+  if (await window.isMaximized()) {
+    return;
+  }
   const zoom = (settingStore.zoom || 100) / 100;
 
   const panelWidth = designWidth * zoom;
@@ -135,6 +139,9 @@ async function resizeWindow(
   verticalAnchor: "top" | "bottom" = "top",
 ) {
   const window = getCurrentWebviewWindow();
+  if (await window.isMaximized()) {
+    return;
+  }
   const scaleFactor = await window.scaleFactor();
   const physicalPosition = await window.outerPosition();
   const physicalSize = await window.outerSize();
@@ -153,7 +160,7 @@ async function resizeWindow(
   const deltaWidth = scaledWidth - currentWidth;
 
   await window.setResizable(resizable);
-  await window.setMaximizable(false);
+  await window.setMaximizable(true);
   await window.setSize(new LogicalSize(scaledWidth, scaledHeight));
 
   if (!skipPositionCorrection && (Math.abs(delta) > 0.5 || Math.abs(deltaWidth) > 0.5)) {
@@ -216,7 +223,9 @@ function handleLayoutChange(payload: {
   subagentSidebarOpen?: boolean;
   runtimeSidebarOpen?: boolean;
   imageSidebarOpen?: boolean;
+  sidebarWidth?: number;
 }) {
+  const modeValue = payload.mode ?? mode.value;
   const pickerHeight =
     (payload.pickerHeight ?? 0) > 0
       ? payload.pickerHeight!
@@ -225,7 +234,6 @@ function handleLayoutChange(payload: {
         : payload.showSuggestions
           ? SUGGESTION_PADDING + payload.suggestionCount * SUGGESTION_ROW_HEIGHT
           : 0;
-  const modeValue = payload.mode ?? mode.value;
   const wasSidebarOpen =
     diffSidebarOpen.value || subagentSidebarOpen.value || runtimeSidebarOpen.value || imageSidebarOpen.value;
   diffSidebarOpen.value = modeValue === "chat" && Boolean(payload.diffSidebarOpen);
@@ -236,17 +244,12 @@ function handleLayoutChange(payload: {
     diffSidebarOpen.value || subagentSidebarOpen.value || runtimeSidebarOpen.value || imageSidebarOpen.value;
   const sidebarOpening = !wasSidebarOpen && willSidebarOpen;
   const sidebarClosing = wasSidebarOpen && !willSidebarOpen;
-  const sidebarWidth = payload.diffSidebarOpen
-    ? DIFF_SIDEBAR_WIDTH
-    : payload.subagentSidebarOpen
-      ? SUBAGENT_SIDEBAR_WIDTH
-      : payload.runtimeSidebarOpen
-        ? SUBAGENT_SIDEBAR_WIDTH
-      : payload.imageSidebarOpen
-        ? IMAGE_SIDEBAR_WIDTH
-      : 0;
-  const initialDesignWidth = modeValue === "chat"
-    ? chatWidthBeforeSidebar + sidebarWidth
+  const sidebarWidth = willSidebarOpen ? Math.max(0, payload.sidebarWidth ?? 0) : 0;
+  if (sidebarOpening) {
+    windowWidthWithSidebar = Math.max(windowWidthBeforeSidebar, sidebarWidth * 2);
+  }
+  const initialDesignWidth = modeValue === "chat" && willSidebarOpen
+    ? windowWidthWithSidebar
     : PANEL_WIDTH;
   // Chip menus are in-panel pickers now; height comes from pickerHeight.
   // Keep modelMenuHeight only for any leftover floating chrome in input mode.
@@ -256,8 +259,10 @@ function handleLayoutChange(payload: {
   // Images (~52px thumbs) and file chips (~26px) each need vertical room in input mode.
   const imagesHeight = payload.hasImages ? 60 : 0;
   const filesHeight = payload.hasFiles ? 34 : 0;
+  // In chat mode pickers overlay the conversation above the composer. They
+  // must not resize the native window or push the chat viewport upward.
   const extraHeight =
-    pickerHeight + modelMenuHeight + contextHeight + imagesHeight + filesHeight;
+    (modeValue === "chat" ? 0 : pickerHeight) + modelMenuHeight + contextHeight + imagesHeight + filesHeight;
 
   if (modeValue === "input") {
     chatWindowInitialized.value = false;
@@ -291,17 +296,16 @@ function handleLayoutChange(payload: {
       const currentDesignWidth = logicalSize.width / zoom;
 
       if (sidebarOpening) {
-        chatWidthBeforeSidebar = Math.max(PANEL_WIDTH, currentDesignWidth);
+        windowWidthBeforeSidebar = Math.max(PANEL_WIDTH, currentDesignWidth);
+        windowWidthWithSidebar = Math.max(windowWidthBeforeSidebar, sidebarWidth * 2);
       }
 
-      const minimumDesignWidth = willSidebarOpen
-        ? PANEL_WIDTH + sidebarWidth
-        : PANEL_WIDTH;
       const targetDesignWidth = willSidebarOpen
-        ? Math.max(chatWidthBeforeSidebar, minimumDesignWidth)
+        ? windowWidthWithSidebar
         : sidebarClosing
-          ? chatWidthBeforeSidebar
+          ? windowWidthBeforeSidebar
           : currentDesignWidth;
+      const minimumDesignWidth = willSidebarOpen ? targetDesignWidth : PANEL_WIDTH;
 
       // Opening/closing changes the resize constraints even when the current
       // window is already wide enough and no physical resize is necessary.
@@ -354,7 +358,8 @@ async function enterChatMode(nextSessionId: string) {
   subagentSidebarOpen.value = false;
   runtimeSidebarOpen.value = false;
   imageSidebarOpen.value = false;
-  chatWidthBeforeSidebar = PANEL_WIDTH;
+  windowWidthBeforeSidebar = PANEL_WIDTH;
+  windowWidthWithSidebar = PANEL_WIDTH;
   await setOverlayChatMode(windowLabel, true);
   // 先切换 UI、等一帧绘制，再以底边为锚点展开，让输入框保持原位
   await waitForNextFrame();
@@ -372,7 +377,8 @@ async function resetToInputMode() {
   subagentSidebarOpen.value = false;
   runtimeSidebarOpen.value = false;
   imageSidebarOpen.value = false;
-  chatWidthBeforeSidebar = PANEL_WIDTH;
+  windowWidthBeforeSidebar = PANEL_WIDTH;
+  windowWidthWithSidebar = PANEL_WIDTH;
   chatStore.setOverlayDraftSession("");
   await setOverlayChatMode(windowLabel, false);
   await applySizeConstraints("input", OVERLAY_MIN_HEIGHT_INPUT);
@@ -387,7 +393,7 @@ async function close() {
 
 onMounted(async () => {
   const window = getCurrentWebviewWindow();
-  void window.setMaximizable(false);
+  void window.setMaximizable(true);
   void window.listen<CapturedContext>(IPC_EVENTS.contextCaptured, (event) => {
     if (mode.value === "chat") {
       return;
@@ -419,16 +425,11 @@ watch(
   () => settingStore.zoom,
   async () => {
     if (mode.value === "chat") {
-      const sidebarWidth = diffSidebarOpen.value
-        ? DIFF_SIDEBAR_WIDTH
-        : subagentSidebarOpen.value
-          ? SUBAGENT_SIDEBAR_WIDTH
-          : runtimeSidebarOpen.value
-            ? SUBAGENT_SIDEBAR_WIDTH
-          : imageSidebarOpen.value
-            ? IMAGE_SIDEBAR_WIDTH
-            : 0;
-      const designWidth = PANEL_WIDTH + sidebarWidth;
+      const sidebarOpen =
+        diffSidebarOpen.value || subagentSidebarOpen.value || runtimeSidebarOpen.value || imageSidebarOpen.value;
+      const designWidth = sidebarOpen
+        ? windowWidthWithSidebar
+        : windowWidthBeforeSidebar;
       await applySizeConstraints("chat", OVERLAY_MIN_HEIGHT_CHAT, designWidth);
       const window = getCurrentWebviewWindow();
       const scaleFactor = await window.scaleFactor();

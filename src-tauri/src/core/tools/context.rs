@@ -237,7 +237,8 @@ mod tests {
         use crate::core::checkpoint::CheckpointStore;
         use crate::core::tools::preview::{ChangeKind, ToolPreview};
 
-        let base = std::env::temp_dir().join(format!("peek-child-checkpoint-{}", uuid::Uuid::new_v4()));
+        let base =
+            std::env::temp_dir().join(format!("peek-child-checkpoint-{}", uuid::Uuid::new_v4()));
         let workspace = base.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
         std::fs::write(workspace.join("child.txt"), "before\n").unwrap();
@@ -264,7 +265,13 @@ mod tests {
         };
         let child = context.child_subagent("edit child.txt");
         let store = CheckpointStore::new(base.join("checkpoints"));
-        store.begin_turn("parent-session", 1, "delegate edit", Some("user-1".into()));
+        store.begin_turn(
+            "parent-session",
+            1,
+            "delegate edit",
+            Some("user-1".into()),
+            Some(&workspace),
+        );
         store
             .snapshot_preview(
                 child.root_session_id(),
@@ -282,8 +289,14 @@ mod tests {
         store.finish_turn("parent-session").unwrap();
 
         std::fs::write(workspace.join("child.txt"), "after\n").unwrap();
-        assert_eq!(store.restore_code("parent-session", 1, &workspace).unwrap(), 1);
-        assert_eq!(std::fs::read_to_string(workspace.join("child.txt")).unwrap(), "before\n");
+        assert_eq!(
+            store.restore_code("parent-session", 1, &workspace).unwrap(),
+            1
+        );
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("child.txt")).unwrap(),
+            "before\n"
+        );
 
         drop(child);
         drop(context);

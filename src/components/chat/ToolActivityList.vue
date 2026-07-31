@@ -154,6 +154,7 @@ import Markdown from "@/components/chat/Markdown.vue";
 import type { ToolActivity } from "@/types/chat";
 import { useSettingStore } from "@/stores/setting";
 import { tr } from "@/services/i18n";
+import { codeLanguageForPath } from "@/services/chat/codeLanguage";
 
 const props = withDefaults(defineProps<{
   activities: ToolActivity[];
@@ -263,18 +264,9 @@ function toLines(value: unknown) {
   return lines;
 }
 
-const LANGUAGE_BY_EXTENSION: Record<string, string> = {
-  c: "c", cc: "cpp", cpp: "cpp", cs: "csharp", css: "css", go: "go",
-  html: "xml", java: "java", js: "javascript", json: "json", jsx: "javascript",
-  kt: "kotlin", md: "markdown", php: "php", py: "python", rb: "ruby", rs: "rust",
-  sh: "bash", sql: "sql", ts: "typescript", tsx: "typescript", vue: "xml",
-  xml: "xml", yaml: "yaml", yml: "yaml",
-};
-
 function highlightLine(line: string, activity: ToolActivity) {
   const path = String(activity.arguments?.path ?? "");
-  const extension = path.split(".").pop()?.toLowerCase() ?? "";
-  const language = LANGUAGE_BY_EXTENSION[extension];
+  const language = codeLanguageForPath(path).id;
   const highlighted = language && hljs.getLanguage(language)
     ? hljs.highlight(line, { language }).value
     : hljs.highlightAuto(line).value;

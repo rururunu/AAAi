@@ -1,7 +1,8 @@
 <template>
   <div
     class="peek-panel"
-    :class="{ chat: mode === 'chat', 'minimize-preview': isMinimizePreview }"
+    :class="{ chat: mode === 'chat', maximized: isMaximized, 'sidebar-open': sidebarOpen, 'minimize-preview': isMinimizePreview }"
+    :style="panelStyle"
     data-tauri-drag-region
     @mousedown="onWindowDragMouseDown"
   >
@@ -77,6 +78,31 @@
           </button>
           <button
             type="button"
+            class="window-btn"
+            :class="{ active: isAlwaysOnTop }"
+            :disabled="isMaximized"
+            :aria-pressed="isAlwaysOnTop"
+            :aria-label="tr(settingStore.language, isAlwaysOnTop ? 'unpinWindow' : 'pinWindow')"
+            :title="tr(settingStore.language, isAlwaysOnTop ? 'unpinWindow' : 'pinWindow')"
+            data-tauri-drag-region="false"
+            @mousedown.stop.prevent="toggleAlwaysOnTop"
+          >
+            <PinOff v-if="isAlwaysOnTop" :size="12" />
+            <Pin v-else :size="12" />
+          </button>
+          <button
+            type="button"
+            class="window-btn"
+            :aria-label="tr(settingStore.language, isMaximized ? 'restoreWindow' : 'maximizeWindow')"
+            :title="tr(settingStore.language, isMaximized ? 'restoreWindow' : 'maximizeWindow')"
+            data-tauri-drag-region="false"
+            @mousedown.stop.prevent="toggleMaximized"
+          >
+            <Minimize2 v-if="isMaximized" :size="12" />
+            <Maximize2 v-else :size="12" />
+          </button>
+          <button
+            type="button"
             class="window-btn close"
             :aria-label="tr(settingStore.language, 'close')"
             data-tauri-drag-region="false"
@@ -95,7 +121,7 @@
         {{ contextNotice }}
       </p>
 
-      <div ref="threadContentRef" class="thread-content">
+      <div class="thread-content">
         <MessageList
           :messages="messages"
           :session-id="activeSessionId"
@@ -105,7 +131,7 @@
           @inspect-subagent="openSubagentSidebar"
           @preview-image="handlePreviewImage"
         />
-          <Transition name="workspace-sidebar">
+          <Transition name="workspace-sidebar" @after-leave="emitComposerLayout">
             <div
               v-show="sidebarOpen"
               class="workspace-sidebar-shell"
@@ -201,6 +227,7 @@
         :session-id="activeSessionId"
         :captured-context="capturedContext"
         :context-ready="contextReady"
+        :overlay-pickers="mode === 'chat'"
         :placeholder="tr(settingStore.language, mode === 'chat' ? 'continueQuestion' : 'askAnything')"
         :close-on-escape="mode === 'input'"
         :ask-user="askUserSession"
@@ -232,7 +259,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { Bot, Bug, FileDiff, Image as ImageIcon, Minus, PanelRight, X } from "@lucide/vue";
+import { Bot, Bug, FileDiff, Image as ImageIcon, Maximize2, Minimize2, Minus, PanelRight, Pin, PinOff, X } from "@lucide/vue";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import ChatInputBar, {
@@ -307,6 +334,7 @@ const emit = defineEmits<{
       subagentSidebarOpen: boolean;
       runtimeSidebarOpen: boolean;
       imageSidebarOpen: boolean;
+      sidebarWidth: number;
       hasImages?: boolean;
       hasFiles?: boolean;
     },
@@ -323,9 +351,10 @@ const { sessions, overlayDraftSessionId, overlayContextNotice } = storeToRefs(ch
 
 const inputRef = ref<InstanceType<typeof ChatInputBar> | null>(null);
 const dockRef = ref<HTMLElement | null>(null);
-const threadContentRef = ref<HTMLElement | null>(null);
 const panelVisible = ref(false);
 const isMinimizePreview = ref(false);
+const isMaximized = ref(false);
+const isAlwaysOnTop = ref(true);
 const MINIMIZE_PREVIEW_MS = 64;
 let minimizeTimer: ReturnType<typeof setTimeout> | null = null;
 const askUserSession = ref<AskUserSession | null>(null);
@@ -350,6 +379,11 @@ const sidebarTab = ref<SidebarTab>("diff");
 const sidebarOpen = computed(() =>
   diffSidebarOpen.value || subagentSidebarOpen.value || runtimeSidebarOpen.value || imageSidebarOpen.value,
 );
+const panelStyle = computed(() => ({
+  "--workspace-sidebar-width": sidebarOpen.value
+    ? String(diffSidebarWidth.value + DIFF_RESIZE_HANDLE_WIDTH) + "px"
+    : "0px",
+}));
 const diffSidebarResizing = ref(false);
 const DIFF_SIDEBAR_DEFAULT_WIDTH = 720;
 const DIFF_SIDEBAR_MIN_WIDTH = 420;
@@ -488,6 +522,10 @@ function emitComposerLayout() {
     subagentSidebarOpen: props.mode === "chat" && subagentSidebarOpen.value,
     runtimeSidebarOpen: props.mode === "chat" && runtimeSidebarOpen.value,
     imageSidebarOpen: props.mode === "chat" && imageSidebarOpen.value,
+    sidebarWidth:
+      props.mode === "chat" && sidebarOpen.value
+        ? diffSidebarWidth.value + DIFF_RESIZE_HANDLE_WIDTH
+        : 0,
   });
 }
 
@@ -562,13 +600,21 @@ function closeSubagentTab(entryId: string) {
 }
 
 function selectSidebarTab(tab: SidebarTab) {
+  if (!sidebarOpen.value && props.mode === "chat") {
+    const currentWidth = document.documentElement.clientWidth;
+    const halfWidth = currentWidth / 2;
+    const equalPaneWidth = halfWidth >= CHAT_PANE_MIN_WIDTH ? halfWidth : currentWidth;
+    diffSidebarWidth.value = Math.min(
+      DIFF_SIDEBAR_MAX_WIDTH,
+      Math.max(DIFF_SIDEBAR_MIN_WIDTH, equalPaneWidth - DIFF_RESIZE_HANDLE_WIDTH),
+    );
+  }
   sidebarTab.value = tab;
   diffSidebarOpen.value = tab === "diff";
   subagentSidebarOpen.value = tab === "subagents";
   runtimeSidebarOpen.value = tab === "runtime";
   imageSidebarOpen.value = tab === "image";
   emitComposerLayout();
-  void nextTick().then(fitDiffSidebarWidth);
 }
 
 function closeSidebar() {
@@ -577,20 +623,17 @@ function closeSidebar() {
   subagentSidebarOpen.value = false;
   runtimeSidebarOpen.value = false;
   imageSidebarOpen.value = false;
-  emitComposerLayout();
 }
 
 function availableDiffSidebarWidth() {
-  const contentWidth = threadContentRef.value?.clientWidth ?? 0;
-  return contentWidth > 0
-    ? Math.min(DIFF_SIDEBAR_MAX_WIDTH, contentWidth - CHAT_PANE_MIN_WIDTH - DIFF_RESIZE_HANDLE_WIDTH)
-    : DIFF_SIDEBAR_MAX_WIDTH;
-}
-
-function fitDiffSidebarWidth() {
-  if (!sidebarOpen.value) return;
-  const available = Math.max(DIFF_SIDEBAR_MIN_WIDTH, availableDiffSidebarWidth());
-  diffSidebarWidth.value = Math.min(diffSidebarWidth.value, available);
+  const contentWidth = document.documentElement.clientWidth;
+  return Math.min(
+    DIFF_SIDEBAR_MAX_WIDTH,
+    Math.max(
+      DIFF_SIDEBAR_MIN_WIDTH,
+      contentWidth - CHAT_PANE_MIN_WIDTH - DIFF_RESIZE_HANDLE_WIDTH,
+    ),
+  );
 }
 
 function startDiffSidebarResize(event: PointerEvent) {
@@ -606,9 +649,8 @@ function startDiffSidebarResize(event: PointerEvent) {
 function handleDiffSidebarResize(event: PointerEvent) {
   event.preventDefault();
   const requested = diffResizeStartWidth + diffResizeStartX - event.clientX;
-  const maximum = Math.max(DIFF_SIDEBAR_MIN_WIDTH, availableDiffSidebarWidth());
   diffSidebarWidth.value = Math.min(
-    maximum,
+    availableDiffSidebarWidth(),
     Math.max(DIFF_SIDEBAR_MIN_WIDTH, requested),
   );
 }
@@ -626,15 +668,14 @@ function handleDiffSidebarResizeKey(event: KeyboardEvent) {
   const delta = event.key === "ArrowLeft" ? 16 : -16;
   const requested = diffSidebarWidth.value + delta;
   diffSidebarWidth.value = Math.min(
-    Math.max(DIFF_SIDEBAR_MIN_WIDTH, availableDiffSidebarWidth()),
+    availableDiffSidebarWidth(),
     Math.max(DIFF_SIDEBAR_MIN_WIDTH, requested),
   );
   localStorage.setItem(DIFF_SIDEBAR_WIDTH_KEY, String(Math.round(diffSidebarWidth.value)));
 }
 
 function resetDiffSidebarWidth() {
-  const available = Math.max(DIFF_SIDEBAR_MIN_WIDTH, availableDiffSidebarWidth());
-  diffSidebarWidth.value = Math.min(DIFF_SIDEBAR_DEFAULT_WIDTH, available);
+  diffSidebarWidth.value = Math.min(DIFF_SIDEBAR_DEFAULT_WIDTH, availableDiffSidebarWidth());
   localStorage.setItem(DIFF_SIDEBAR_WIDTH_KEY, String(diffSidebarWidth.value));
 }
 
@@ -744,6 +785,34 @@ async function handlePause() {
 
 function close() {
   emit("close");
+}
+
+async function toggleMaximized() {
+  const window = getCurrentWebviewWindow();
+  try {
+    if (isMaximized.value) {
+      await window.unmaximize();
+      await window.setAlwaysOnTop(isAlwaysOnTop.value);
+    } else {
+      await window.setAlwaysOnTop(false);
+      await window.maximize();
+    }
+    isMaximized.value = await window.isMaximized();
+  } catch (error) {
+    console.error("Failed to toggle window maximization:", error);
+  }
+}
+
+async function toggleAlwaysOnTop() {
+  if (isMaximized.value) return;
+  const window = getCurrentWebviewWindow();
+  const next = !isAlwaysOnTop.value;
+  try {
+    await window.setAlwaysOnTop(next);
+    isAlwaysOnTop.value = next;
+  } catch (error) {
+    console.error("Failed to toggle window always-on-top state:", error);
+  }
 }
 
 function clearMinimizePreview() {
@@ -1017,6 +1086,11 @@ watch(
 
 onMounted(async () => {
   const window = getCurrentWebviewWindow();
+  isMaximized.value = await window.isMaximized().catch(() => false);
+  isAlwaysOnTop.value = await window.isAlwaysOnTop().catch(() => true);
+  if (isMaximized.value && isAlwaysOnTop.value) {
+    await window.setAlwaysOnTop(false);
+  }
   // Hide dock until overlay-shown; avoid FOUC before first reveal tween.
   if (!panelVisible.value) {
     gsapOverlayDockReveal(dockRef.value, false);
@@ -1102,6 +1176,7 @@ onMounted(async () => {
       subagentSidebarOpen: false,
       runtimeSidebarOpen: false,
       imageSidebarOpen: false,
+      sidebarWidth: 0,
     });
     diffSidebarOpen.value = false;
     subagentSidebarOpen.value = false;
@@ -1262,20 +1337,31 @@ onUnmounted(() => {
 
 .workspace-sidebar-tabs {
   flex: none;
-  min-height: 42px;
-  padding: 6px 8px;
+  min-height: 40px;
+  padding: 5px 7px;
+  gap: 2px;
+  background: color-mix(in srgb, var(--peek-text) 1.5%, transparent);
 }
 
 .workspace-sidebar-tabs .workspace-view-tab {
   flex: 0 1 auto;
   gap: 6px;
   min-width: 68px;
+  height: 30px;
   padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--peek-muted);
   font-size: 11px;
+  font-weight: 500;
+  box-shadow: none;
 }
+.workspace-sidebar-tabs .workspace-view-tab:hover { background: color-mix(in srgb, var(--peek-text) 5%, transparent); color: var(--peek-text); }
+.workspace-sidebar-tabs .workspace-view-tab.active { background: color-mix(in srgb, var(--peek-text) 8%, transparent); color: var(--peek-text); box-shadow: 0 3px 10px color-mix(in srgb, #000 9%, transparent); }
 .workspace-sidebar-tabs .workspace-view-tab > svg { flex: none; }
 .workspace-sidebar-tabs .workspace-view-tab > span:not(.tab-running-dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-sidebar-tabs .sidebar-close-button { flex: none; min-width: 28px; width: 28px; height: 28px; display: grid; place-items: center; margin-left: auto; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--peek-muted); cursor: pointer; }
+.workspace-sidebar-tabs .sidebar-close-button { flex: none; min-width: 28px; width: 28px; height: 28px; display: grid; place-items: center; margin: 1px 0 0 auto; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--peek-muted); cursor: pointer; }
 .workspace-sidebar-tabs .sidebar-close-button:hover { color: var(--peek-text); background: color-mix(in srgb, var(--peek-text) 7%, transparent); }
 .tab-running-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--peek-accent); }
 .workspace-sidebar-content { flex: 1; min-height: 0; display: flex; overflow: hidden; }
@@ -1329,18 +1415,20 @@ onUnmounted(() => {
 .diff-resize-handle::after {
   content: "";
   position: absolute;
-  inset: 34px 3px 0;
-  width: 1px;
-  background: color-mix(in srgb, var(--peek-text) 12%, var(--peek-border));
-  transition: width 100ms ease, inset 100ms ease, background 100ms ease;
+  top: calc(50% - 18px);
+  left: 2px;
+  width: 3px;
+  height: 36px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 100ms ease, transform 100ms ease;
 }
 
 .diff-resize-handle:hover::after,
 .diff-resize-handle:focus-visible::after,
 .diff-resize-handle.active::after {
-  inset: 34px 2px 0;
-  width: 3px;
   background: color-mix(in srgb, var(--peek-accent) 68%, var(--peek-border));
+  transform: scaleY(1.15);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1426,7 +1514,6 @@ onUnmounted(() => {
 
 .thread-header:hover {
   opacity: 1;
-  border-bottom-color: var(--peek-border);
   background: color-mix(in srgb, var(--peek-sidebar) 88%, transparent);
 }
 
@@ -1464,6 +1551,8 @@ onUnmounted(() => {
 }
 
 .composer-dock.expanded {
+  width: calc(100% - 2px);
+  margin: 0 1px 1px;
   border-radius: 8px;
   background: linear-gradient(
     180deg,
@@ -1471,6 +1560,123 @@ onUnmounted(() => {
     var(--peek-surface) 22%,
     var(--peek-surface) 100%
   );
+}
+
+/* Maximized mode becomes a quiet focus workspace: the thread owns the window,
+   while the composer floats over a narrower reading column. */
+.peek-panel.maximized {
+  --thread-side-gap: 0px;
+  --maximized-chat-width: calc(100% - var(--workspace-sidebar-width, 0px));
+  --maximized-reading-width: 900px;
+  --maximized-reading-inset: max(32px, calc((100% - var(--maximized-reading-width)) / 2));
+  --maximized-composer-width: 780px;
+  --maximized-composer-inset: max(32px, calc((var(--maximized-chat-width) - var(--maximized-composer-width)) / 2));
+  --maximized-composer-bottom: 30px;
+}
+
+.peek-panel.maximized .chat-main {
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+
+.peek-panel.maximized .thread-panel {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--peek-list-bg) 96%, transparent);
+  box-shadow: none;
+  z-index: 1;
+}
+
+.peek-panel.maximized .thread-header {
+  height: 42px;
+  padding: 0 14px;
+  background: color-mix(in srgb, var(--peek-sidebar) 68%, transparent);
+  opacity: 0.76;
+  backdrop-filter: blur(18px) saturate(1.08);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.peek-panel.maximized .thread-header:hover {
+  background: color-mix(in srgb, var(--peek-sidebar) 82%, transparent);
+  opacity: 1;
+}
+
+.peek-panel.maximized .window-controls {
+  gap: 3px;
+}
+
+.peek-panel.maximized .workspace-sidebar {
+  padding-top: 42px;
+}
+
+.peek-panel.maximized .composer-dock {
+  position: absolute;
+  right: calc(var(--workspace-sidebar-width, 0px) + var(--maximized-composer-inset));
+  bottom: var(--maximized-composer-bottom);
+  left: var(--maximized-composer-inset);
+  width: auto;
+  margin: 0;
+  border-radius: 8px;
+  border-color: color-mix(in srgb, var(--peek-text) 7%, transparent);
+  background: color-mix(in srgb, var(--peek-surface) 91%, transparent);
+  backdrop-filter: blur(24px) saturate(1.12);
+  -webkit-backdrop-filter: blur(24px) saturate(1.12);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--peek-text) 5%, transparent),
+    0 5px 16px color-mix(in srgb, #000 18%, transparent),
+    0 22px 56px color-mix(in srgb, #000 25%, transparent);
+  z-index: 10;
+}
+
+.peek-panel.maximized .composer-dock.expanded {
+  background: color-mix(in srgb, var(--peek-surface) 91%, transparent);
+}
+
+.peek-panel.maximized :deep(.message-list) {
+  gap: 20px;
+  padding-top: 70px;
+  padding-right: var(--maximized-reading-inset);
+  padding-bottom: 194px;
+  padding-left: var(--maximized-reading-inset);
+  scroll-padding-top: 70px;
+  scroll-padding-bottom: 194px;
+}
+
+.peek-panel.maximized :deep(.assistant-bubble) {
+  max-width: 100%;
+}
+
+.peek-panel.maximized :deep(.user-turn) {
+  max-width: min(76%, 680px);
+}
+
+.peek-panel.maximized :deep(.message-preview-rail) {
+  top: 58px;
+  right: 12px;
+  bottom: 122px;
+}
+
+.peek-panel.maximized .context-notice {
+  margin-top: 42px;
+}
+
+@media (max-width: 900px) {
+  .peek-panel.maximized {
+    --maximized-reading-inset: 24px;
+    --maximized-composer-inset: 20px;
+    --maximized-composer-bottom: 20px;
+  }
+}
+
+/* Chat pickers are intentionally allowed to extend into the thread area. */
+.peek-panel.chat .composer-dock {
+  overflow: visible;
 }
 
 .peek-panel.chat :deep(.input-footer-primary) {
@@ -1505,6 +1711,16 @@ onUnmounted(() => {
   background: var(--peek-list-active);
   color: var(--peek-text);
   border-color: color-mix(in srgb, var(--peek-accent) 24%, var(--peek-border));
+}
+
+.window-btn.active {
+  color: var(--peek-accent);
+  background: color-mix(in srgb, var(--peek-accent) 14%, transparent);
+}
+
+.window-btn:disabled {
+  opacity: 0.42;
+  cursor: default;
 }
 
 .window-btn.close:hover {

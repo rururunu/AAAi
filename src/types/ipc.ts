@@ -14,6 +14,7 @@ export const IPC_COMMANDS = {
   geminiOauthLogout: "gemini_oauth_logout",
   geminiImportClientSecrets: "gemini_import_client_secrets",
   getAppInfo: "get_app_info",
+  buildCodeDiff: "build_code_diff",
   chat: "chat",
   chatCancel: "chat_cancel",
   chatHistory: "chat_history",

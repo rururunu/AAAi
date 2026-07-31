@@ -19,7 +19,7 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 use app_state::AppState;
 use commands::{
-    app, ask, chat, gemini, harness, mcp, permission, settings, skills, themes, window, workspace,
+    app, ask, chat, diff, gemini, harness, mcp, permission, settings, skills, themes, window, workspace,
 };
 use services::overlay_native::clear_minimize_pending;
 use services::settings_store::{
@@ -284,6 +284,7 @@ pub fn run() {
             skills::open_skills_dir,
             mcp::get_mcp_runtime_support,
             app::get_app_info,
+            diff::build_code_diff,
             chat::chat,
             chat::chat_cancel,
             chat::chat_history,

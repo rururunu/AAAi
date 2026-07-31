@@ -201,13 +201,8 @@ pub fn destroy_overlay(app: &AppHandle, label: &str) {
 
 pub fn configure_overlay_window(window: &tauri::WebviewWindow) {
     let _ = window.set_shadow(false);
-    let _ = window.set_maximizable(false);
-    let _ = window.set_always_on_top(true);
+    let _ = window.set_maximizable(true);
     let _ = window.set_skip_taskbar(true);
-
-    if window.is_maximized().unwrap_or(false) {
-        let _ = window.unmaximize();
-    }
 
     reapply_toolwindow_style(window);
 }
@@ -305,6 +300,25 @@ pub fn toggle_overlay(app: &AppHandle, mouse_pos: Option<(i32, i32)>) {
         .cloned()
         .collect();
     overlay_labels.sort();
+
+    // An active chat represents an in-progress session. The global shortcut
+    // must open a separate draft instead of reusing another hidden input
+    // window, otherwise users cannot start a second conversation reliably.
+    let has_visible_chat = overlay_labels.iter().any(|label| {
+        is_overlay_in_chat_mode(label)
+            && app
+                .get_webview_window(label)
+                .is_some_and(|window| window.is_visible().unwrap_or(false))
+    });
+    if has_visible_chat {
+        let context = resolve_environment_context(app, capture_now());
+        if let Some((mx, my)) = mouse_pos.filter(|_| has_selected_context(&context)) {
+            place_and_show_overlay_at_mouse(app, mx, my, &context);
+        } else {
+            create_new_overlay(app, &context);
+        }
+        return;
+    }
 
     let input_label = overlay_labels
         .iter()

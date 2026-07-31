@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::core::checkpoint::{shared_checkpoint_store, Checkpoint};
+use crate::core::checkpoint::{shared_checkpoint_store, Checkpoint, CheckpointStore};
 use crate::core::tools::plan_mode::shared_plan_mode_store;
 use crate::core::tools::tool_approval::shared_tool_approval_store;
 
@@ -84,7 +84,7 @@ pub fn list_checkpoints(request: ListCheckpointsRequest) -> Result<Vec<Checkpoin
 }
 
 #[tauri::command]
-pub fn rewind_session(
+pub async fn rewind_session(
     state: State<'_, AppState>,
     request: RewindSessionRequest,
 ) -> Result<RewindSessionResponse, String> {
@@ -95,6 +95,12 @@ pub fn rewind_session(
 
     let mut restored_files = 0usize;
     let mut truncated_messages = false;
+    let checkpoint = shared_checkpoint_store()
+        .list(&request.session_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|checkpoint| checkpoint.turn == request.turn)
+        .ok_or_else(|| format!("checkpoint turn {} not found", request.turn))?;
 
     if restore == "code" || restore == "both" {
         let session_root = state
@@ -104,6 +110,7 @@ pub fn rewind_session(
             .workspace_for_session(&request.session_id)
             .map(std::path::PathBuf::from);
         let root = session_root
+            .or_else(|| checkpoint.workspace_root.clone().map(std::path::PathBuf::from))
             .or_else(|| {
                 state
                     .core
@@ -111,21 +118,16 @@ pub fn rewind_session(
                     .current()
                     .map(|workspace| workspace.root)
             })
-            .filter(|path| !path.as_os_str().is_empty())
-            .ok_or_else(|| "no workspace selected for code rewind".to_string())?;
-        restored_files = shared_checkpoint_store()
-            .restore_code(&request.session_id, request.turn, &root)
-            .map_err(|e| e.to_string())?;
+            .filter(|path| !path.as_os_str().is_empty());
+        restored_files = restore_checkpoint_code(
+            shared_checkpoint_store(),
+            &request.session_id,
+            &checkpoint,
+            root.as_deref(),
+        )?;
     }
 
     if restore == "conversation" || restore == "both" {
-        let checkpoints = shared_checkpoint_store()
-            .list(&request.session_id)
-            .map_err(|e| e.to_string())?;
-        let checkpoint = checkpoints
-            .iter()
-            .find(|c| c.turn == request.turn)
-            .ok_or_else(|| format!("checkpoint turn {} not found", request.turn))?;
         let Some(user_message_id) = &checkpoint.user_message_id else {
             return Err("checkpoint has no user_message_id for conversation rewind".into());
         };
@@ -134,6 +136,7 @@ pub fn rewind_session(
             .chat()
             .conversation()
             .truncate_from_message(&request.session_id, user_message_id)
+            .await
             .map_err(|e| e.to_string())?;
         truncated_messages = true;
         // Drop later checkpoints for this session after rewind turn
@@ -144,4 +147,63 @@ pub fn rewind_session(
         restored_files,
         truncated_messages,
     })
+}
+
+fn restore_checkpoint_code(
+    store: &CheckpointStore,
+    session_id: &str,
+    checkpoint: &Checkpoint,
+    workspace_root: Option<&std::path::Path>,
+) -> Result<usize, String> {
+    if checkpoint.files.is_empty() {
+        return Ok(0);
+    }
+    let root = workspace_root.ok_or_else(|| "no workspace selected for code rewind".to_string())?;
+    store
+        .restore_code(session_id, checkpoint.turn, root)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::restore_checkpoint_code;
+    use crate::core::checkpoint::{Checkpoint, CheckpointStore, FileSnap};
+
+    fn checkpoint(files: Vec<FileSnap>) -> Checkpoint {
+        Checkpoint {
+            turn: 1,
+            time: 0,
+            prompt: "question".into(),
+            files,
+            user_message_id: Some("user-1".into()),
+            workspace_root: None,
+        }
+    }
+
+    #[test]
+    fn conversation_only_checkpoint_does_not_require_workspace() {
+        let root = std::env::temp_dir().join(format!("aaai-rewind-{}", uuid::Uuid::new_v4()));
+        let store = CheckpointStore::new(root);
+        assert_eq!(
+            restore_checkpoint_code(&store, "session", &checkpoint(vec![]), None),
+            Ok(0)
+        );
+    }
+
+    #[test]
+    fn file_checkpoint_still_requires_workspace() {
+        let root = std::env::temp_dir().join(format!("aaai-rewind-{}", uuid::Uuid::new_v4()));
+        let store = CheckpointStore::new(root);
+        let error = restore_checkpoint_code(
+            &store,
+            "session",
+            &checkpoint(vec![FileSnap {
+                path: "file.txt".into(),
+                content: Some("old".into()),
+            }]),
+            None,
+        )
+        .expect_err("file restore should require a workspace");
+        assert!(error.contains("no workspace selected"));
+    }
 }

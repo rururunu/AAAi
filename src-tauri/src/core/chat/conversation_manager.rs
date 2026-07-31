@@ -297,7 +297,7 @@ impl ConversationManager {
     }
 
     /// Remove `user_message_id` and every message after it in the session.
-    pub fn truncate_from_message(
+    pub async fn truncate_from_message(
         &self,
         session_id: &str,
         user_message_id: &str,
@@ -315,20 +315,22 @@ impl ConversationManager {
             removed
         };
 
-        let pool = self.db_pool.clone();
-        let sid = session_id.to_string();
-        tauri::async_runtime::spawn(async move {
-            for id in removed_ids {
-                if let Err(e) = sqlx::query("DELETE FROM chat_messages WHERE id = ?;")
-                    .bind(&id)
-                    .execute(&pool)
-                    .await
-                {
-                    eprintln!("Failed to delete message {id} from SQLite: {e}");
-                }
-            }
-            let _ = sid;
-        });
+        let mut transaction = self
+            .db_pool
+            .begin()
+            .await
+            .map_err(|error| ChatError::Internal(error.to_string()))?;
+        for id in removed_ids {
+            sqlx::query("DELETE FROM chat_messages WHERE id = ?;")
+                .bind(&id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| ChatError::Internal(error.to_string()))?;
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|error| ChatError::Internal(error.to_string()))?;
         Ok(())
     }
 
@@ -512,4 +514,53 @@ fn now_millis() -> u64 {
 
 fn lock_error<T: std::fmt::Display>(error: T) -> ChatError {
     ChatError::Internal(error.to_string())
+}
+
+#[cfg(test)]
+mod rewind_tests {
+    use super::{create_message, ConversationManager};
+    use crate::core::chat::db;
+    use crate::core::runtime::{MessageStatus, Role};
+
+    #[tokio::test]
+    async fn truncate_is_persisted_before_returning() {
+        let db_path = std::env::temp_dir().join(format!(
+            "aaai-rewind-conversation-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let manager = ConversationManager::new(db_path.clone());
+        let session_id = "session";
+        let first = create_message(session_id, Role::User, "keep".into(), MessageStatus::Done);
+        let rewind_from =
+            create_message(session_id, Role::User, "rewind".into(), MessageStatus::Done);
+        let assistant = create_message(
+            session_id,
+            Role::Assistant,
+            "answer".into(),
+            MessageStatus::Done,
+        );
+
+        manager.sessions.lock().unwrap().insert(
+            session_id.into(),
+            vec![first.clone(), rewind_from.clone(), assistant.clone()],
+        );
+        for message in [&first, &rewind_from, &assistant] {
+            db::save_message(&manager.db_pool, message).await.unwrap();
+        }
+
+        manager
+            .truncate_from_message(session_id, &rewind_from.id)
+            .await
+            .unwrap();
+        assert_eq!(manager.messages(session_id), vec![first.clone()]);
+        drop(manager);
+
+        let reloaded = ConversationManager::new(db_path.clone());
+        assert_eq!(reloaded.messages(session_id), vec![first]);
+        drop(reloaded);
+
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("db-shm"));
+        let _ = std::fs::remove_file(db_path.with_extension("db-wal"));
+    }
 }

@@ -27,7 +27,7 @@ export const chatEn = {
   thinkingTierLow: "Low",
   thinkingTierHigh: "High",
   thinkingTierAgent: "Agent",
-  continueQuestion: "Ask a follow-up...", askAnything: "Ask anything...", newChat: "New chat", expand: "Expand", close: "Close", collapse: "Collapse", minimize: "Minimize",
+  continueQuestion: "Ask a follow-up...", askAnything: "Ask anything...", newChat: "New chat", expand: "Expand", close: "Close", collapse: "Collapse", minimize: "Minimize", pinWindow: "Keep window on top", unpinWindow: "Stop keeping window on top", maximizeWindow: "Maximize window", restoreWindow: "Restore window",
   showSecret: "Show secret", hideSecret: "Hide secret", userMessageNav: "User message navigation", jumpMessage: "Jump to message {count}",
   confirmSelection: "Confirm current selection", commandSuggestions: "Command suggestions", resetThemeColor: "Reset to default white",
   selectedFiles: "{file} and {count} more files",
@@ -62,6 +62,7 @@ export const chatEn = {
   editedFiles: "Edited {count} file(s)", undoChanges: "Undo", reviewChanges: "Review",
   processedFor: "Processed for {duration}",
   diffViewMode: "Diff view mode", diffUnified: "Unified diff", diffSplit: "Side-by-side diff", diffOriginal: "Original", diffModified: "Modified",
+  enableDiffWrap: "Enable line wrapping", disableDiffWrap: "Disable line wrapping",
 } as const;
 
 export type ChatI18nKey = keyof typeof chatEn;
@@ -79,6 +80,12 @@ export const chatLocales: Record<AppLanguage, LocalePartial> = {
 };
 
 Object.assign(chatLocales["zh-CN"], {
+  maximizeWindow: "最大化窗口",
+  restoreWindow: "还原窗口",
+  pinWindow: "置顶窗口",
+  unpinWindow: "取消置顶",
+  enableDiffWrap: "开启自动换行",
+  disableDiffWrap: "关闭自动换行",
   processedFor: "已处理 {duration}",
   editedFiles: "已编辑 {count} 个文件",
   undoChanges: "撤销",
