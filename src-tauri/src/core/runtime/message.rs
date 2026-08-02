@@ -63,6 +63,8 @@ pub struct ChatMessage {
     pub name: Option<String>,
     pub status: MessageStatus,
     pub timestamp: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_tokens: Option<usize>,
 }
 
 impl ChatMessage {

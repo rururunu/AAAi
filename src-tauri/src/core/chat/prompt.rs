@@ -122,6 +122,7 @@ fn inject_system_block(
         name: None,
         status: MessageStatus::Done,
         timestamp: 0,
+        estimated_tokens: None,
     });
 }
 
@@ -145,6 +146,7 @@ fn inject_memories(messages: &mut Vec<ChatMessage>, session_id: &str, memories: 
         name: None,
         status: MessageStatus::Done,
         timestamp: 0,
+        estimated_tokens: None,
     });
 }
 
@@ -161,6 +163,7 @@ fn system_message(session_id: &str) -> ChatMessage {
         name: None,
         status: MessageStatus::Done,
         timestamp: 0,
+        estimated_tokens: None,
     }
 }
 
@@ -282,6 +285,7 @@ fn inject_context(messages: &mut Vec<ChatMessage>, session_id: &str, context: &R
         name: None,
         status: MessageStatus::Done,
         timestamp: 0,
+        estimated_tokens: None,
     });
 }
 
@@ -544,6 +548,7 @@ mod tests {
             name: None,
             status: MessageStatus::Done,
             timestamp: 1,
+            estimated_tokens: None,
         };
         let history = vec![
             message("old-user", Role::User, "old question"),

@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use crate::core::chat::agent::AgentRunner;
 use crate::core::ai::provider::AIProvider;
+use crate::core::chat::agent::AgentRunner;
 use crate::core::event::BusEvent;
+use crate::core::token::AccountingProvider;
 use crate::core::tools::context::{Tool, ToolContext};
 use crate::core::tools::error::ToolError;
 use crate::core::tools::registry::ToolRegistry;
@@ -63,11 +64,20 @@ pub async fn run_subagent(
     .await
 }
 
-pub fn run_subagent_sync(ctx: &ToolContext, prompt: &str, read_only: bool) -> Result<String, ToolError> {
+pub fn run_subagent_sync(
+    ctx: &ToolContext,
+    prompt: &str,
+    read_only: bool,
+) -> Result<String, ToolError> {
     run_subagent_sync_with_model(ctx, prompt, read_only, None)
 }
 
-fn run_subagent_sync_with_model(ctx: &ToolContext, prompt: &str, read_only: bool, model: Option<&str>) -> Result<String, ToolError> {
+fn run_subagent_sync_with_model(
+    ctx: &ToolContext,
+    prompt: &str,
+    read_only: bool,
+    model: Option<&str>,
+) -> Result<String, ToolError> {
     block_on_tool_future(run_subagent(ctx, prompt, read_only, model))
 }
 
@@ -75,18 +85,39 @@ fn resolve_subagent_provider(
     ctx: &ToolContext,
     requested_model: Option<&str>,
 ) -> Result<Arc<dyn AIProvider>, ToolError> {
-    let Some(model) = requested_model.map(str::trim).filter(|value| !value.is_empty()) else {
-        return ctx.provider.clone().ok_or_else(|| ToolError::new("provider unavailable"));
+    let Some(model) = requested_model
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return ctx
+            .provider
+            .clone()
+            .ok_or_else(|| ToolError::new("provider unavailable"));
     };
-    let app = ctx.app_handle.clone().ok_or_else(|| ToolError::new("model collaboration unavailable"))?;
-    let settings = crate::services::settings_store::get_settings(&app)
-        .map_err(|error| ToolError::new(format!("failed to load collaboration settings: {error}")))?;
+    let app = ctx
+        .app_handle
+        .clone()
+        .ok_or_else(|| ToolError::new("model collaboration unavailable"))?;
+    let settings = crate::services::settings_store::get_settings(&app).map_err(|error| {
+        ToolError::new(format!("failed to load collaboration settings: {error}"))
+    })?;
     if !settings.multi_model_collaboration
-        || !settings.collaboration_models.iter().any(|allowed| allowed == model)
+        || !settings
+            .collaboration_models
+            .iter()
+            .any(|allowed| allowed == model)
     {
-        return Err(ToolError::new(format!("model `{model}` is not enabled for collaboration")));
+        return Err(ToolError::new(format!(
+            "model `{model}` is not enabled for collaboration"
+        )));
     }
-    Ok(crate::core::ai::registry::resolve_provider_for_model(app, model.to_string()))
+    let provider =
+        crate::core::ai::registry::resolve_provider_for_model(app.clone(), model.to_string());
+    Ok(Arc::new(AccountingProvider::new(
+        provider,
+        model.to_string(),
+        Some(app),
+    )))
 }
 
 pub async fn run_parallel_subagents(
@@ -328,7 +359,12 @@ impl Tool for RunReadonlySubagentTool {
         true
     }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
-        run_subagent_sync_with_model(ctx, args["prompt"].as_str().unwrap_or(""), true, args["model"].as_str())
+        run_subagent_sync_with_model(
+            ctx,
+            args["prompt"].as_str().unwrap_or(""),
+            true,
+            args["model"].as_str(),
+        )
     }
 }
 

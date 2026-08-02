@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 pub enum ColorScheme {
     #[serde(
         rename = "dark",
+        alias = "system",
+        alias = "auto",
+        alias = "default",
         alias = "nocturne",
         alias = "blue-black",
         alias = "dark",
@@ -182,9 +185,6 @@ fn default_gemini_oauth_client_secret() -> String {
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub color_scheme: ColorScheme,
-    /// Stable VS Code extension theme id. Empty uses the built-in color scheme.
-    #[serde(default)]
-    pub vscode_theme: String,
     pub language: AppLanguage,
     #[serde(default)]
     pub deepseek_api_key: String,
@@ -303,7 +303,6 @@ fn default_primary_hotkey() -> String {
 #[serde(rename_all = "camelCase")]
 pub struct AppSettingsPatch {
     pub color_scheme: Option<ColorScheme>,
-    pub vscode_theme: Option<String>,
     pub language: Option<AppLanguage>,
     pub deepseek_api_key: Option<String>,
     pub gemini_oauth: Option<GeminiOAuthSettings>,
@@ -345,7 +344,6 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             color_scheme: ColorScheme::Dark,
-            vscode_theme: String::new(),
             language: AppLanguage::ZhCn,
             deepseek_api_key: String::new(),
             gemini_oauth: GeminiOAuthSettings::default(),
@@ -413,9 +411,6 @@ impl AppSettings {
     pub fn merge(&self, patch: AppSettingsPatch) -> Self {
         Self {
             color_scheme: patch.color_scheme.unwrap_or(self.color_scheme),
-            vscode_theme: patch
-                .vscode_theme
-                .unwrap_or_else(|| self.vscode_theme.clone()),
             language: patch.language.unwrap_or(self.language),
             deepseek_api_key: patch
                 .deepseek_api_key
@@ -516,7 +511,6 @@ mod tests {
         .expect("legacy settings should deserialize");
 
         assert_eq!(settings.color_scheme, ColorScheme::Dark);
-        assert!(settings.vscode_theme.is_empty());
         assert!(settings.show_reasoning);
         assert!(!settings.multi_model_collaboration);
         assert!(settings.collaboration_models.is_empty());
@@ -537,6 +531,19 @@ mod tests {
         let serialized = serde_json::to_value(settings).expect("settings should serialize");
         assert_eq!(serialized["colorScheme"], "light");
         assert!(serialized.get("customAccentColor").is_none());
+    }
+
+    #[test]
+    fn legacy_system_theme_migrates_to_dark() {
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "colorScheme": "system",
+            "language": "zh-CN"
+        }))
+        .expect("legacy system theme should deserialize");
+
+        assert_eq!(settings.color_scheme, ColorScheme::Dark);
+        let serialized = serde_json::to_value(settings).expect("settings should serialize");
+        assert_eq!(serialized["colorScheme"], "dark");
     }
 
     #[test]

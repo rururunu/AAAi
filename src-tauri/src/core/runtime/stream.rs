@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::core::token::TokenUsage;
+
 /// 流式工具调用 — 预留 Claude / Gemini tool use。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -20,13 +22,17 @@ pub enum StreamEvent {
     Delta(String),
     Reasoning(String),
     /// Ephemeral UI status (e.g. analyzing_images). Empty kind clears.
-    Status { kind: String },
+    Status {
+        kind: String,
+    },
     /// Persist updated user message content (e.g. image analysis tags).
     UserContentPatch {
         message_id: String,
         content: String,
     },
     ToolCall(ToolCallPayload),
+    /// Provider or model-aware accounting result for one model invocation.
+    Usage(TokenUsage),
     /// 一轮流式结束；若 `tool_calls` 非空则 Agent 应继续执行工具。
     TurnComplete {
         content: String,

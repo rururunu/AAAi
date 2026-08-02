@@ -8,6 +8,9 @@ export interface Workspace {
   description?: string;
   source?: string | null;
   createdAt: string;
+  lastUsedAt: string;
+  pinned: boolean;
+  sortOrder: number;
 }
 
 export function workspaceSourceLabel(source?: string | null): string {
@@ -50,6 +53,18 @@ export function clearCurrentWorkspace(): Promise<void> {
 
 export function deleteWorkspace(id: string): Promise<void> {
   return invoke("delete_workspace", { id });
+}
+
+export function openWorkspaceFolder(id: string): Promise<void> {
+  return invoke("open_workspace_folder", { id });
+}
+
+export function setWorkspacePinned(id: string, pinned: boolean): Promise<void> {
+  return invoke("set_workspace_pinned", { id, pinned });
+}
+
+export function reorderWorkspaces(ids: string[]): Promise<void> {
+  return invoke("reorder_workspaces", { ids });
 }
 
 export async function selectWorkspaceFolder(): Promise<string | null> {

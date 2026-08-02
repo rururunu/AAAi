@@ -162,6 +162,9 @@ mod tests {
             description: None,
             source: None,
             created_at: Utc::now(),
+            last_used_at: Utc::now(),
+            pinned: false,
+            sort_order: 0,
         }
     }
 

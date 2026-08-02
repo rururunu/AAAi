@@ -21,6 +21,11 @@ pub enum AgentDebugEvent {
         run_id: String,
         context: Box<RequestContext>,
     },
+    TokenUsage {
+        run_id: String,
+        model: String,
+        usage: crate::core::token::TokenUsage,
+    },
     RuntimeEvent {
         record: AgentEventRecord,
     },

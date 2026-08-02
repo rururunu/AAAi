@@ -1,7 +1,7 @@
 <template>
   <div
     class="peek-panel"
-    :class="{ chat: mode === 'chat', maximized: isMaximized, 'sidebar-open': sidebarOpen, 'minimize-preview': isMinimizePreview }"
+    :class="{ chat: mode === 'chat', 'sidebar-open': sidebarOpen, 'minimize-preview': isMinimizePreview }"
     :style="panelStyle"
     data-tauri-drag-region
     @mousedown="onWindowDragMouseDown"
@@ -30,37 +30,26 @@
         <div class="header-tools" data-tauri-drag-region="false">
         <button
           type="button"
-          class="window-btn diff-toggle-btn"
-          :class="{ active: diffSidebarOpen }"
-          :aria-label="tr(settingStore.language, 'toggleCodeChanges')"
-          :title="tr(settingStore.language, 'toggleCodeChanges')"
+          class="window-btn"
+          :disabled="!activeSessionId"
+          :aria-label="tr(settingStore.language, 'chat.openInWorkbench')"
+          :title="tr(settingStore.language, 'chat.openInWorkbench')"
           data-tauri-drag-region="false"
-          @mousedown.stop.prevent="toggleDiffSidebar"
+          @mousedown.stop.prevent="openInWorkbench"
+        >
+          <AppWindow :size="13" :stroke-width="1.8" />
+        </button>
+        <button
+          type="button"
+          class="window-btn sidebar-toggle-btn"
+          :class="{ active: sidebarOpen }"
+          :aria-label="sidebarViewsLabel"
+          :title="sidebarViewsLabel"
+          data-tauri-drag-region="false"
+          @mousedown.stop.prevent="toggleSidebar"
         >
           <PanelRight :size="13" :stroke-width="1.8" />
-        </button>
-        <button
-          v-if="subagentActivities.length"
-          type="button"
-          class="window-btn subagent-toggle-btn"
-          :class="{ active: subagentSidebarOpen }"
-          :aria-label="subagentSidebarLabel"
-          :title="subagentSidebarLabel"
-          data-tauri-drag-region="false"
-          @mousedown.stop.prevent="toggleSubagentSidebar"
-        >
-          <Bot :size="13" :stroke-width="1.8" />
           <span v-if="runningSubagentCount" class="running-dot" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          class="window-btn debug-toggle-btn"
-          :class="{ active: runtimeSidebarOpen }"
-          :aria-label="runtimeTabLabel"
-          :title="runtimeTabLabel"
-          @mousedown.stop.prevent="toggleRuntimeSidebar"
-        >
-          <Bug :size="13" :stroke-width="1.8" />
         </button>
         </div>
         <div
@@ -80,7 +69,6 @@
             type="button"
             class="window-btn"
             :class="{ active: isAlwaysOnTop }"
-            :disabled="isMaximized"
             :aria-pressed="isAlwaysOnTop"
             :aria-label="tr(settingStore.language, isAlwaysOnTop ? 'unpinWindow' : 'pinWindow')"
             :title="tr(settingStore.language, isAlwaysOnTop ? 'unpinWindow' : 'pinWindow')"
@@ -89,17 +77,6 @@
           >
             <PinOff v-if="isAlwaysOnTop" :size="12" />
             <Pin v-else :size="12" />
-          </button>
-          <button
-            type="button"
-            class="window-btn"
-            :aria-label="tr(settingStore.language, isMaximized ? 'restoreWindow' : 'maximizeWindow')"
-            :title="tr(settingStore.language, isMaximized ? 'restoreWindow' : 'maximizeWindow')"
-            data-tauri-drag-region="false"
-            @mousedown.stop.prevent="toggleMaximized"
-          >
-            <Minimize2 v-if="isMaximized" :size="12" />
-            <Maximize2 v-else :size="12" />
           </button>
           <button
             type="button"
@@ -125,6 +102,7 @@
         <MessageList
           :messages="messages"
           :session-id="activeSessionId"
+          :workspace-name="workspaceDisplayName"
           :checkpoints="checkpoints"
           @rewound="handleRewound"
           @review-changes="openDiffSidebar"
@@ -259,7 +237,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { Bot, Bug, FileDiff, Image as ImageIcon, Maximize2, Minimize2, Minus, PanelRight, Pin, PinOff, X } from "@lucide/vue";
+import { AppWindow, Bot, Bug, FileDiff, Image as ImageIcon, Minus, PanelRight, Pin, PinOff, X } from "@lucide/vue";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import ChatInputBar, {
@@ -279,6 +257,7 @@ import { onWindowDragMouseDown } from "@/services/overlay/windowDrag";
 import { fetchChatSessions } from "@/commands/slash";
 import {
   listenAskUser,
+  listenInteractionResolved,
   listenPathPermission,
   listenToolApproval,
 } from "@/services/ipc/events";
@@ -286,6 +265,7 @@ import {
   chatCancel,
   listCheckpoints,
   minimizeOverlay,
+  openSessionInWorkbench,
   respondAskUser,
   respondPathPermission,
   respondToolApproval,
@@ -353,7 +333,6 @@ const inputRef = ref<InstanceType<typeof ChatInputBar> | null>(null);
 const dockRef = ref<HTMLElement | null>(null);
 const panelVisible = ref(false);
 const isMinimizePreview = ref(false);
-const isMaximized = ref(false);
 const isAlwaysOnTop = ref(true);
 const MINIMIZE_PREVIEW_MS = 64;
 let minimizeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -432,9 +411,6 @@ const subagentActivities = computed(() =>
 const runningSubagentCount = computed(() =>
   subagentActivities.value.filter((activity) => activity.status === "running").length,
 );
-const subagentSidebarLabel = computed(() =>
-  tr(settingStore.language, "subagent.view"),
-);
 const subagentTabLabel = computed(() =>
   tr(settingStore.language, "sidebar.subagents"),
 );
@@ -465,6 +441,9 @@ const sending = computed(() => {
   );
 });
 const contextNotice = computed(() => overlayContextNotice.value);
+const workspaceDisplayName = computed(
+  () => props.capturedContext?.workspace?.name?.trim() || "",
+);
 const selectedText = computed(() => props.capturedContext?.selection?.trim() ?? "");
 const selectionLines = computed(() => selectionLineCount(selectedText.value));
 const contextPreview = computed(() => {
@@ -529,23 +508,21 @@ function emitComposerLayout() {
   });
 }
 
-function toggleDiffSidebar() {
-  if (sidebarOpen.value && sidebarTab.value === "diff") closeSidebar();
-  else selectSidebarTab("diff");
+function toggleSidebar() {
+  if (sidebarOpen.value) {
+    closeSidebar();
+    return;
+  }
+
+  const selectedTab = sidebarTab.value;
+  const unavailableDynamicTab =
+    (selectedTab === "subagents" && !openedSubagentIds.value.length)
+    || (selectedTab === "image" && !openedImageSources.value.length);
+  selectSidebarTab(unavailableDynamicTab ? "diff" : selectedTab);
 }
 
 function openDiffSidebar() {
   selectSidebarTab("diff");
-}
-
-function toggleSubagentSidebar() {
-  if (sidebarOpen.value && sidebarTab.value === "subagents") closeSidebar();
-  else openSubagentSidebar();
-}
-
-function toggleRuntimeSidebar() {
-  if (sidebarOpen.value && sidebarTab.value === "runtime") closeSidebar();
-  else selectSidebarTab("runtime");
 }
 
 function handlePreviewImage(source: string) {
@@ -787,24 +764,17 @@ function close() {
   emit("close");
 }
 
-async function toggleMaximized() {
-  const window = getCurrentWebviewWindow();
+async function openInWorkbench() {
+  const sessionId = activeSessionId.value;
+  if (!sessionId) return;
   try {
-    if (isMaximized.value) {
-      await window.unmaximize();
-      await window.setAlwaysOnTop(isAlwaysOnTop.value);
-    } else {
-      await window.setAlwaysOnTop(false);
-      await window.maximize();
-    }
-    isMaximized.value = await window.isMaximized();
+    await openSessionInWorkbench(sessionId, getCurrentWebviewWindow().label);
   } catch (error) {
-    console.error("Failed to toggle window maximization:", error);
+    console.error("Failed to open conversation in workbench:", error);
   }
 }
 
 async function toggleAlwaysOnTop() {
-  if (isMaximized.value) return;
   const window = getCurrentWebviewWindow();
   const next = !isAlwaysOnTop.value;
   try {
@@ -843,6 +813,8 @@ async function handleAskUserComplete(answer: string) {
     return;
   }
   askUserSubmitting.value = true;
+  askUserSession.value = null;
+  emitComposerLayout();
 
   // 用选择卡片展示回答，不显示 ask_user 原始 JSON
   try {
@@ -890,13 +862,15 @@ async function handleAskUserComplete(answer: string) {
       tr(settingStore.language, "askSubmitFailed", { error: String(error) }),
     );
     console.error("respond_ask_user failed:", error);
+    if (!isAlreadyResolvedError(error) && !askUserSession.value) {
+      askUserSession.value = session;
+    }
     askUserSubmitting.value = false;
     return;
   }
 
   const label = getCurrentWebviewWindow().label;
   await setOverlayPopupOpen(label, false);
-  askUserSession.value = null;
   emitComposerLayout();
   await nextTick();
   void inputRef.value?.focusInput();
@@ -960,6 +934,8 @@ async function handlePathPermissionComplete(decision: PathPermissionDecision) {
     return;
   }
   pathPermissionSubmitting.value = true;
+  pathPermissionSession.value = null;
+  emitComposerLayout();
   try {
     await respondPathPermission({
       requestId: session.requestId,
@@ -967,13 +943,15 @@ async function handlePathPermissionComplete(decision: PathPermissionDecision) {
     });
   } catch (error) {
     console.error("respond_path_permission failed:", error);
+    if (!isAlreadyResolvedError(error) && !pathPermissionSession.value) {
+      pathPermissionSession.value = session;
+    }
     pathPermissionSubmitting.value = false;
     return;
   }
 
   const label = getCurrentWebviewWindow().label;
   await setOverlayPopupOpen(label, false);
-  closePathPermission();
   pathPermissionSubmitting.value = false;
   emitComposerLayout();
   await nextTick();
@@ -990,6 +968,8 @@ async function handleToolApprovalComplete(decision: ToolApprovalDecision) {
     return;
   }
   toolApprovalSubmitting.value = true;
+  toolApprovalSession.value = null;
+  emitComposerLayout();
   try {
     await respondToolApproval({
       requestId: session.requestId,
@@ -997,16 +977,22 @@ async function handleToolApprovalComplete(decision: ToolApprovalDecision) {
     });
   } catch (error) {
     console.error("respond_tool_approval failed:", error);
+    if (!isAlreadyResolvedError(error) && !toolApprovalSession.value) {
+      toolApprovalSession.value = session;
+    }
     toolApprovalSubmitting.value = false;
     return;
   }
   const label = getCurrentWebviewWindow().label;
   await setOverlayPopupOpen(label, false);
-  closeToolApproval();
   toolApprovalSubmitting.value = false;
   emitComposerLayout();
   await nextTick();
   void inputRef.value?.focusInput();
+}
+
+function isAlreadyResolvedError(error: unknown) {
+  return String(error).includes("already completed") || String(error).includes("not found");
 }
 
 async function refreshCheckpoints() {
@@ -1086,11 +1072,7 @@ watch(
 
 onMounted(async () => {
   const window = getCurrentWebviewWindow();
-  isMaximized.value = await window.isMaximized().catch(() => false);
   isAlwaysOnTop.value = await window.isAlwaysOnTop().catch(() => true);
-  if (isMaximized.value && isAlwaysOnTop.value) {
-    await window.setAlwaysOnTop(false);
-  }
   // Hide dock until overlay-shown; avoid FOUC before first reveal tween.
   if (!panelVisible.value) {
     gsapOverlayDockReveal(dockRef.value, false);
@@ -1148,6 +1130,17 @@ onMounted(async () => {
     );
     const label = getCurrentWebviewWindow().label;
     await setOverlayPopupOpen(label, true);
+    void inputRef.value?.focusInput();
+  });
+
+  void listenInteractionResolved(async (payload) => {
+    let matched = false;
+    if (askUserSession.value?.requestId === payload.requestId) { askUserSession.value = null; matched = true; }
+    if (pathPermissionSession.value?.requestId === payload.requestId) { pathPermissionSession.value = null; matched = true; }
+    if (toolApprovalSession.value?.requestId === payload.requestId) { toolApprovalSession.value = null; matched = true; }
+    if (!matched) return;
+    emitComposerLayout();
+    await setOverlayPopupOpen(getCurrentWebviewWindow().label, false);
     void inputRef.value?.focusInput();
   });
 
@@ -1392,13 +1385,6 @@ onUnmounted(() => {
   gap: 2px;
 }
 
-.debug-toggle-btn.active {
-  color: var(--peek-accent);
-  background: color-mix(in srgb, var(--peek-accent) 14%, transparent);
-}
-
-.subagent-toggle-btn { position: relative; }
-.subagent-toggle-btn.active { color: var(--peek-accent); background: color-mix(in srgb, var(--peek-accent) 14%, transparent); }
 .running-dot { position: absolute; top: 4px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--peek-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--peek-sidebar) 88%, transparent); }
 
 .diff-resize-handle {
@@ -1501,12 +1487,12 @@ onUnmounted(() => {
   cursor: grab;
 }
 
-.diff-toggle-btn {
+.sidebar-toggle-btn {
   position: relative;
   margin-right: auto;
 }
 
-.diff-toggle-btn.active {
+.sidebar-toggle-btn.active {
   border-color: color-mix(in srgb, var(--peek-accent) 38%, transparent);
   background: color-mix(in srgb, var(--peek-accent) 13%, transparent);
   color: var(--peek-accent);
@@ -1538,7 +1524,7 @@ onUnmounted(() => {
   z-index: 2;
   overflow: hidden;
   isolation: isolate;
-  will-change: clip-path, opacity;
+  will-change: transform, opacity;
   box-shadow:
     inset 0 1px 0 var(--peek-panel-highlight),
     0 10px 28px var(--peek-panel-shadow);
@@ -1560,118 +1546,6 @@ onUnmounted(() => {
     var(--peek-surface) 22%,
     var(--peek-surface) 100%
   );
-}
-
-/* Maximized mode becomes a quiet focus workspace: the thread owns the window,
-   while the composer floats over a narrower reading column. */
-.peek-panel.maximized {
-  --thread-side-gap: 0px;
-  --maximized-chat-width: calc(100% - var(--workspace-sidebar-width, 0px));
-  --maximized-reading-width: 900px;
-  --maximized-reading-inset: max(32px, calc((100% - var(--maximized-reading-width)) / 2));
-  --maximized-composer-width: 780px;
-  --maximized-composer-inset: max(32px, calc((var(--maximized-chat-width) - var(--maximized-composer-width)) / 2));
-  --maximized-composer-bottom: 30px;
-}
-
-.peek-panel.maximized .chat-main {
-  position: relative;
-  display: block;
-  overflow: hidden;
-}
-
-.peek-panel.maximized .thread-panel {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  border: 0;
-  border-radius: 0;
-  background: color-mix(in srgb, var(--peek-list-bg) 96%, transparent);
-  box-shadow: none;
-  z-index: 1;
-}
-
-.peek-panel.maximized .thread-header {
-  height: 42px;
-  padding: 0 14px;
-  background: color-mix(in srgb, var(--peek-sidebar) 68%, transparent);
-  opacity: 0.76;
-  backdrop-filter: blur(18px) saturate(1.08);
-  -webkit-backdrop-filter: blur(18px) saturate(1.08);
-}
-
-.peek-panel.maximized .thread-header:hover {
-  background: color-mix(in srgb, var(--peek-sidebar) 82%, transparent);
-  opacity: 1;
-}
-
-.peek-panel.maximized .window-controls {
-  gap: 3px;
-}
-
-.peek-panel.maximized .workspace-sidebar {
-  padding-top: 42px;
-}
-
-.peek-panel.maximized .composer-dock {
-  position: absolute;
-  right: calc(var(--workspace-sidebar-width, 0px) + var(--maximized-composer-inset));
-  bottom: var(--maximized-composer-bottom);
-  left: var(--maximized-composer-inset);
-  width: auto;
-  margin: 0;
-  border-radius: 8px;
-  border-color: color-mix(in srgb, var(--peek-text) 7%, transparent);
-  background: color-mix(in srgb, var(--peek-surface) 91%, transparent);
-  backdrop-filter: blur(24px) saturate(1.12);
-  -webkit-backdrop-filter: blur(24px) saturate(1.12);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--peek-text) 5%, transparent),
-    0 5px 16px color-mix(in srgb, #000 18%, transparent),
-    0 22px 56px color-mix(in srgb, #000 25%, transparent);
-  z-index: 10;
-}
-
-.peek-panel.maximized .composer-dock.expanded {
-  background: color-mix(in srgb, var(--peek-surface) 91%, transparent);
-}
-
-.peek-panel.maximized :deep(.message-list) {
-  gap: 20px;
-  padding-top: 70px;
-  padding-right: var(--maximized-reading-inset);
-  padding-bottom: 194px;
-  padding-left: var(--maximized-reading-inset);
-  scroll-padding-top: 70px;
-  scroll-padding-bottom: 194px;
-}
-
-.peek-panel.maximized :deep(.assistant-bubble) {
-  max-width: 100%;
-}
-
-.peek-panel.maximized :deep(.user-turn) {
-  max-width: min(76%, 680px);
-}
-
-.peek-panel.maximized :deep(.message-preview-rail) {
-  top: 58px;
-  right: 12px;
-  bottom: 122px;
-}
-
-.peek-panel.maximized .context-notice {
-  margin-top: 42px;
-}
-
-@media (max-width: 900px) {
-  .peek-panel.maximized {
-    --maximized-reading-inset: 24px;
-    --maximized-composer-inset: 20px;
-    --maximized-composer-bottom: 20px;
-  }
 }
 
 /* Chat pickers are intentionally allowed to extend into the thread area. */

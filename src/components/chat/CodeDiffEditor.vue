@@ -151,7 +151,9 @@ function createEditor(parent: HTMLElement, lines: DisplayLine[]) {
       lineClasses(lines),
     ],
   });
-  return new EditorView({ state, parent });
+  const view = new EditorView({ state, parent });
+  view.scrollDOM.classList.add("peek-scrollbar");
+  return view;
 }
 
 type DisplayLine = { text: string; lineNumber?: number; kind?: CodeDiffLineKind };

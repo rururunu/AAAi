@@ -45,6 +45,9 @@
         <span v-if="item.id === 'subagents'" :class="{ 'active-count': activeSubagentCount > 0 }">
           {{ activeSubagentCount || selectedRun?.subagents.length || 0 }}
         </span>
+        <span v-if="item.id === 'tokens' && selectedRun?.tokenUsage">
+          {{ formatTokens(selectedRun.tokenUsage.totalTokens) }}
+        </span>
       </button>
     </nav>
 
@@ -168,6 +171,37 @@
       <p v-if="!selectedRun.subagents.length" class="inline-empty">{{ tr(settingStore.language, "runtime.noSubagents") }}</p>
     </div>
 
+    <div v-else-if="tab === 'tokens'" class="debug-scroll token-view peek-scrollbar">
+      <template v-if="selectedRun.tokenUsage">
+        <div class="token-summary">
+          <div>
+            <span>{{ tr(settingStore.language, "runtime.model") }}</span>
+            <strong>{{ selectedRun.model || "unknown" }}</strong>
+          </div>
+          <div>
+            <span>{{ tr(settingStore.language, "runtime.accuracy") }}</span>
+            <strong :class="['accuracy-value', selectedRun.tokenUsage.accuracy]">
+              {{ accuracyLabel(selectedRun.tokenUsage.accuracy) }}
+            </strong>
+          </div>
+          <div class="token-total">
+            <span>{{ tr(settingStore.language, "runtime.totalTokens") }}</span>
+            <strong>{{ formatTokens(selectedRun.tokenUsage.totalTokens) }}</strong>
+          </div>
+        </div>
+        <dl class="token-breakdown">
+          <template v-for="item in tokenBreakdown(selectedRun.tokenUsage)" :key="item.key">
+            <dt>{{ item.label }}</dt>
+            <dd>{{ formatTokens(item.value) }}</dd>
+          </template>
+        </dl>
+        <p v-if="selectedRun.tokenUsage.source" class="token-source">
+          {{ selectedRun.tokenUsage.source }}
+        </p>
+      </template>
+      <p v-else class="inline-empty">{{ tr(settingStore.language, "runtime.noTokens") }}</p>
+    </div>
+
     <div v-else class="debug-scroll context-view peek-scrollbar">
       <div v-if="selectedRun.context" class="payload-block context-payload">
         <button type="button" class="copy-btn" :title="tr(settingStore.language, 'runtime.copyContext')" @click="copyValue('context', stringify(selectedRun.context))">
@@ -189,9 +223,9 @@ import { listenAgentDebugEvent } from "@/services/ipc/events";
 import { copyText } from "@/services/clipboard";
 import { tr } from "@/services/i18n";
 import { useSettingStore } from "@/stores/setting";
-import type { AgentDebugEvent, AgentEvent, AgentEventRecord, AgentState, CapturedContext } from "@/types/chat";
+import type { AgentDebugEvent, AgentEvent, AgentEventRecord, AgentState, CapturedContext, TokenAccuracy, TokenUsage } from "@/types/chat";
 
-type DebugTab = "events" | "tools" | "subagents" | "context";
+type DebugTab = "events" | "tools" | "subagents" | "tokens" | "context";
 interface DebugToolCall {
   callId: string;
   tool: string;
@@ -207,6 +241,8 @@ interface DebugRun {
   tools: DebugToolCall[];
   subagents: DebugSubagent[];
   context?: CapturedContext;
+  model?: string;
+  tokenUsage?: TokenUsage;
 }
 interface DebugProgress {
   kind: string;
@@ -241,6 +277,7 @@ const tabs = computed<Array<{ id: DebugTab; label: string }>>(() => [
   { id: "events", label: tr(settingStore.language, "runtime.events") },
   { id: "tools", label: tr(settingStore.language, "runtime.tools") },
   { id: "subagents", label: tr(settingStore.language, "runtime.subagents") },
+  { id: "tokens", label: tr(settingStore.language, "runtime.tokens") },
   { id: "context", label: tr(settingStore.language, "runtime.context") },
 ]);
 let unlisten: UnlistenFn | undefined;
@@ -266,6 +303,12 @@ function receive(payload: AgentDebugEvent) {
     }
     if (payload.type === "contextSnapshot") {
       ensureRun(payload.data.runId).context = payload.data.context;
+      return;
+    }
+    if (payload.type === "tokenUsage") {
+      const run = ensureRun(payload.data.runId);
+      run.model = payload.data.model;
+      run.tokenUsage = payload.data.usage;
       return;
     }
     if (payload.type === "toolCall") {
@@ -390,6 +433,23 @@ function shortId(id: string) {
 function stringify(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
+function formatTokens(value: number) {
+  return new Intl.NumberFormat(settingStore.language).format(value);
+}
+function accuracyLabel(accuracy: TokenAccuracy) {
+  return tr(settingStore.language, `runtime.accuracy.${accuracy}`);
+}
+function tokenBreakdown(usage: TokenUsage) {
+  return [
+    { key: "input", label: tr(settingStore.language, "runtime.inputTokens"), value: usage.inputTokens },
+    { key: "output", label: tr(settingStore.language, "runtime.outputTokens"), value: usage.outputTokens },
+    { key: "system", label: tr(settingStore.language, "runtime.systemTokens"), value: usage.systemTokens },
+    { key: "context", label: tr(settingStore.language, "runtime.contextTokens"), value: usage.contextTokens },
+    { key: "toolCall", label: tr(settingStore.language, "runtime.toolCallTokens"), value: usage.toolCallTokens },
+    { key: "toolResult", label: tr(settingStore.language, "runtime.toolResultTokens"), value: usage.toolResultTokens },
+    { key: "memory", label: tr(settingStore.language, "runtime.memoryTokens"), value: usage.memoryTokens },
+  ];
+}
 function isCopied(key: string) {
   return copiedKey.value === key;
 }
@@ -469,6 +529,21 @@ summary { cursor: pointer; }
 .debug-empty, .inline-empty { color: var(--peek-muted); font-size: 11px; text-align: center; padding: 28px 12px; }
 .context-payload { margin-top: 0; }
 .context-payload > pre { color: var(--peek-text); }
+.token-view { display: flex; flex-direction: column; gap: 16px; }
+.token-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 20px; }
+.token-summary > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.token-summary span, .token-source { color: var(--peek-muted); font-size: 10px; }
+.token-summary strong { overflow: hidden; font: 11px/1.4 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.token-summary .token-total { grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--peek-border) 55%, transparent); }
+.token-total strong { font-size: 24px; font-weight: 500; }
+.accuracy-value.exact { color: #58b887; }
+.accuracy-value.mixed { color: var(--peek-accent); }
+.accuracy-value.estimated { color: var(--peek-muted); }
+.token-breakdown { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0; margin: 0; }
+.token-breakdown dt, .token-breakdown dd { min-height: 30px; display: flex; align-items: center; margin: 0; border-bottom: 1px solid color-mix(in srgb, var(--peek-border) 45%, transparent); font-size: 11px; }
+.token-breakdown dt { color: var(--peek-muted); }
+.token-breakdown dd { justify-content: flex-end; color: var(--peek-text); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.token-source { margin: -8px 0 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
 .subagent-list { display: flex; flex-direction: column; gap: 8px; }
 .subagent-card { border: 1px solid var(--peek-border); border-radius: 6px; background: color-mix(in srgb, var(--peek-input-bg) 78%, transparent); overflow: hidden; transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease; }
 .subagent-card.running { border-color: color-mix(in srgb, var(--peek-accent) 42%, var(--peek-border)); }

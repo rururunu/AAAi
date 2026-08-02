@@ -7,8 +7,8 @@ use tokio::time::timeout;
 
 use crate::core::ai::provider::AIProvider;
 use crate::core::chat::limits::{
-    self, truncate_chars, FOLD_PAYLOAD_MSG_MAX_CHARS, FOLD_PAYLOAD_TOTAL_MAX_CHARS,
-    LLM_COMPACT_TIMEOUT_SECS,
+    self, estimate_message_tokens, truncate_chars, FOLD_PAYLOAD_MSG_MAX_CHARS,
+    FOLD_PAYLOAD_TOTAL_MAX_CHARS, LLM_COMPACT_TIMEOUT_SECS,
 };
 use crate::core::chat::prompts::SYSTEM_PROMPT;
 use crate::core::runtime::{
@@ -93,6 +93,7 @@ impl ConversationSummarizer for ProviderSummarizer {
                     name: None,
                     status: MessageStatus::Done,
                     timestamp: 0,
+                    estimated_tokens: None,
                 },
                 ChatMessage {
                     id: "compact-user".into(),
@@ -108,6 +109,7 @@ impl ConversationSummarizer for ProviderSummarizer {
                     name: None,
                     status: MessageStatus::Done,
                     timestamp: 0,
+                    estimated_tokens: None,
                 },
             ],
             context: RequestContext::default(),
@@ -135,6 +137,7 @@ impl ConversationSummarizer for ProviderSummarizer {
                     }
                 }
                 StreamEvent::Error(message) => return Err(message),
+                StreamEvent::Usage(_) => {}
                 StreamEvent::Finish => break,
                 _ => {}
             }
@@ -221,7 +224,7 @@ pub fn measure_context_usage(
         if !message_has_estimable_tokens(message) {
             continue;
         }
-        estimated += message_token_overhead(message);
+        estimated += estimate_message_tokens(message);
     }
 
     if let Some(draft) = draft_message.map(str::trim).filter(|text| !text.is_empty()) {
@@ -254,11 +257,11 @@ pub fn estimate_history_tokens(
         if message.content.trim().is_empty() {
             continue;
         }
-        total += message_token_overhead(message);
+        total += estimate_message_tokens(message);
     }
 
     if let Some(user) = current_user {
-        total += message_token_overhead(user);
+        total += estimate_message_tokens(user);
     }
 
     total
@@ -278,32 +281,6 @@ fn message_has_estimable_tokens(message: &ChatMessage) -> bool {
             .tool_calls
             .as_ref()
             .is_some_and(|calls| !calls.is_empty())
-}
-
-fn message_token_overhead(message: &ChatMessage) -> usize {
-    let mut total = estimate_tokens(&message.content)
-        + estimate_tokens(message.reasoning.as_deref().unwrap_or(""));
-
-    if let Some(activities) = &message.tool_activities {
-        for activity in activities {
-            total += estimate_tokens(&activity.tool_name);
-            total += estimate_tokens(&activity.title);
-            total += estimate_tokens(activity.detail.as_deref().unwrap_or(""));
-            total += estimate_tokens(activity.result.as_deref().unwrap_or(""));
-            if let Some(arguments) = &activity.arguments {
-                total += estimate_tokens(&arguments.to_string());
-            }
-        }
-    }
-
-    if let Some(calls) = &message.tool_calls {
-        for call in calls {
-            total += estimate_tokens(&call.name);
-            total += estimate_tokens(&call.arguments);
-        }
-    }
-
-    total + 4
 }
 
 fn estimate_context_tokens(context: &RequestContext) -> usize {
@@ -488,6 +465,7 @@ fn summary_message(session_id: &str, body: &str, folded_count: usize) -> ChatMes
         name: None,
         status: MessageStatus::Done,
         timestamp: 0,
+        estimated_tokens: None,
     }
 }
 
@@ -593,6 +571,7 @@ mod tests {
             name: None,
             status: MessageStatus::Done,
             timestamp: 1,
+            estimated_tokens: None,
         }
     }
 
@@ -609,6 +588,7 @@ mod tests {
             name: None,
             status: MessageStatus::Done,
             timestamp: 2,
+            estimated_tokens: None,
         }
     }
 

@@ -83,6 +83,7 @@ export function normalizeMessage(
     injected: raw.injected === true || isSoftInjectContent(raw.content ?? ""),
     status: normalizeStatus(raw.status),
     timestamp: raw.timestamp ?? Date.now(),
+    estimatedTokens: raw.estimatedTokens,
     completedAt: raw.completedAt,
   };
 }

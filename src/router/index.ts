@@ -11,9 +11,10 @@ const router = createRouter({
             path: "/overlay",
             component: () => import("@/layouts/Overlay.vue"),
         },
+        { path: "/settings", redirect: "/workbench" },
         {
-            path: "/settings",
-            component: () => import("@/pages/Settings/index.vue"),
+            path: "/workbench",
+            component: () => import("@/layouts/Main.vue"),
         },
         {
             path: "/image-preview",

@@ -90,8 +90,7 @@ pub fn html_instead_of_json_error(
     ];
     if let Some(url) = request_url.filter(|u| !u.is_empty()) {
         parts.push(format!("Request URL: {url}"));
-        if url.contains("/chat/completions") && !url.contains("/v1/") && !url.contains("/v1beta/")
-        {
+        if url.contains("/chat/completions") && !url.contains("/v1/") && !url.contains("/v1beta/") {
             parts.push(
                 "Likely cause: the chat-completions path is missing /v1 (common for NewAPI). Peek should call .../v1/chat/completions."
                     .into(),
@@ -241,7 +240,10 @@ fn extract_json_slice(body: &str) -> Option<&str> {
 }
 
 fn looks_like_plain_description(body: &str) -> bool {
-    if body.starts_with('{') || body.starts_with('[') || looks_like_sse(body) || looks_like_html(body)
+    if body.starts_with('{')
+        || body.starts_with('[')
+        || looks_like_sse(body)
+        || looks_like_html(body)
     {
         return false;
     }
@@ -461,7 +463,11 @@ fn collect_text(value: &Value) -> String {
                 .filter(|t| {
                     matches!(
                         *t,
-                        "text" | "output_text" | "input_text" | "text_delta" | "content_block_delta"
+                        "text"
+                            | "output_text"
+                            | "input_text"
+                            | "text_delta"
+                            | "content_block_delta"
                     )
                 })
                 .and_then(|_| {

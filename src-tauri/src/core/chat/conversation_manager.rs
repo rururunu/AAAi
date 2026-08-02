@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::chat::error::ChatError;
+use crate::core::chat::limits::estimate_message_tokens;
 use crate::core::runtime::{ChatMessage, MessageStatus, Role, ToolActivity};
 use crate::models::chat::ChatSessionSummary;
 
@@ -124,11 +125,16 @@ impl ConversationManager {
         &self.journal
     }
 
+    pub fn db_pool(&self) -> sqlx::SqlitePool {
+        self.db_pool.clone()
+    }
+
     pub fn inner(&self) -> Arc<Mutex<HashMap<String, Vec<ChatMessage>>>> {
         Arc::clone(&self.sessions)
     }
 
-    pub fn append(&self, session_id: &str, message: ChatMessage) {
+    pub fn append(&self, session_id: &str, mut message: ChatMessage) {
+        refresh_message_token_cache(&mut message);
         if let Ok(mut sessions) = self.sessions.lock() {
             sessions
                 .entry(session_id.to_string())
@@ -217,11 +223,25 @@ impl ConversationManager {
                     .map(|message| message.timestamp)
                     .max()
                     .unwrap_or(0);
+                let turn_count = messages
+                    .iter()
+                    .filter(|message| message.role == Role::User)
+                    .count();
+                let estimated_tokens = messages
+                    .iter()
+                    .map(|message| {
+                        message
+                            .estimated_tokens
+                            .unwrap_or_else(|| estimate_message_tokens(message))
+                    })
+                    .sum();
                 Some(ChatSessionSummary {
                     session_id: session_id.clone(),
                     workspace_id: session_workspaces.get(session_id).cloned(),
                     preview,
                     message_count: messages.len(),
+                    turn_count,
+                    estimated_tokens,
                     updated_at,
                 })
             })
@@ -250,6 +270,7 @@ impl ConversationManager {
         if let Some(reasoning) = reasoning {
             updated.reasoning = reasoning;
         }
+        refresh_message_token_cache(&mut updated);
         *message = updated.clone();
 
         // Save updated message to SQLite asynchronously
@@ -282,10 +303,12 @@ impl ConversationManager {
         } else {
             activities.push(activity);
         }
-        let updated = message.clone();
         if !should_persist {
-            return Some(updated);
+            message.estimated_tokens = None;
+            return Some(message.clone());
         }
+        refresh_message_token_cache(message);
+        let updated = message.clone();
         let pool = self.db_pool.clone();
         let msg_to_save = updated.clone();
         tauri::async_runtime::spawn(async move {
@@ -451,6 +474,9 @@ fn settle_message_in_place(message: &mut ChatMessage) -> bool {
             }
         }
     }
+    if changed {
+        refresh_message_token_cache(message);
+    }
     changed
 }
 
@@ -502,6 +528,18 @@ pub fn create_message(
         name: None,
         status,
         timestamp: now_millis(),
+        estimated_tokens: None,
+    }
+}
+
+fn refresh_message_token_cache(message: &mut ChatMessage) {
+    if matches!(
+        message.status,
+        MessageStatus::Pending | MessageStatus::Streaming
+    ) {
+        message.estimated_tokens = None;
+    } else {
+        message.estimated_tokens = Some(estimate_message_tokens(message));
     }
 }
 
@@ -556,7 +594,11 @@ mod rewind_tests {
         drop(manager);
 
         let reloaded = ConversationManager::new(db_path.clone());
-        assert_eq!(reloaded.messages(session_id), vec![first]);
+        let reloaded_messages = reloaded.messages(session_id);
+        assert_eq!(reloaded_messages.len(), 1);
+        assert_eq!(reloaded_messages[0].id, first.id);
+        assert_eq!(reloaded_messages[0].content, first.content);
+        assert!(reloaded_messages[0].estimated_tokens.is_some());
         drop(reloaded);
 
         let _ = std::fs::remove_file(&db_path);

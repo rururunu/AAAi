@@ -87,7 +87,8 @@ pub fn is_vision_unsupported_message(message: &str) -> bool {
     ];
 
     VISION_HINTS.iter().any(|hint| lower.contains(hint))
-        || (lower.contains("content") && (lower.contains("invalid") || lower.contains("unsupported")))
+        || (lower.contains("content")
+            && (lower.contains("invalid") || lower.contains("unsupported")))
 }
 
 #[cfg(test)]
@@ -103,8 +104,12 @@ mod tests {
 
     #[test]
     fn ignores_auth_and_rate_limit_errors() {
-        assert!(!is_vision_unsupported_message("DeepSeek API 401: invalid api key"));
-        assert!(!is_vision_unsupported_message("DeepSeek API 429: rate limit"));
+        assert!(!is_vision_unsupported_message(
+            "DeepSeek API 401: invalid api key"
+        ));
+        assert!(!is_vision_unsupported_message(
+            "DeepSeek API 429: rate limit"
+        ));
     }
 
     #[test]

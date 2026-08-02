@@ -30,6 +30,8 @@ pub struct AgentRun {
     pub context: Option<RequestContext>,
     pub plan: Option<AgentPlan>,
     pub events: Vec<AgentEventRecord>,
+    pub model: Option<String>,
+    pub token_usage: crate::core::token::TokenUsage,
 }
 
 pub struct AgentSpawnInput {
@@ -58,6 +60,8 @@ impl AgentRun {
             context: None,
             plan: None,
             events: Vec::new(),
+            model: None,
+            token_usage: crate::core::token::TokenUsage::default(),
         };
         run.push_event(AgentEvent::UserMessage { input });
         run
@@ -258,6 +262,7 @@ impl AgentRuntime {
             max_turn_tokens,
             model,
         } = input;
+        self.inner.configure_accounting(&run_id, &model);
         self.transition(&run_id, AgentState::Executing)?;
         if let Ok(mut message_runs) = self.inner.message_runs.lock() {
             message_runs.insert(assistant_message_id.clone(), run_id.clone());
@@ -360,6 +365,42 @@ impl AgentRuntime {
 }
 
 impl AgentRuntimeInner {
+    fn configure_accounting(&self, run_id: &str, model: &str) {
+        if let Ok(mut runs) = self.runs.lock() {
+            if let Some(run) = runs.get_mut(run_id) {
+                run.model = Some(model.to_string());
+            }
+        }
+    }
+
+    fn record_token_usage(
+        &self,
+        run_id: &str,
+        model: &str,
+        delta: &crate::core::token::TokenUsage,
+    ) {
+        let snapshot = self.runs.lock().ok().and_then(|mut runs| {
+            let run = runs.get_mut(run_id)?;
+            if run.model.is_none() || model != "subagent" {
+                run.model = Some(model.to_string());
+            }
+            run.token_usage.accumulate(delta);
+            Some((
+                run.model.clone().unwrap_or_else(|| model.to_string()),
+                run.token_usage.clone(),
+            ))
+        });
+        if let Some((display_model, usage)) = snapshot {
+            self.event_bus.emit(BusEvent::AgentDebugEvent {
+                event: AgentDebugEvent::TokenUsage {
+                    run_id: run_id.to_string(),
+                    model: display_model,
+                    usage,
+                },
+            });
+        }
+    }
+
     fn transition(&self, run_id: &str, next: AgentState) -> Result<(), AgentTransitionError> {
         let record = {
             let mut runs = self.runs.lock().map_err(|_| AgentTransitionError {
@@ -604,6 +645,9 @@ struct AgentEventBridge {
 impl EventBus for AgentEventBridge {
     fn emit(&self, event: BusEvent) {
         match &event {
+            BusEvent::TokenUsage { model, usage } => {
+                self.inner.record_token_usage(&self.run_id, model, usage);
+            }
             BusEvent::ToolStarted {
                 subagent_id,
                 activity_id,
@@ -781,6 +825,33 @@ mod tests {
             Arc::new(LlmPlanner),
             Arc::new(AgentToolRegistry::new()),
         )
+    }
+
+    #[test]
+    fn agent_run_accumulates_model_usage_deltas() {
+        let runtime = runtime();
+        let run_id = runtime.create_run("count this run".to_string());
+        runtime.inner.configure_accounting(&run_id, "deepseek-chat");
+        runtime.inner.record_token_usage(
+            &run_id,
+            "deepseek-chat",
+            &crate::core::token::TokenUsage::exact(10, 4, "test"),
+        );
+        runtime.inner.record_token_usage(
+            &run_id,
+            "deepseek-chat",
+            &crate::core::token::TokenUsage::exact(20, 6, "test"),
+        );
+
+        let run = runtime.run(&run_id).unwrap();
+        assert_eq!(run.model.as_deref(), Some("deepseek-chat"));
+        assert_eq!(run.token_usage.input_tokens, 30);
+        assert_eq!(run.token_usage.output_tokens, 10);
+        assert_eq!(run.token_usage.total_tokens, 40);
+        assert_eq!(
+            run.token_usage.accuracy,
+            crate::core::token::TokenAccuracy::Exact
+        );
     }
 
     #[test]

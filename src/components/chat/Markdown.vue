@@ -557,31 +557,4 @@ function isLikelyTex(value: string) {
 :global([data-theme="light"] .markdown-body .hljs-meta) { color: #8a661f; }
 :global([data-theme="light"] .markdown-body .hljs-deletion) { color: #b84f48; }
 
-:global([data-vscode-theme] .markdown-body .hljs-comment),
-:global([data-vscode-theme] .markdown-body .hljs-quote) { color: var(--peek-syntax-comment, var(--peek-muted)); }
-:global([data-vscode-theme] .markdown-body .hljs-keyword),
-:global([data-vscode-theme] .markdown-body .hljs-operator) { color: var(--peek-syntax-operator, var(--peek-syntax-keyword, var(--peek-accent))); }
-:global([data-vscode-theme] .markdown-body .hljs-type),
-:global([data-vscode-theme] .markdown-body .hljs-built_in) { color: var(--peek-syntax-type, var(--peek-syntax-keyword, var(--peek-accent))); }
-:global([data-vscode-theme] .markdown-body .hljs-string),
-:global([data-vscode-theme] .markdown-body .hljs-addition) { color: var(--peek-syntax-string, var(--peek-code-fg, var(--peek-text))); }
-:global([data-vscode-theme] .markdown-body .hljs-regexp) { color: var(--peek-syntax-regexp, var(--peek-syntax-string, var(--peek-code-fg, var(--peek-text)))); }
-:global([data-vscode-theme] .markdown-body .hljs-number),
-:global([data-vscode-theme] .markdown-body .hljs-symbol),
-:global([data-vscode-theme] .markdown-body .hljs-bullet) { color: var(--peek-syntax-number, var(--peek-code-fg, var(--peek-text))); }
-:global([data-vscode-theme] .markdown-body .hljs-literal) { color: var(--peek-syntax-literal, var(--peek-syntax-keyword, var(--peek-accent))); }
-:global([data-vscode-theme] .markdown-body .hljs-variable),
-:global([data-vscode-theme] .markdown-body .hljs-template-variable),
-:global([data-vscode-theme] .markdown-body .hljs-params) { color: var(--peek-syntax-variable, var(--peek-code-fg, var(--peek-text))); }
-:global([data-vscode-theme] .markdown-body .hljs-title),
-:global([data-vscode-theme] .markdown-body .hljs-section) { color: var(--peek-syntax-function, var(--peek-accent)); }
-:global([data-vscode-theme] .markdown-body .hljs-property) { color: var(--peek-syntax-property, var(--peek-syntax-variable, var(--peek-code-fg, var(--peek-text)))); }
-:global([data-vscode-theme] .markdown-body .hljs-attribute) { color: var(--peek-syntax-attribute, var(--peek-syntax-property, var(--peek-code-fg, var(--peek-text)))); }
-:global([data-vscode-theme] .markdown-body .hljs-tag),
-:global([data-vscode-theme] .markdown-body .hljs-name) { color: var(--peek-syntax-tag, var(--peek-syntax-keyword, var(--peek-accent))); }
-:global([data-vscode-theme] .markdown-body .hljs-selector-tag),
-:global([data-vscode-theme] .markdown-body .hljs-selector-class),
-:global([data-vscode-theme] .markdown-body .hljs-selector-id) { color: var(--peek-syntax-selector, var(--peek-syntax-tag, var(--peek-accent))); }
-:global([data-vscode-theme] .markdown-body .hljs-meta),
-:global([data-vscode-theme] .markdown-body .hljs-meta .hljs-keyword) { color: var(--peek-syntax-meta, var(--peek-syntax-keyword, var(--peek-accent))); }
 </style>

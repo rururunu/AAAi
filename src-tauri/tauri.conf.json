@@ -31,19 +31,23 @@
         "maximizable": false
       },
       {
-        "label": "settings",
-        "title": "AAAi 设置",
-        "url": "/#/settings",
-        "width": 880,
-        "height": 620,
+        "label": "workbench",
+        "title": "AAAi",
+        "url": "/#/workbench",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 640,
         "decorations": false,
         "transparent": false,
+        "shadow": true,
         "alwaysOnTop": false,
         "visible": false,
         "skipTaskbar": false,
         "center": true,
         "focus": true,
-        "resizable": true
+        "resizable": true,
+        "maximizable": true
       }
     ],
     "security": {

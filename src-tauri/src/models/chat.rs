@@ -8,6 +8,10 @@ pub struct ChatSendRequest {
     pub message: String,
     #[serde(default)]
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub quick_ask: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,6 +139,8 @@ pub struct ChatSessionSummary {
     pub workspace_id: Option<String>,
     pub preview: String,
     pub message_count: usize,
+    pub turn_count: usize,
+    pub estimated_tokens: usize,
     pub updated_at: u64,
 }
 
@@ -218,6 +224,13 @@ pub struct PathPermissionEvent {
 pub struct RespondPathPermissionRequest {
     pub request_id: String,
     pub decision: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InteractionResolvedEvent {
+    pub request_id: String,
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

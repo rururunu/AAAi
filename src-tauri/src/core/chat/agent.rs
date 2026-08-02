@@ -183,6 +183,9 @@ impl AgentRunner {
                     StreamEvent::ToolCall(call) => {
                         merge_tool_call(&mut tool_calls, call);
                     }
+                    StreamEvent::Usage(usage) => {
+                        let _ = tx.send(StreamEvent::Usage(usage)).await;
+                    }
                     StreamEvent::TurnComplete {
                         content: turn_content,
                         reasoning: turn_reasoning,
@@ -240,6 +243,7 @@ impl AgentRunner {
                 name: None,
                 status: MessageStatus::Done,
                 timestamp: now_millis(),
+                estimated_tokens: None,
             };
             request.messages.push(assistant);
 
@@ -271,6 +275,7 @@ impl AgentRunner {
                     name: Some(outcome.tool_name),
                     status: MessageStatus::Done,
                     timestamp: now_millis(),
+                    estimated_tokens: None,
                 });
                 if outcome.user_denied {
                     user_denied = true;
@@ -497,9 +502,7 @@ impl AgentRunner {
         prompt: String,
         read_only: bool,
     ) -> Result<String, ToolError> {
-        let active_tools = Arc::new(ToolManager::new(
-            registry.filter_for_subagent(read_only),
-        ));
+        let active_tools = Arc::new(ToolManager::new(registry.filter_for_subagent(read_only)));
         let runner = AgentRunner::new(provider, active_tools);
         let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
         let cancelled = Arc::clone(&tool_ctx.cancelled);
@@ -519,6 +522,7 @@ impl AgentRunner {
                 name: None,
                 status: MessageStatus::Done,
                 timestamp: now_millis(),
+                estimated_tokens: None,
             }],
             context: Default::default(),
             provider: None,
@@ -569,6 +573,12 @@ impl AgentRunner {
                             }
                             reasoning_reported = true;
                         }
+                    }
+                    StreamEvent::Usage(usage) => {
+                        progress_bus.emit(crate::core::event::BusEvent::TokenUsage {
+                            model: "subagent".to_string(),
+                            usage,
+                        });
                     }
                     StreamEvent::Status { kind } => {
                         if let Some(subagent_id) = &progress_subagent_id {
@@ -688,6 +698,7 @@ async fn drain_soft_injects(
             name: None,
             status: MessageStatus::Done,
             timestamp: now_millis(),
+            estimated_tokens: None,
         };
         if user_msg_index.is_none() {
             *user_msg_index = Some(request.messages.len());

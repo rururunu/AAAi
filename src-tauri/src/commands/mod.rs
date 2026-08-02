@@ -8,6 +8,6 @@ pub mod mcp;
 pub mod permission;
 pub mod settings;
 pub mod skills;
-pub mod themes;
+pub mod token_usage;
 pub mod window;
 pub mod workspace;

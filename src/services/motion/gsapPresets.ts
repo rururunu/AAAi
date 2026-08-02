@@ -14,10 +14,10 @@ function prefersReducedMotion() {
   );
 }
 
-const COMPOSER_ENTER = 0.18;
-const COMPOSER_LEAVE = 0.14;
-const OVERLAY_ENTER = 0.28;
-const OVERLAY_LEAVE = 0.16;
+const COMPOSER_ENTER = 0.14;
+const COMPOSER_LEAVE = 0.09;
+const OVERLAY_ENTER = 0.17;
+const OVERLAY_LEAVE = 0.1;
 
 /**
  * Scroll a specific overflow container to a child element.
@@ -42,7 +42,7 @@ export function gsapScrollContainerTo(
   }
 
   gsap.to(container, {
-    duration: opts?.duration ?? 0.32,
+    duration: opts?.duration ?? 0.22,
     scrollTo: { y: target, offsetY },
   });
 }
@@ -81,8 +81,8 @@ export function gsapPickerEnter(el: Element, done: () => void) {
       {
         autoAlpha: 1,
         x: 0,
-        duration: 0.14,
-        stagger: 0.016,
+        duration: 0.11,
+        stagger: 0.012,
         clearProps: "transform",
       },
       0.04,
@@ -92,6 +92,12 @@ export function gsapPickerEnter(el: Element, done: () => void) {
 
 export function gsapPickerLeave(el: Element, done: () => void) {
   const target = el as HTMLElement;
+  if (target.matches(".model-picker-list, .option-picker-list")) {
+    const items = target.querySelectorAll<HTMLElement>(".command-item");
+    gsap.killTweensOf([target, ...items]);
+    done();
+    return;
+  }
   if (prefersReducedMotion()) {
     done();
     return;
@@ -122,7 +128,7 @@ export function gsapMenuEnter(el: Element, done?: () => void) {
   gsap.killTweensOf(target);
   gsap.fromTo(
     target,
-    { autoAlpha: 0, y: 4 },
+    { autoAlpha: 0, y: 3 },
     {
       autoAlpha: 1,
       y: 0,
@@ -204,14 +210,13 @@ export function gsapOverlayDockReveal(el: Element | null, visible: boolean) {
   const target = el as HTMLElement;
   gsap.killTweensOf(target);
 
-  // Prefer opacity over autoAlpha here: visibility:hidden prevents focusing the
-  // input when the overlay pops up (focus races with the enter tween start state).
-  // Horizontal expand uses clip-path (not scaleX) so text/input aren't stretched.
+  // Keep the input focusable throughout the reveal. A short opacity/translate
+  // tween avoids clip-path repaints and reaches an interactive frame sooner.
   if (prefersReducedMotion()) {
     gsap.set(target, {
       opacity: visible ? 1 : 0,
       visibility: visible ? "visible" : "hidden",
-      clearProps: visible ? "opacity,clipPath,visibility" : undefined,
+      clearProps: visible ? "opacity,transform,visibility" : undefined,
     });
     return;
   }
@@ -219,26 +224,28 @@ export function gsapOverlayDockReveal(el: Element | null, visible: boolean) {
   if (visible) {
     gsap.set(target, {
       visibility: "visible",
-      opacity: 1,
-      clipPath: "inset(0 50% 0 50% round 8px)",
+      opacity: 0,
+      y: 5,
     });
     gsap.to(target, {
-      clipPath: "inset(0 0% 0 0% round 8px)",
+      opacity: 1,
+      y: 0,
       duration: OVERLAY_ENTER,
       ease: "power3.out",
-      clearProps: "clipPath",
+      clearProps: "opacity,transform",
     });
     return;
   }
 
   gsap.to(target, {
-    clipPath: "inset(0 50% 0 50% round 8px)",
+    opacity: 0,
+    y: 3,
     duration: OVERLAY_LEAVE,
     ease: "power2.in",
     onComplete: () => {
       gsap.set(target, {
         visibility: "hidden",
-        clearProps: "clipPath",
+        clearProps: "opacity,transform",
       });
     },
   });
@@ -256,11 +263,11 @@ export function gsapSettingsPanelEnter(el: Element, done: () => void) {
   gsap.killTweensOf(target);
   gsap.fromTo(
     target,
-    { autoAlpha: 0, y: 10 },
+    { autoAlpha: 0, y: 6 },
     {
       autoAlpha: 1,
       y: 0,
-      duration: 0.22,
+      duration: 0.17,
       clearProps: "all",
       onComplete: done,
       onInterrupt: done,
@@ -279,7 +286,7 @@ export function gsapSettingsPanelLeave(el: Element, done: () => void) {
   gsap.to(target, {
     autoAlpha: 0,
     y: -6,
-    duration: 0.12,
+    duration: 0.09,
     ease: "power2.in",
     onComplete: done,
   });
@@ -293,12 +300,12 @@ export function gsapSettingsNavMount(root: Element) {
   gsap.killTweensOf(items);
   gsap.fromTo(
     items,
-    { autoAlpha: 0, x: -8 },
+    { autoAlpha: 0, x: -5 },
     {
       autoAlpha: 1,
       x: 0,
-      duration: 0.2,
-      stagger: 0.028,
+      duration: 0.16,
+      stagger: 0.018,
       clearProps: "transform",
     },
   );

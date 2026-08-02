@@ -201,7 +201,7 @@ pub fn destroy_overlay(app: &AppHandle, label: &str) {
 
 pub fn configure_overlay_window(window: &tauri::WebviewWindow) {
     let _ = window.set_shadow(false);
-    let _ = window.set_maximizable(true);
+    let _ = window.set_maximizable(false);
     let _ = window.set_skip_taskbar(true);
 
     reapply_toolwindow_style(window);
@@ -489,15 +489,33 @@ fn place_and_show_overlay_at_mouse(
 }
 
 pub fn show_settings_window(app: &AppHandle) {
-    let Some(window) = app.get_webview_window("settings") else {
+    let Some(window) = app.get_webview_window("workbench") else {
+        tracing::error!("workbench window is missing from the application configuration");
         return;
     };
 
+    if window.is_minimized().unwrap_or(false) {
+        let _ = window.unminimize();
+    }
     let _ = window.set_always_on_top(false);
-    let _ = window.center();
     let _ = window.show();
     let _ = window.set_focus();
-    let _ = window.emit("settings-opened", ());
+    let _ = window.emit("open-workbench-settings", ());
+}
+
+pub fn show_workbench_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("workbench") else {
+        tracing::error!("workbench window is missing from the application configuration");
+        return;
+    };
+
+    if window.is_minimized().unwrap_or(false) {
+        let _ = window.unminimize();
+    }
+    let _ = window.set_always_on_top(false);
+    let _ = window.show();
+    let _ = window.set_focus();
+    let _ = window.emit("workbench-opened", ());
 }
 
 /// Open (or create) an input overlay and attach the given images as selected context.

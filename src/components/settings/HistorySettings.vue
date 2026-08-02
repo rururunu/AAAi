@@ -1,11 +1,11 @@
 <template>
   <AppConfirmDialog ref="confirmDialogRef" />
-  <div class="py-2 select-none">
-    <!-- Group Title -->
-    <div class="flex items-center justify-between px-4 py-2 select-none">
-      <h2 class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
-        {{ historyText.title }}
-      </h2>
+  <div class="history-page select-none">
+    <div class="history-header flex items-center justify-between">
+      <div>
+        <h2>{{ historyText.title }}</h2>
+        <p>{{ historySummary }}</p>
+      </div>
 
       <div class="flex items-center gap-2">
         <Button
@@ -45,13 +45,15 @@
       </div>
     </div>
 
-    <div class="border-t border-border">
-      <div v-if="historyGroups.length === 0" class="text-muted-foreground px-4 py-8 text-center text-sm">
+    <div v-if="pageError" class="history-error">{{ pageError }}</div>
+
+    <div class="history-groups">
+      <div v-if="historyGroups.length === 0" class="history-empty">
         {{ historyText.empty }}
       </div>
 
-      <section v-for="group in historyGroups" :key="group.id" class="border-b border-border">
-        <div class="flex items-center gap-1 px-3 py-1.5 hover:bg-muted/30">
+      <section v-for="group in historyGroups" :key="group.id" class="history-group">
+        <div class="group-header flex items-center gap-1">
           <button
             type="button"
             class="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
@@ -98,7 +100,7 @@
         <article
           v-for="session in isHistoryGroupExpanded(group.id) ? group.sessions : []"
           :key="session.sessionId"
-          class="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-4 border-t border-border/70 py-3 pr-4 pl-10 hover:bg-muted/20"
+          class="session-row grid grid-cols-[minmax(0,1fr)_120px] items-center gap-4"
         >
           <div class="flex min-w-0 items-start gap-3">
             <input
@@ -114,15 +116,15 @@
               </h3>
               <p class="text-xs text-muted-foreground">
                 {{ historyText.messages.replace("{count}", String(session.messageCount)) }}
+                <span v-if="session.estimatedTokens"> · ≈{{ formatTokenCount(session.estimatedTokens, settingStore.language) }} tokens</span>
               </p>
             </div>
           </div>
           <div class="flex justify-end gap-2">
-            <Button variant="outline" size="sm" class="h-8 gap-1.5 text-xs" @click="openSession(session)">
+            <Button variant="ghost" size="icon" class="size-8 text-muted-foreground hover:text-foreground" :title="historyText.open" :aria-label="historyText.open" @click="openSession(session)">
               <FolderOpen class="size-3.5" />
-              {{ historyText.open }}
             </Button>
-            <Button variant="ghost" size="icon" class="size-8 text-muted-foreground hover:text-destructive" @click="deleteSingleSession(session.sessionId)">
+            <Button variant="ghost" size="icon" class="size-8 text-muted-foreground hover:text-destructive" :title="historyText.deleteLabel" :aria-label="historyText.deleteLabel" @click="deleteSingleSession(session.sessionId)">
               <Trash2 class="size-3.5" />
             </Button>
           </div>
@@ -144,9 +146,9 @@ import { useSettingStore } from "@/stores/setting";
 import { tr } from "@/services/i18n";
 import type { SettingsI18nKey } from "@/services/locales/settings";
 import type { ChatSessionSummary } from "@/types/chat";
+import { formatTokenCount } from "@/services/chat/tokenEstimate";
 
 const props = defineProps<{
-  query?: string;
   expandedHistoryGroups: Record<string, boolean>;
 }>();
 
@@ -171,6 +173,7 @@ const historyText = computed(() => {
     yesterday: tr(language, "settings.history.yesterday"),
     cancel: tr(language, "settings.history.cancel"),
     deleteLabel: tr(language, "settings.history.deleteLabel"),
+    openError: tr(language, "history.openError"),
   };
 });
 
@@ -183,6 +186,7 @@ const confirmDialogRef = ref<InstanceType<typeof AppConfirmDialog> | null>(null)
 const historySessions = ref<ChatSessionSummary[]>([]);
 const historyWorkspaces = ref<Workspace[]>([]);
 const selectedSessionIds = ref<string[]>([]);
+const pageError = ref("");
 
 interface HistoryGroup {
   id: string;
@@ -198,7 +202,6 @@ function workspaceNameFromId(id: string) {
 }
 
 const historyGroups = computed<HistoryGroup[]>(() => {
-  const query = props.query?.trim().toLowerCase() ?? "";
   const groups = new Map<string, HistoryGroup>();
   for (const workspace of historyWorkspaces.value) {
     groups.set(workspace.id, {
@@ -231,18 +234,14 @@ const historyGroups = computed<HistoryGroup[]>(() => {
   }
 
   return [...groups.values()]
-    .map((group) => {
-      const groupMatches = query && `${group.name} ${group.root ?? ""}`.toLowerCase().includes(query);
-      return {
-        ...group,
-        sessions: !query || groupMatches
-          ? group.sessions
-          : group.sessions.filter((session) => session.preview.toLowerCase().includes(query)),
-      };
-    })
-    .filter((group) => !query || group.sessions.length > 0)
+    .filter((group) => group.sessions.length > 0)
     .sort((left, right) => Number(left.public) - Number(right.public));
 });
+
+const historySummary = computed(() => tr(settingStore.language, "history.summary", {
+  count: historySessions.value.length,
+  groups: historyGroups.value.filter((group) => group.sessions.length > 0).length,
+}));
 
 const filteredHistorySessions = computed(() =>
   historyGroups.value.flatMap((group) => group.sessions),
@@ -383,6 +382,7 @@ async function clearAllSessions() {
 }
 
 async function openSession(session: ChatSessionSummary) {
+  pageError.value = "";
   try {
     if (
       session.workspaceId &&
@@ -392,7 +392,7 @@ async function openSession(session: ChatSessionSummary) {
     }
     await openSessionInOverlay(session.sessionId);
   } catch (err) {
-    alert("Failed to open session: " + err);
+    pageError.value = `${historyText.value.openError}: ${String(err)}`;
   }
 }
 
@@ -419,3 +419,31 @@ onMounted(() => {
   void loadSessions();
 });
 </script>
+
+<style scoped>
+.history-page { max-width: 920px; padding: 22px 24px 42px; color: var(--peek-text); }
+.history-header { min-height: 49px; gap: 18px; padding: 0 0 15px; border-bottom: 1px solid var(--peek-border); }
+.history-header h2 { margin: 0; color: var(--peek-text); font-size: 16px; font-weight: 680; letter-spacing: 0; text-transform: none; }
+.history-header p { margin: 4px 0 0; color: var(--peek-muted); font-size: 11px; }
+.history-header > div:last-child { gap: 4px; }
+.history-header :deep([data-slot="button"]) { height: 29px; border-radius: 5px; font-size: 10px; }
+.history-groups { border-bottom: 1px solid var(--peek-border); }
+.history-error { margin: 12px 0 0; padding: 9px 10px; border-radius: 6px; background: color-mix(in srgb, var(--destructive) 8%, transparent); color: var(--destructive); font-size: 11px; }
+.history-empty { min-height: 280px; display: grid; place-items: center; color: var(--peek-muted); font-size: 12px; }
+.history-group { border-bottom: 1px solid var(--peek-border); }
+.history-group:last-child { border-bottom: 0; }
+.group-header { min-height: 43px; padding: 4px 2px; }
+.group-header:hover { background: transparent; }
+.group-header > button:first-child { border-radius: 5px; padding: 5px; }
+.group-header > button:first-child:hover { background: var(--peek-hover-bg); }
+.group-header > button:first-child strong { color: var(--peek-text); font-size: 11px; }
+.group-header > button:first-child small { color: var(--peek-faint); font-size: 9px; }
+.group-header :deep([data-slot="button"]) { border-radius: 5px; }
+.session-row { min-height: 54px; padding: 7px 3px 7px 34px; border-top: 1px solid color-mix(in srgb, var(--peek-border) 72%, transparent); }
+.session-row:hover { background: color-mix(in srgb, var(--peek-text) 3%, transparent); }
+.session-row h3 { color: var(--peek-text); font-size: 11px; font-weight: 600; }
+.session-row p { margin: 0; color: var(--peek-muted); font-size: 9px; }
+.session-row > div:last-child { gap: 3px; }
+.session-row :deep([data-slot="button"]) { height: 29px; border-radius: 5px; font-size: 10px; }
+@media (max-width: 640px) { .history-header { align-items: flex-start; flex-direction: column; }.session-row { grid-template-columns: minmax(0, 1fr); padding-left: 8px; }.session-row > div:last-child { justify-content: flex-start; padding-left: 27px; } }
+</style>

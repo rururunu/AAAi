@@ -223,8 +223,14 @@ mod tests {
     #[test]
     fn subagent_registry_excludes_all_delegation_tools() {
         let mut registry = ToolRegistry::new();
-        registry.register(Arc::new(StubTool { name: "read_file", read_only: true }));
-        registry.register(Arc::new(StubTool { name: "write_file", read_only: false }));
+        registry.register(Arc::new(StubTool {
+            name: "read_file",
+            read_only: true,
+        }));
+        registry.register(Arc::new(StubTool {
+            name: "write_file",
+            read_only: false,
+        }));
         for name in [
             "run_subagent",
             "run_readonly_subagent",
@@ -233,7 +239,10 @@ mod tests {
             "explore_codebase",
             "review_code",
         ] {
-            registry.register(Arc::new(StubTool { name, read_only: true }));
+            registry.register(Arc::new(StubTool {
+                name,
+                read_only: true,
+            }));
         }
 
         let writable = registry.filter_for_subagent(false).names();

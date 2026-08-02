@@ -95,12 +95,8 @@ impl LspProcess {
 
     fn write_message(&mut self, msg: &Value) -> Result<(), ToolError> {
         let body = serde_json::to_vec(msg)?;
-        write!(
-            self.stdin,
-            "Content-Length: {}\r\n\r\n",
-            body.len()
-        )
-        .map_err(|e| ToolError::new(e.to_string()))?;
+        write!(self.stdin, "Content-Length: {}\r\n\r\n", body.len())
+            .map_err(|e| ToolError::new(e.to_string()))?;
         self.stdin
             .write_all(&body)
             .map_err(|e| ToolError::new(e.to_string()))?;
@@ -334,9 +330,7 @@ impl LspManager {
 }
 
 fn path_to_uri(path: &Path) -> String {
-    let abs = path
-        .canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf());
+    let abs = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let s = abs.to_string_lossy().replace('\\', "/");
     if s.starts_with('/') {
         format!("file://{s}")

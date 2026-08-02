@@ -32,7 +32,12 @@ impl PlanModeStore {
             .is_some_and(|g| g.contains(session_id))
     }
 
-    pub fn authorize(&self, session_id: &str, tool_name: &str, read_only: bool) -> Result<(), ToolError> {
+    pub fn authorize(
+        &self,
+        session_id: &str,
+        tool_name: &str,
+        read_only: bool,
+    ) -> Result<(), ToolError> {
         if !self.is_active(session_id) {
             return Ok(());
         }

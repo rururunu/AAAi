@@ -5,9 +5,6 @@
     role="listbox"
     :aria-label="ariaLabel"
   >
-    <li v-if="items.length === 0" class="picker-status">
-      {{ emptyText }}
-    </li>
     <li
       v-for="(item, index) in items"
       :key="item.sessionId"
@@ -19,6 +16,9 @@
       @mousedown.prevent="$emit('select', item.sessionId)"
     >
       <span class="history-preview">{{ item.preview }}</span>
+      <span v-if="item.estimatedTokens" class="history-tokens">
+        ≈{{ formatTokenCount(item.estimatedTokens) }} tokens
+      </span>
       <span class="history-time">{{ formatTime(item.updatedAt) }}</span>
     </li>
   </ul>
@@ -26,11 +26,11 @@
 
 <script setup lang="ts">
 import type { ChatSessionSummary } from "@/types/chat";
+import { formatTokenCount } from "@/services/chat/tokenEstimate";
 
 defineProps<{
   items: ChatSessionSummary[];
   selectedIndex: number;
-  emptyText: string;
   ariaLabel: string;
   formatTime: (timestamp: number) => string;
 }>();
@@ -64,14 +64,6 @@ defineEmits<{
   overscroll-behavior: contain;
 }
 
-.picker-status {
-  padding: 8px 12px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--peek-muted);
-  pointer-events: none;
-}
-
 .command-item {
   display: flex;
   align-items: center;
@@ -96,9 +88,10 @@ defineEmits<{
   text-overflow: ellipsis;
 }
 
-.history-time {
+.history-time, .history-tokens {
   flex: none;
   font-size: 11px;
   color: var(--peek-muted);
 }
+.history-tokens { font-size: 10px; font-variant-numeric: tabular-nums; }
 </style>

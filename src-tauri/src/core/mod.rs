@@ -8,6 +8,7 @@ pub mod lsp;
 pub mod mcp;
 pub mod rules;
 pub mod runtime;
+pub mod token;
 pub mod tools;
 pub mod workspace;
 

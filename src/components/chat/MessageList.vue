@@ -22,7 +22,7 @@
       @scroll="handleScroll"
     >
       <div v-if="displayItems.length === 0" class="empty-thread">
-        {{ tr(settingStore.language, "emptyThread") }}
+        {{ emptyThreadPrompt }}
       </div>
       <article
         v-for="item in displayItems"
@@ -152,11 +152,18 @@
             @review="$emit('reviewChanges')"
           />
           <div
-            v-if="item.message.content.trim() || processingDuration(item.message)"
+            v-if="item.message.content.trim() || processingDuration(item.message) || turnTokenCount(item)"
             class="message-actions assistant-message-actions"
           >
             <span v-if="processingDuration(item.message)" class="processing-duration">
               {{ tr(settingStore.language, "processedFor", { duration: processingDuration(item.message)! }) }}
+            </span>
+            <span
+              v-if="turnTokenCount(item)"
+              class="token-usage"
+              :title="tokenEstimateTitle(turnTokenCount(item))"
+            >
+              ≈ {{ formatTokenCount(turnTokenCount(item), settingStore.language) }} tokens
             </span>
             <button
               v-if="item.message.content.trim()"
@@ -198,6 +205,7 @@ import { isSoftInjectContent, stripSoftInjectMarker } from "@/services/chat/soft
 import { tr } from "@/services/i18n";
 import { gsapScrollContainerTo } from "@/services/motion/gsapPresets";
 import { copyText } from "@/services/clipboard";
+import { estimateMessageTokens, formatTokenCount } from "@/services/chat/tokenEstimate";
 
 type DisplayItem =
   | { kind: "user"; key: string; message: ChatMessage }
@@ -210,8 +218,17 @@ const SCROLL_NEAR_BOTTOM_THRESHOLD = 96;
 const props = defineProps<{
   messages: ChatMessage[];
   sessionId?: string;
+  workspaceName?: string;
   checkpoints?: CheckpointInfo[];
 }>();
+const workspaceName = computed(
+  () => props.workspaceName?.trim() || "",
+);
+const emptyThreadPrompt = computed(() =>
+  workspaceName.value
+    ? tr(settingStore.language, "emptyWorkspaceThread", { workspace: workspaceName.value })
+    : tr(settingStore.language, "emptyThreadGeneral"),
+);
 const emit = defineEmits<{
   rewound: [payload: { text: string }];
   reviewChanges: [];
@@ -343,6 +360,19 @@ function imageAnalysesForAssistant(message: ChatMessage) {
 
 function checkpointFor(message: ChatMessage) {
   return (props.checkpoints ?? []).find((item) => item.userMessageId === message.id);
+}
+
+function turnTokenCount(item: Extract<DisplayItem, { kind: "assistant" }>) {
+  const user = precedingUserMessage(item.message);
+  return [user, item.message, ...item.injects]
+    .filter((message): message is ChatMessage => Boolean(message))
+    .reduce((total, message) => total + estimateMessageTokens(message), 0);
+}
+
+function tokenEstimateTitle(tokens: number) {
+  return tr(settingStore.language, "tokens.estimated", {
+    count: new Intl.NumberFormat(settingStore.language).format(tokens),
+  });
 }
 
 function processingDuration(message: ChatMessage): string | undefined {
@@ -733,7 +763,7 @@ onUnmounted(() => {
 }
 .user-message-actions { justify-content: flex-end; }
 .assistant-message-actions { justify-content: flex-start; }
-.processing-duration {
+.processing-duration, .token-usage {
   margin-right: 4px;
   color: var(--peek-muted);
   font-size: 11px;

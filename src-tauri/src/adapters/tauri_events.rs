@@ -26,6 +26,7 @@ impl EventBus for TauriEventBus {
             BusEvent::AgentDebugEvent { event } => {
                 let _ = self.app.emit("agent-debug-event", event);
             }
+            BusEvent::TokenUsage { .. } => {}
             BusEvent::SubagentStarted { .. }
             | BusEvent::SubagentProgress { .. }
             | BusEvent::SubagentFinished { .. } => {}

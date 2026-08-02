@@ -11,6 +11,10 @@ pub enum BusEvent {
     AgentDebugEvent {
         event: crate::core::agent::AgentDebugEvent,
     },
+    TokenUsage {
+        model: String,
+        usage: crate::core::token::TokenUsage,
+    },
     SubagentStarted {
         subagent_id: String,
         parent_subagent_id: Option<String>,

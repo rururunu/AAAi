@@ -89,7 +89,6 @@ export function defaultGeminiOAuthSettings(): GeminiOAuthSettings {
 
 export interface AppSettings {
     colorScheme: ColorScheme;
-    vscodeTheme: string;
     language: AppLanguage;
     deepseekApiKey: string;
     geminiOauth: GeminiOAuthSettings;
@@ -134,7 +133,6 @@ export interface AppSettings {
 
 export interface AppSettingsPatch {
     colorScheme?: ColorScheme;
-    vscodeTheme?: string;
     language?: AppLanguage;
     deepseekApiKey?: string;
     geminiOauth?: GeminiOAuthSettings;

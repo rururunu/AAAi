@@ -36,9 +36,7 @@ pub fn visible_user_text(content: &str) -> String {
         .split_once(SELECTION_MARKER)
         .map(|(message, _)| message)
         .unwrap_or(content);
-    strip_attached_files(without_selection)
-        .trim()
-        .to_string()
+    strip_attached_files(without_selection).trim().to_string()
 }
 
 #[cfg(test)]

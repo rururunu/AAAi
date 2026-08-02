@@ -41,6 +41,35 @@ pub async fn open_session_in_overlay(app: AppHandle, session_id: String) -> Resu
 }
 
 #[tauri::command]
+pub fn open_session_in_workbench(
+    app: AppHandle,
+    session_id: String,
+    overlay_label: String,
+) -> Result<(), String> {
+    let workbench = app
+        .get_webview_window("workbench")
+        .ok_or_else(|| "workbench window is missing".to_string())?;
+
+    if workbench.is_minimized().unwrap_or(false) {
+        let _ = workbench.unminimize();
+    }
+    let _ = workbench.set_always_on_top(false);
+    workbench.show().map_err(|error| error.to_string())?;
+    let _ = workbench.set_focus();
+    let emit_result = workbench
+        .emit("workbench-open-session", session_id)
+        .map_err(|error| error.to_string());
+
+    if overlay_label == "overlay" {
+        hide_overlay(&app, &overlay_label);
+    } else if is_overlay_label(&overlay_label) {
+        destroy_overlay(&app, &overlay_label);
+    }
+
+    emit_result
+}
+
+#[tauri::command]
 pub fn open_settings(app: AppHandle) {
     show_settings_window(&app);
 }

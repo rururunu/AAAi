@@ -57,6 +57,8 @@ export const chatEn = {
   attachedFileSkipped: "Skipped",
   softInjected: "Added to this turn",
   emptyThread: "Send a message to start",
+  emptyWorkspaceThread: "What would you like me to help you accomplish in {workspace}?",
+  emptyThreadGeneral: "What can I do for you?",
   codeChanges: "Code changes", toggleCodeChanges: "Toggle code changes", closeChanges: "Close changes",
   changedFiles: "Changed files", noCodeChanges: "No code changes yet", changesAppearHere: "File edits made by the Agent will appear here.", copyDiff: "Copy diff", resizeCodeChanges: "Resize code changes",
   editedFiles: "Edited {count} file(s)", undoChanges: "Undo", reviewChanges: "Review",
@@ -80,6 +82,8 @@ export const chatLocales: Record<AppLanguage, LocalePartial> = {
 };
 
 Object.assign(chatLocales["zh-CN"], {
+  emptyWorkspaceThread: "需要我在 {workspace} 中帮助您完成什么？",
+  emptyThreadGeneral: "我能为您做什么？",
   maximizeWindow: "最大化窗口",
   restoreWindow: "还原窗口",
   pinWindow: "置顶窗口",

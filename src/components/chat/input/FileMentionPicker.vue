@@ -73,7 +73,8 @@ defineEmits<{
 }
 
 .command-item.active {
-  background: var(--peek-list-active);
+  background: color-mix(in srgb, var(--peek-accent) 14%, var(--peek-list-bg));
+  color: var(--peek-accent);
 }
 
 .command-desc {
@@ -96,6 +97,6 @@ defineEmits<{
 
 .file-suggestion-icon {
   flex: none;
-  color: var(--peek-muted);
+  color: var(--peek-accent);
 }
 </style>

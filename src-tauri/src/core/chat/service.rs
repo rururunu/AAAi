@@ -91,13 +91,30 @@ impl ChatService {
         session_id: Option<String>,
         content: String,
         preferences: SendPreferences,
+        workspace_id: Option<String>,
+        quick_ask: bool,
     ) -> Result<ChatSendResult, ChatError> {
         let content = content.trim().to_string();
         if content.is_empty() {
             return Err(ChatError::EmptyMessage);
         }
-        let workspace = self.workspace_manager.current();
         let known_workspaces = self.workspace_manager.list();
+        let workspace = if quick_ask {
+            None
+        } else if let Some(workspace_id) = workspace_id.as_deref() {
+            known_workspaces
+                .iter()
+                .find(|workspace| workspace.id == workspace_id)
+                .cloned()
+        } else {
+            self.workspace_manager.current()
+        };
+        if let Some(workspace) = workspace.as_ref() {
+            self.workspace_manager
+                .touch(&workspace.id)
+                .await
+                .map_err(ChatError::Internal)?;
+        }
 
         let session_id = session_id.unwrap_or_else(|| DEFAULT_SESSION_ID.to_string());
 
@@ -109,7 +126,7 @@ impl ChatService {
         }
 
         let agent_run_id = self.agent_runtime.create_run(content.clone());
-        let context = self
+        let mut context = self
             .agent_runtime
             .collect_context(&agent_run_id, || {
                 let mut context = self
@@ -119,9 +136,17 @@ impl ChatService {
                 context
             })
             .map_err(|error| ChatError::Internal(error.to_string()))?;
+        // An explicitly selected workspace owns the new conversation. IDE context
+        // is still useful for files and selection, but must not switch its workspace.
+        if let Some(workspace) = workspace.as_ref() {
+            context.set_workspace(workspace.name.clone(), &workspace.root);
+        }
+        if quick_ask {
+            context.workspace = None;
+        }
         self.remember_ide_workspace(&context).await;
         let is_new_session = self.conversation.messages(&session_id).is_empty();
-        if is_new_session {
+        if is_new_session && !quick_ask {
             if let Some(resolved) = context.workspace.as_ref() {
                 self.conversation
                     .bind_workspace(&session_id, &resolved.root);
@@ -236,7 +261,10 @@ impl ChatService {
             turn,
             &user_message.content,
             Some(user_message.id.clone()),
-            context.workspace.as_ref().map(|workspace| std::path::Path::new(&workspace.root)),
+            context
+                .workspace
+                .as_ref()
+                .map(|workspace| std::path::Path::new(&workspace.root)),
         );
 
         let chat_mode = self

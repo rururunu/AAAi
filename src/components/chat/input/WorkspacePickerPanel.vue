@@ -198,6 +198,11 @@ defineEmits<{
   font-size: 10px;
 }
 
+.workspace-option.current .workspace-option-title strong,
+.workspace-option.active .workspace-option-title strong {
+  color: var(--peek-accent);
+}
+
 .workspace-source {
   flex: none;
   padding: 1px 5px;

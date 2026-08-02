@@ -180,6 +180,7 @@ fn base_request() -> ChatRequest {
             name: None,
             status: MessageStatus::Done,
             timestamp: 1,
+            estimated_tokens: None,
         }],
         context: RequestContext::default(),
         provider: None,
@@ -334,7 +335,13 @@ async fn finishes_without_tools() {
     let runner = AgentRunner::new(provider, tools);
     let (tx, mut rx) = mpsc::channel(16);
     runner
-        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)), Arc::new(Mutex::new(std::collections::VecDeque::new())))
+        .run(
+            base_request(),
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
         .await
         .unwrap();
     let finish = collect_finish(&mut rx).await.expect("finish");
@@ -427,7 +434,13 @@ async fn runs_read_only_tools_in_parallel() {
     let runner = AgentRunner::new(provider, tools);
     let (tx, mut rx) = mpsc::channel(16);
     runner
-        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)), Arc::new(Mutex::new(std::collections::VecDeque::new())))
+        .run(
+            base_request(),
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
         .await
         .unwrap();
     let _ = collect_finish(&mut rx).await;
@@ -473,7 +486,13 @@ async fn stops_at_max_steps() {
     let runner = AgentRunner::with_limits(provider, tools, 2, 200_000, TOOL_OUTPUT_MAX_CHARS);
     let (tx, mut rx) = mpsc::channel(16);
     runner
-        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)), Arc::new(Mutex::new(std::collections::VecDeque::new())))
+        .run(
+            base_request(),
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
         .await
         .unwrap();
     let finish = collect_finish(&mut rx).await.expect("finish");
@@ -527,7 +546,13 @@ async fn truncates_tool_output_for_model() {
     let runner = AgentRunner::with_limits(recorder.clone(), tools, 30, 200_000, 100);
     let (tx, mut rx) = mpsc::channel(16);
     runner
-        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)), Arc::new(Mutex::new(std::collections::VecDeque::new())))
+        .run(
+            base_request(),
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
         .await
         .unwrap();
     let _ = collect_finish(&mut rx).await;
@@ -600,7 +625,13 @@ async fn stops_when_token_budget_exhausted() {
     let runner = AgentRunner::with_limits(provider, tools, 30, 50, TOOL_OUTPUT_MAX_CHARS);
     let (tx, mut rx) = mpsc::channel(16);
     runner
-        .run(base_request(), ctx, tx, Arc::new(AtomicBool::new(false)), Arc::new(Mutex::new(std::collections::VecDeque::new())))
+        .run(
+            base_request(),
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
         .await
         .unwrap();
     let finish = collect_finish(&mut rx).await.expect("finish");

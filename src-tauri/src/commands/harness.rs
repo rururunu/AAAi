@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::app_state::AppState;
 use crate::core::checkpoint::{shared_checkpoint_store, Checkpoint, CheckpointStore};
 use crate::core::tools::plan_mode::shared_plan_mode_store;
 use crate::core::tools::tool_approval::shared_tool_approval_store;
+use crate::models::chat::InteractionResolvedEvent;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,9 +50,19 @@ pub struct RewindSessionResponse {
 }
 
 #[tauri::command]
-pub fn respond_tool_approval(request: RespondToolApprovalRequest) -> Result<(), String> {
+pub fn respond_tool_approval(
+    app: AppHandle,
+    request: RespondToolApprovalRequest,
+) -> Result<(), String> {
     let ok = shared_tool_approval_store().complete(&request.request_id, &request.decision);
     if ok {
+        let _ = app.emit(
+            "interaction-resolved",
+            InteractionResolvedEvent {
+                request_id: request.request_id,
+                kind: "tool_approval".to_string(),
+            },
+        );
         Ok(())
     } else {
         Err("tool approval request not found or already completed".into())
@@ -110,7 +121,12 @@ pub async fn rewind_session(
             .workspace_for_session(&request.session_id)
             .map(std::path::PathBuf::from);
         let root = session_root
-            .or_else(|| checkpoint.workspace_root.clone().map(std::path::PathBuf::from))
+            .or_else(|| {
+                checkpoint
+                    .workspace_root
+                    .clone()
+                    .map(std::path::PathBuf::from)
+            })
             .or_else(|| {
                 state
                     .core

@@ -19,8 +19,10 @@ fn image_regex() -> &'static Regex {
 fn analysis_open_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?s)^\s*<peek-image-analysis\s+model="([^"]*)">\s*(.*?)\s*</peek-image-analysis>"#)
-            .expect("analysis open regex")
+        Regex::new(
+            r#"(?s)^\s*<peek-image-analysis\s+model="([^"]*)">\s*(.*?)\s*</peek-image-analysis>"#,
+        )
+        .expect("analysis open regex")
     })
 }
 
@@ -182,7 +184,9 @@ pub fn split_image_content(content: &str) -> Vec<ImageContentSegment> {
         }
 
         if let Some(payload) = caps.get(1) {
-            segments.push(ImageContentSegment::ImagePayload(payload.as_str().to_string()));
+            segments.push(ImageContentSegment::ImagePayload(
+                payload.as_str().to_string(),
+            ));
         }
 
         let mut end = full.end();

@@ -9,6 +9,7 @@ use serde_json::{json, Map, Value};
 use tokio::sync::mpsc::Sender;
 
 use crate::core::runtime::{ChatMessage, ChatRequest, Role, StreamEvent, ToolCallPayload};
+use crate::core::token::TokenUsage;
 use crate::models::chat::ChatModelInfo;
 use crate::models::settings::ReasoningEffort;
 
@@ -103,7 +104,16 @@ impl DeepSeekProvider {
 
 #[derive(Debug, Deserialize)]
 struct ApiStreamResponse {
+    #[serde(default)]
     choices: Vec<ApiStreamChoice>,
+    #[serde(default)]
+    usage: Option<ApiTokenUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiTokenUsage {
+    prompt_tokens: usize,
+    completion_tokens: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -547,6 +557,16 @@ async fn read_sse_stream(
             let parsed: ApiStreamResponse = serde_json::from_str(payload).map_err(|error| {
                 ProviderError::message(format!("invalid stream payload: {error}"))
             })?;
+
+            if let Some(usage) = parsed.usage {
+                let _ = tx
+                    .send(StreamEvent::Usage(TokenUsage::exact(
+                        usage.prompt_tokens,
+                        usage.completion_tokens,
+                        "provider/usage",
+                    )))
+                    .await;
+            }
 
             for choice in parsed.choices {
                 if let Some(reason) = choice.finish_reason.filter(|value| !value.is_empty()) {
@@ -1036,6 +1056,7 @@ mod tests {
             name: None,
             status: MessageStatus::Done,
             timestamp: 1,
+            estimated_tokens: None,
         }
     }
 
@@ -1155,6 +1176,7 @@ mod tests {
             name: None,
             status: MessageStatus::Done,
             timestamp: 1,
+            estimated_tokens: None,
         };
         let tool = ChatMessage {
             id: "t1".into(),
@@ -1168,6 +1190,7 @@ mod tests {
             name: Some("read_file".into()),
             status: MessageStatus::Done,
             timestamp: 2,
+            estimated_tokens: None,
         };
 
         let assistant_json = message_to_api_json(&assistant, true);
@@ -1200,6 +1223,7 @@ mod tests {
             name: None,
             status: MessageStatus::Done,
             timestamp: 1,
+            estimated_tokens: None,
         };
 
         let enabled = message_to_api_json(&assistant, true);

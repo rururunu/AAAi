@@ -1,16 +1,16 @@
 <template>
-  <div class="flex h-full flex-col bg-background text-foreground">
-    <header class="titlebar flex h-9 shrink-0 items-center justify-between border-b border-border bg-sidebar">
-      <div 
-        class="titlebar-drag flex h-full flex-1 items-center gap-2 pl-3" 
+  <div class="settings-workbench" :class="{ embedded: props.embedded }">
+    <header v-if="!props.embedded" class="titlebar">
+      <div
+        class="titlebar-drag"
         data-tauri-drag-region
         @mousedown="onWindowDragMouseDown"
       >
-        <Settings2 class="size-3.5 text-primary" />
-        <span class="text-xs font-semibold" data-tauri-drag-region>{{ t.title }}</span>
+        <Settings2 class="titlebar-icon" :size="15" />
+        <span class="titlebar-title" data-tauri-drag-region>{{ t.title }}</span>
       </div>
 
-      <div class="flex h-full">
+      <div class="titlebar-actions">
         <button
           type="button"
           class="titlebar-btn"
@@ -30,102 +30,114 @@
       </div>
     </header>
 
-    <div class="flex min-h-0 flex-1 overflow-hidden">
-    <SidebarProvider class="h-full min-h-0 w-full [&_[data-slot=sidebar-wrapper]]:h-full [&_[data-slot=sidebar-wrapper]]:min-h-0">
-      <Sidebar collapsible="none" class="settings-nav border-r">
-        <SidebarContent class="settings-nav-content peek-scrollbar">
-          <SidebarGroup v-for="section in categorySections" :key="section.id" class="settings-nav-group">
-            <SidebarGroupLabel class="settings-section-label">{{ section.label }}</SidebarGroupLabel>
-            <SidebarMenu>
-              <SidebarMenuItem v-for="category in section.categories" :key="category.id">
-                <SidebarMenuButton
-                  class="settings-nav-item"
-                  :is-active="activeCategory === category.id"
-                  :title="category.label"
-                  @click="activeCategory = category.id"
+    <div class="settings-body">
+      <SidebarProvider
+        class="settings-layout h-full min-h-0 w-full [&_[data-slot=sidebar-wrapper]]:h-full [&_[data-slot=sidebar-wrapper]]:min-h-0"
+        >
+        <Sidebar collapsible="none" class="settings-nav">
+          <SidebarContent class="settings-nav-content peek-scrollbar">
+            <div v-if="props.embedded" class="settings-back-wrap">
+              <button
+                type="button"
+                class="settings-back"
+                :aria-label="t.back"
+                @click="emit('back')"
+              >
+                <ArrowLeft :size="15" />
+                <span>{{ t.back }}</span>
+              </button>
+            </div>
+            <SidebarGroup
+              v-for="section in categorySections"
+              :key="section.id"
+              class="settings-nav-group"
+            >
+              <SidebarGroupLabel class="settings-section-label">{{
+                section.label
+              }}</SidebarGroupLabel>
+              <SidebarMenu>
+                <SidebarMenuItem
+                  v-for="category in section.categories"
+                  :key="category.id"
                 >
-                  <component :is="category.icon" class="size-4 shrink-0" />
-                  <span class="settings-nav-label">{{ category.label }}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroup>
-        </SidebarContent>
-      </Sidebar>
+                  <SidebarMenuButton
+                    class="settings-nav-item"
+                    :is-active="activeCategory === category.id"
+                    :title="category.label"
+                    @click="activeCategory = category.id"
+                  >
+                    <component :is="category.icon" class="size-4 shrink-0" />
+                    <span class="settings-nav-label">{{ category.label }}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroup>
+          </SidebarContent>
+        </Sidebar>
 
-      <SidebarInset class="flex min-h-0 flex-col">
-        <div class="border-b border-border p-3">
-          <div class="relative">
-            <Search class="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
-            <Input
-              ref="searchRef"
-              v-model="searchQuery"
-              class="h-8 pl-8"
-              :placeholder="searchPlaceholder"
-            />
+        <SidebarInset class="settings-content-pane">
+          <div class="settings-scroll peek-scrollbar">
+            <Transition
+              :css="false"
+              mode="out-in"
+              @enter="gsapSettingsPanelEnter"
+              @leave="gsapSettingsPanelLeave"
+            >
+              <div :key="activeCategory" class="settings-panel">
+                <WorkspaceSettings
+                  v-if="activeCategory === 'workspace'"
+                />
+                <McpSettings
+                  v-else-if="activeCategory === 'mcp'"
+                />
+                <SkillsSettings
+                  v-else-if="activeCategory === 'skills'"
+                />
+                <ProviderSettings
+                  v-else-if="activeCategory === 'provider'"
+                />
+                <HistorySettings
+                  v-else-if="activeCategory === 'history'"
+                  :expanded-history-groups="expandedHistoryGroups"
+                  @toggle-history-group="toggleHistoryGroup"
+                />
+                <TokenUsageSettings v-else-if="activeCategory === 'usage'" />
+                <AboutSettings
+                  v-else-if="activeCategory === 'about'"
+                  :name="appName"
+                  :version="appVersion"
+                  :identifier="appIdentifier"
+                />
+                <SettingFieldList
+                  v-else
+                  :items="visibleItems"
+                  :empty-text="t.empty"
+                  v-model:api-key-draft="apiKeyDraft"
+                  v-model:mem0-api-key-draft="mem0ApiKeyDraft"
+                  v-model:mem0-user-id-draft="mem0UserIdDraft"
+                  v-model:mem0-base-url-draft="mem0BaseUrlDraft"
+                  v-model:serper-api-key-draft="serperApiKeyDraft"
+                  v-model:tavily-api-key-draft="tavilyApiKeyDraft"
+                  @toggle="onToggle"
+                  @slider-change="onSliderChange"
+                  @color-scheme-change="onColorSchemeChange"
+                  @language-change="onLanguageChange"
+                  @zoom-change="onZoomChange"
+                  @reasoning-effort-change="onReasoningEffortChange"
+                  @reasoning-language-change="onReasoningLanguageChange"
+                  @tool-approval-mode-change="onToolApprovalModeChange"
+                  @web-search-provider-change="onWebSearchProviderChange"
+                  @default-model-change="onDefaultModelChange"
+                  @multimodal-model-change="onMultimodalModelChange"
+                  @save-api-key="saveApiKey"
+                  @save-memory-settings="saveMemorySettings"
+                  @save-web-search-settings="saveWebSearchSettings"
+                />
+              </div>
+            </Transition>
           </div>
-        </div>
-
-        <div class="flex-1 overflow-y-auto pr-1 peek-scrollbar">
-          <Transition
-            :css="false"
-            mode="out-in"
-            @enter="gsapSettingsPanelEnter"
-            @leave="gsapSettingsPanelLeave"
-          >
-          <div :key="activeCategory" class="settings-panel p-1">
-            <WorkspaceSettings
-              v-if="activeCategory === 'workspace'"
-              :query="searchQuery"
-            />
-            <McpSettings
-              v-else-if="activeCategory === 'mcp'"
-              :query="searchQuery"
-            />
-            <SkillsSettings
-              v-else-if="activeCategory === 'skills'"
-              :query="searchQuery"
-            />
-            <ProviderSettings
-              v-else-if="activeCategory === 'provider'"
-              :query="searchQuery"
-            />
-            <HistorySettings
-              v-else-if="activeCategory === 'history'"
-              :query="searchQuery"
-              :expanded-history-groups="expandedHistoryGroups"
-              @toggle-history-group="toggleHistoryGroup"
-            />
-            <SettingFieldList
-              v-else
-              :items="visibleItems"
-              :empty-text="t.empty"
-              v-model:api-key-draft="apiKeyDraft"
-              v-model:mem0-api-key-draft="mem0ApiKeyDraft"
-              v-model:mem0-user-id-draft="mem0UserIdDraft"
-              v-model:mem0-base-url-draft="mem0BaseUrlDraft"
-              v-model:serper-api-key-draft="serperApiKeyDraft"
-              v-model:tavily-api-key-draft="tavilyApiKeyDraft"
-              @toggle="onToggle"
-              @slider-change="onSliderChange"
-              @color-scheme-change="onColorSchemeChange"
-              @language-change="onLanguageChange"
-              @zoom-change="onZoomChange"
-              @reasoning-effort-change="onReasoningEffortChange"
-              @reasoning-language-change="onReasoningLanguageChange"
-              @tool-approval-mode-change="onToolApprovalModeChange"
-              @web-search-provider-change="onWebSearchProviderChange"
-              @default-model-change="onDefaultModelChange"
-              @multimodal-model-change="onMultimodalModelChange"
-              @save-api-key="saveApiKey"
-              @save-memory-settings="saveMemorySettings"
-              @save-web-search-settings="saveWebSearchSettings"
-            />
-          </div>
-          </Transition>
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+        </SidebarInset>
+      </SidebarProvider>
     </div>
   </div>
 </template>
@@ -134,11 +146,31 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { Bot, BrainCircuit, Plug, Shield, Folders, Globe2, History, Info, Minus, Palette, Pin, Search, Server, Settings2, Sparkles, X } from "@lucide/vue";
+import {
+  Bot,
+  BrainCircuit,
+  Plug,
+  Shield,
+  Folders,
+  Globe2,
+  History,
+  Info,
+  Minus,
+  Palette,
+  Pin,
+  Server,
+  Settings2,
+  Sparkles,
+  X,
+  BarChart3,
+  ArrowLeft,
+} from "@lucide/vue";
 import WorkspaceSettings from "@/components/workspace/WorkspaceSettings.vue";
 import McpSettings from "@/components/settings/McpSettings.vue";
 import SkillsSettings from "@/components/settings/SkillsSettings.vue";
 import HistorySettings from "@/components/settings/HistorySettings.vue";
+import TokenUsageSettings from "@/components/settings/TokenUsageSettings.vue";
+import AboutSettings from "@/components/settings/AboutSettings.vue";
 import ProviderSettings from "@/components/settings/ProviderSettings.vue";
 import SettingFieldList from "@/components/settings/SettingFieldList.vue";
 import { onWindowDragMouseDown } from "@/services/overlay/windowDrag";
@@ -148,7 +180,6 @@ import {
   gsapSettingsPanelLeave,
 } from "@/services/motion/gsapPresets";
 import { getAppInfo } from "@/services/ipc";
-import { Input } from "@/components/ui/input";
 import {
   Sidebar,
   SidebarContent,
@@ -163,7 +194,11 @@ import {
 import { useSettingStore } from "@/stores/setting";
 import { useChatModelStore } from "@/stores/chatModel";
 import { tr } from "@/services/i18n";
-import { buildSettingDefinitions, type CategoryId, type SettingDefinition } from "@/pages/Settings/settingsDefinitions";
+import {
+  buildSettingDefinitions,
+  type CategoryId,
+  type SettingDefinition,
+} from "@/pages/Settings/settingsDefinitions";
 import type {
   AppLanguage,
   ColorScheme,
@@ -177,6 +212,10 @@ import type {
 const settingStore = useSettingStore();
 const chatModelStore = useChatModelStore();
 const appWindow = getCurrentWebviewWindow();
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), {
+  embedded: false,
+});
+const emit = defineEmits<{ back: [] }>();
 
 const SETTINGS_BASE_WIDTH = 880;
 const SETTINGS_BASE_HEIGHT = 620;
@@ -188,8 +227,6 @@ async function resizeSettingsWindow() {
   await appWindow.setSize(new LogicalSize(scaledWidth, scaledHeight));
 }
 
-const searchRef = ref<InstanceType<typeof Input> | null>(null);
-const searchQuery = ref("");
 const activeCategory = ref<CategoryId>("ai");
 
 const appName = ref("-");
@@ -214,18 +251,13 @@ function toggleHistoryGroup(groupId: string) {
   };
 }
 
-const searchPlaceholder = computed(() =>
-  activeCategory.value === "history"
-    ? tr(settingStore.language, "settings.history.search")
-    : tr(settingStore.language, "settings.searchPlaceholder"),
-);
-
 const t = computed(() => {
   const language = settingStore.language;
   return {
     title: tr(language, "settings.title"),
     minimize: tr(language, "settings.minimize"),
     close: tr(language, "settings.close"),
+    back: tr(language, "settings.provider.back"),
     sidebarLabel: tr(language, "settings.sidebarLabel"),
     empty: tr(language, "settings.empty"),
     categories: {
@@ -239,6 +271,7 @@ const t = computed(() => {
       plugins: tr(language, "settings.categories.plugins"),
       workspace: tr(language, "settings.categories.workspace"),
       history: tr(language, "settings.categories.history"),
+      usage: tr(language, "settings.categories.usage"),
       about: tr(language, "settings.categories.about"),
       provider: tr(language, "settings.categories.provider"),
     },
@@ -248,20 +281,35 @@ const t = computed(() => {
 const categories = computed(() => [
   { id: "ai" as const, label: t.value.categories.ai, icon: Bot },
   { id: "provider" as const, label: t.value.categories.provider, icon: Server },
-  { id: "workspace" as const, label: t.value.categories.workspace, icon: Folders },
+  {
+    id: "workspace" as const,
+    label: t.value.categories.workspace,
+    icon: Folders,
+  },
   { id: "agent" as const, label: t.value.categories.agent, icon: Shield },
   { id: "history" as const, label: t.value.categories.history, icon: History },
+  { id: "usage" as const, label: t.value.categories.usage, icon: BarChart3 },
   { id: "mcp" as const, label: t.value.categories.mcp, icon: Plug },
   { id: "skills" as const, label: t.value.categories.skills, icon: Sparkles },
   { id: "plugins" as const, label: t.value.categories.plugins, icon: Pin },
-  { id: "memory" as const, label: t.value.categories.memory, icon: BrainCircuit },
+  {
+    id: "memory" as const,
+    label: t.value.categories.memory,
+    icon: BrainCircuit,
+  },
   { id: "search" as const, label: t.value.categories.search, icon: Globe2 },
-  { id: "appearance" as const, label: t.value.categories.appearance, icon: Palette },
+  {
+    id: "appearance" as const,
+    label: t.value.categories.appearance,
+    icon: Palette,
+  },
   { id: "about" as const, label: t.value.categories.about, icon: Info },
 ]);
 
 const categorySections = computed(() => {
-  const byId = new Map(categories.value.map((category) => [category.id, category]));
+  const byId = new Map(
+    categories.value.map((category) => [category.id, category]),
+  );
   const section = (id: string, label: string, ids: CategoryId[]) => ({
     id,
     label,
@@ -272,10 +320,26 @@ const categorySections = computed(() => {
   });
   const language = settingStore.language;
   return [
-    section("general", tr(language, "settings.sections.general"), ["appearance", "workspace"]),
-    section("intelligence", tr(language, "settings.sections.intelligence"), ["ai", "provider", "agent", "memory", "search"]),
-    section("extensions", tr(language, "settings.sections.extensions"), ["mcp", "skills", "plugins"]),
-    section("data", tr(language, "settings.sections.data"), ["history"]),
+    section("general", tr(language, "settings.sections.general"), [
+      "appearance",
+      "workspace",
+    ]),
+    section("intelligence", tr(language, "settings.sections.intelligence"), [
+      "ai",
+      "provider",
+      "agent",
+      "memory",
+      "search",
+    ]),
+    section("extensions", tr(language, "settings.sections.extensions"), [
+      "mcp",
+      "skills",
+      "plugins",
+    ]),
+    section("data", tr(language, "settings.sections.data"), [
+      "history",
+      "usage",
+    ]),
     section("system", tr(language, "settings.sections.system"), ["about"]),
   ];
 });
@@ -288,30 +352,8 @@ const settingDefinitions = computed<SettingDefinition[]>(() =>
   }),
 );
 
-const normalizedQuery = computed(() => searchQuery.value.trim().toLowerCase());
-
 const visibleItems = computed(() =>
-  settingDefinitions.value.filter((item) => {
-    if (item.category !== activeCategory.value) {
-      return false;
-    }
-
-    if (!normalizedQuery.value) {
-      return true;
-    }
-
-    const haystack = [
-      item.title,
-      item.description,
-      item.path,
-      item.group,
-      ...item.keywords,
-    ]
-      .join(" ")
-      .toLowerCase();
-
-    return haystack.includes(normalizedQuery.value);
-  }),
+  settingDefinitions.value.filter((item) => item.category === activeCategory.value),
 );
 
 function minimize() {
@@ -326,13 +368,11 @@ function onColorSchemeChange(value: unknown) {
   if (typeof value !== "string") {
     return;
   }
-  if (value.startsWith("vscode:")) {
-    void settingStore.update({ vscodeTheme: value.slice("vscode:".length) });
-    return;
-  }
   const scheme = value.slice("builtin:".length);
   if (scheme === "dark" || scheme === "light") {
-    void settingStore.update({ colorScheme: scheme as ColorScheme, vscodeTheme: "" });
+    void settingStore.update({
+      colorScheme: scheme as ColorScheme,
+    });
   }
 }
 
@@ -385,12 +425,17 @@ async function saveApiKey() {
 function isModelSelection(value: unknown): value is ModelSelection {
   if (!value || typeof value !== "object") return false;
   const selection = value as Partial<ModelSelection>;
-  return typeof selection.id === "string" && typeof selection.provider === "string";
+  return (
+    typeof selection.id === "string" && typeof selection.provider === "string"
+  );
 }
 
 function onDefaultModelChange(value: unknown) {
   if (!isModelSelection(value) || !value.id.trim()) return;
-  void settingStore.update({ chatModel: value.id, chatModelProvider: value.provider });
+  void settingStore.update({
+    chatModel: value.id,
+    chatModelProvider: value.provider,
+  });
 }
 
 function onMultimodalModelChange(value: unknown) {
@@ -416,22 +461,32 @@ function onToggle(id: string) {
     void settingStore.update({ lspEnabled: !settingStore.lspEnabled });
   }
   if (id === "passToolReasoning") {
-    void settingStore.update({ passToolReasoning: !settingStore.passToolReasoning });
+    void settingStore.update({
+      passToolReasoning: !settingStore.passToolReasoning,
+    });
   }
   if (id === "showReasoning") {
     void settingStore.update({ showReasoning: !settingStore.showReasoning });
   }
   if (id === "multimodalSplitAnalysis") {
-    void settingStore.update({ multimodalSplitAnalysis: !settingStore.multimodalSplitAnalysis });
+    void settingStore.update({
+      multimodalSplitAnalysis: !settingStore.multimodalSplitAnalysis,
+    });
   }
   if (id === "largeContextEnabled") {
-    void settingStore.update({ largeContextEnabled: !settingStore.largeContextEnabled });
+    void settingStore.update({
+      largeContextEnabled: !settingStore.largeContextEnabled,
+    });
   }
   if (id === "pixpinPinAiEnabled") {
-    void settingStore.update({ pixpinPinAiEnabled: !settingStore.pixpinPinAiEnabled });
+    void settingStore.update({
+      pixpinPinAiEnabled: !settingStore.pixpinPinAiEnabled,
+    });
   }
   if (id === "snipastePinAiEnabled") {
-    void settingStore.update({ snipastePinAiEnabled: !settingStore.snipastePinAiEnabled });
+    void settingStore.update({
+      snipastePinAiEnabled: !settingStore.snipastePinAiEnabled,
+    });
   }
 }
 
@@ -464,10 +519,6 @@ function onWebSearchProviderChange(value: unknown) {
   });
 }
 
-watch(activeCategory, () => {
-  searchQuery.value = "";
-});
-
 onMounted(async () => {
   apiKeyDraft.value = settingStore.deepseekApiKey;
   mem0ApiKeyDraft.value = settingStore.mem0ApiKey;
@@ -482,10 +533,11 @@ onMounted(async () => {
   appVersion.value = info.version;
   appIdentifier.value = info.identifier;
 
-  await resizeSettingsWindow();
+  if (!props.embedded) {
+    await resizeSettingsWindow();
+  }
 
   await nextTick();
-  searchRef.value?.$el?.focus?.();
   const navEl = document.querySelector(".settings-nav");
   if (navEl) gsapSettingsNavMount(navEl);
 });
@@ -493,22 +545,136 @@ onMounted(async () => {
 watch(
   () => settingStore.zoom,
   async () => {
-    await resizeSettingsWindow();
-  }
+    if (!props.embedded) {
+      await resizeSettingsWindow();
+    }
+  },
 );
 </script>
 
 <style scoped>
+.settings-workbench {
+  --settings-chrome-bg: color-mix(
+    in srgb,
+    var(--peek-sidebar) 92%,
+    var(--peek-bg)
+  );
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--settings-chrome-bg);
+  color: var(--peek-text);
+  font-family: var(--font-sans);
+}
+
+.settings-workbench.embedded {
+  --settings-chrome-bg: var(--workbench-chrome-bg, var(--peek-sidebar));
+}
+
+.titlebar {
+  flex: none;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--settings-chrome-bg);
+  user-select: none;
+}
+
+.titlebar-drag {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px;
+}
+
+.titlebar-icon {
+  flex: none;
+  color: var(--peek-muted);
+}
+
+.titlebar-title {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.titlebar-actions {
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--settings-chrome-bg);
+}
+
+.settings-content-pane {
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 12px 12px 0 0;
+  background: var(--peek-list-bg);
+}
+
+.settings-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 1px;
+}
+
 .settings-nav {
-  width: 10rem;
-  min-width: 10rem;
-  transition: width 160ms ease, min-width 160ms ease;
+  width: 11rem;
+  min-width: 11rem;
+  background: var(--settings-chrome-bg);
+  transition:
+    width 160ms ease,
+    min-width 160ms ease;
 }
 
 .settings-nav-content {
   overflow-y: auto;
   padding: 5px 4px 8px;
 }
+
+.settings-back-wrap {
+  padding: 2px 4px 7px;
+  border-bottom: 1px solid color-mix(in srgb, var(--peek-border) 72%, transparent);
+  margin-bottom: 4px;
+}
+
+.settings-back {
+  width: 100%;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--peek-muted);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+
+.settings-back:hover {
+  background: color-mix(in srgb, var(--peek-text) 6%, transparent);
+  color: var(--peek-text);
+}
+
+.settings-back svg { flex: none; }
 
 .settings-nav-group {
   padding: 0 4px 4px;
@@ -517,17 +683,32 @@ watch(
 .settings-section-label {
   height: 25px;
   padding: 0 8px;
-  color: var(--muted-foreground);
-  font-size: 9px;
+  color: var(--peek-faint);
+  font-size: 10px;
   font-weight: 650;
-  text-transform: uppercase;
 }
 
 .settings-nav :deep([data-slot="sidebar-menu-button"]),
 .settings-nav-item {
-  gap: 0.55rem;
-  font-size: 13px;
+  height: 30px;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--peek-muted);
+  font-size: 12px;
   letter-spacing: 0;
+}
+
+.settings-nav :deep([data-slot="sidebar-menu-button"]:hover) {
+  background: color-mix(in srgb, var(--peek-text) 6%, transparent);
+  color: var(--peek-text);
+}
+
+.settings-nav :deep([data-slot="sidebar-menu-button"][data-active="true"]) {
+  background: color-mix(in srgb, var(--peek-text) 9%, transparent);
+  color: var(--peek-text);
+  font-weight: 600;
 }
 
 .settings-nav-label {
@@ -538,6 +719,7 @@ watch(
 
 .settings-panel {
   min-height: 100%;
+  padding: 4px;
   will-change: opacity, transform;
 }
 
@@ -545,18 +727,19 @@ watch(
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
+  width: 42px;
   height: 100%;
   margin: 0;
   padding: 0;
   border: 0;
   background: transparent;
-  color: inherit;
+  color: var(--peek-muted);
   cursor: default;
 }
 
 .titlebar-btn:hover {
-  background: var(--sidebar-accent);
+  background: var(--peek-hover-bg);
+  color: var(--peek-text);
 }
 
 .titlebar-btn.close:hover {

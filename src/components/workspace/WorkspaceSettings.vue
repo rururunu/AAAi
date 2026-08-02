@@ -1,7 +1,7 @@
 <template>
   <section class="workspace-settings">
     <AppConfirmDialog ref="confirmDialogRef" />
-    <header>
+    <header class="workspace-header">
       <div>
         <h2>{{ copy.title }}</h2>
         <p>{{ copy.description }}</p>
@@ -20,12 +20,13 @@
     <p v-if="error" class="form-error">{{ error }}</p>
 
     <div class="workspace-list">
-      <p v-if="filtered.length === 0" class="empty">{{ copy.empty }}</p>
-      <article v-for="workspace in filtered" :key="workspace.id">
+      <p v-if="workspaces.length === 0" class="empty">
+        <FolderOpen class="size-5" />
+        <span>{{ copy.empty }}</span>
+      </p>
+      <article v-for="workspace in workspaces" :key="workspace.id" :class="{ current: workspace.id === current?.id }">
         <button type="button" class="workspace-select" @click="select(workspace)">
-          <span class="radio" :class="{ active: workspace.id === current?.id }">
-            <Check v-if="workspace.id === current?.id" class="size-3" />
-          </span>
+          <span class="folder-icon"><Folder class="size-4" /></span>
           <span class="copy">
             <span class="workspace-title">
               <strong>{{ workspace.name }}</strong>
@@ -35,7 +36,7 @@
             </span>
             <span>{{ workspace.root }}</span>
           </span>
-          <span v-if="workspace.id === current?.id" class="current-label">{{ copy.current }}</span>
+          <span v-if="workspace.id === current?.id" class="current-label"><Check class="size-3" />{{ copy.current }}</span>
         </button>
         <Button
           type="button"
@@ -56,7 +57,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { Check, Plus, Trash2 } from "@lucide/vue";
+import { Check, Folder, FolderOpen, Plus, Trash2 } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import { AppConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useSettingStore } from "@/stores/setting";
@@ -72,7 +73,6 @@ import {
   type Workspace,
 } from "@/commands/workspace";
 
-const props = defineProps<{ query?: string }>();
 const settingStore = useSettingStore();
 const workspaces = ref<Workspace[]>([]);
 const current = ref<Workspace | null>(null);
@@ -94,14 +94,6 @@ const copy = computed(() => {
     confirmDelete: tr(language, "workspace.confirmDelete"),
     deleteConfirm: (name: string) => tr(language, "workspace.deleteConfirm", { name }),
   };
-});
-
-const filtered = computed(() => {
-  const query = props.query?.trim().toLowerCase() ?? "";
-  if (!query) return workspaces.value;
-  return workspaces.value.filter((workspace) =>
-    `${workspace.name} ${workspace.root}`.toLowerCase().includes(query),
-  );
 });
 
 async function load() {
@@ -155,21 +147,27 @@ onUnmounted(() => unlisten?.());
 </script>
 
 <style scoped>
-.workspace-settings { padding: 16px; }
-.workspace-settings > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 14px; }
-.workspace-settings h2 { margin: 0; font-size: 14px; font-weight: 600; }
-.workspace-settings header p, .empty { margin: 3px 0 0; color: var(--muted-foreground); font-size: 12px; }
-.form-error { margin: 0 0 10px; color: var(--destructive); font-size: 11px; }
-.workspace-list { border-top: 1px solid var(--border); }
-.empty { padding: 28px 0; text-align: center; }
-.workspace-list article { min-height: 58px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
-.workspace-select { min-width: 0; display: flex; flex: 1; align-items: center; gap: 10px; padding: 10px 4px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
-.radio { width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px solid var(--border); border-radius: 50%; }
-.radio.active { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); }
+.workspace-settings { max-width: 920px; padding: 22px 24px 42px; color: var(--peek-text); }
+.workspace-header { min-height: 49px; display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 0 0 15px; border-bottom: 1px solid var(--peek-border); }
+.workspace-settings h2 { margin: 0; font-size: 16px; font-weight: 680; letter-spacing: 0; }
+.workspace-header p { margin: 4px 0 0; color: var(--peek-muted); font-size: 11px; line-height: 17px; }
+.workspace-header :deep([data-slot="button"]) { height: 30px; border-radius: 5px; font-size: 11px; }
+.form-error { margin: 12px 0 0; padding: 9px 10px; border-radius: 6px; background: color-mix(in srgb, var(--destructive) 8%, transparent); color: var(--destructive); font-size: 11px; }
+.workspace-list { border-bottom: 1px solid var(--peek-border); }
+.empty { min-height: 280px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; margin: 0; color: var(--peek-muted); font-size: 12px; }
+.empty svg { color: var(--peek-faint); }
+.workspace-list article { min-height: 58px; display: flex; align-items: center; gap: 5px; padding: 0 2px; border-bottom: 1px solid var(--peek-border); }
+.workspace-list article:last-child { border-bottom: 0; }
+.workspace-list article:hover { background: color-mix(in srgb, var(--peek-text) 3%, transparent); }
+.workspace-select { min-width: 0; display: flex; flex: 1; align-items: center; gap: 10px; padding: 9px 5px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.folder-icon { width: 25px; height: 25px; display: inline-flex; align-items: center; justify-content: center; flex: none; color: var(--peek-muted); }
+.current .folder-icon { color: var(--peek-accent); }
 .copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
 .workspace-title { min-width: 0; display: flex; align-items: center; gap: 7px; }
-.copy strong { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.copy span { overflow: hidden; color: var(--muted-foreground); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.copy strong { min-width: 0; overflow: hidden; color: var(--peek-text); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.copy span { overflow: hidden; color: var(--peek-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .copy .workspace-source { flex: none; padding: 1px 6px; border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); border-radius: 999px; color: var(--primary); font-size: 9px; font-weight: 600; line-height: 1.35; }
-.current-label { flex: none; color: var(--primary); font-size: 11px; font-weight: 600; }
+.current-label { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--peek-accent); font-size: 10px; font-weight: 600; }
+.workspace-list :deep([data-slot="button"]) { border-radius: 5px; }
+@media (max-width: 620px) { .workspace-header { align-items: flex-start; flex-direction: column; }.current-label { font-size: 0; }.current-label svg { width: 14px; height: 14px; } }
 </style>

@@ -199,7 +199,10 @@ mod tests {
 
     #[test]
     fn classifies_common_errors() {
-        assert_eq!(ErrorKind::classify("request cancelled"), ErrorKind::Cancelled);
+        assert_eq!(
+            ErrorKind::classify("request cancelled"),
+            ErrorKind::Cancelled
+        );
         assert_eq!(
             ErrorKind::classify("connection reset by peer"),
             ErrorKind::Transport

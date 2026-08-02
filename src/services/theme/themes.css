@@ -1,4 +1,4 @@
-/* Built-in fallbacks. VS Code themes override these semantic variables at runtime. */
+/* The only application themes are the explicit built-in light and dark schemes. */
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
@@ -6,26 +6,33 @@
   --peek-sidebar: #181818;
   --peek-surface: #252526;
   --peek-input-bg: #292929;
-  --peek-text: #d4d4d4;
-  --peek-muted: #a0a0a0;
-  --peek-faint: #707070;
-  --peek-accent: #3b8eea;
+  --peek-text: #f3f4f6;
+  --peek-muted: #b7bcc5;
+  --peek-faint: #858b96;
+  --peek-accent: #f3f4f6;
   --peek-border: rgba(255, 255, 255, 0.14);
   --peek-strong-border: rgba(255, 255, 255, 0.24);
-  --peek-icon: #d4d4d4;
+  --peek-icon: #e5e7eb;
   --peek-active-fg: #ffffff;
   --peek-list-bg: #252526;
-  --peek-list-active: #04395e;
+  --peek-list-active: #343941;
   --peek-placeholder: #8b8b8b;
   --peek-send-bg: #333333;
   --peek-send-fg: #c8c8c8;
   --peek-send-active-bg: #0e639c;
   --peek-send-active-fg: #ffffff;
+  --peek-primary-foreground: #1b1b1b;
   --peek-user-bubble-bg: #2b2b2b;
   --peek-user-bubble-border: rgba(255, 255, 255, 0.14);
   --peek-user-bubble-text: #e1e1e1;
   --peek-warning: #cca700;
   --peek-danger: #f14c4c;
+  --peek-success: #73c991;
+  --peek-info: #75beff;
+  --peek-focus: #f3f4f6;
+  --peek-shadow: rgb(0 0 0 / 28%);
+  --peek-scrollbar: rgba(255, 255, 255, 0.14);
+  --peek-scrollbar-hover: rgba(255, 255, 255, 0.28);
 }
 
 [data-theme="light"] {
@@ -37,23 +44,30 @@
   --peek-text: #242424;
   --peek-muted: #616161;
   --peek-faint: #8a8a8a;
-  --peek-accent: #0067c0;
+  --peek-accent: #111111;
   --peek-border: rgba(0, 0, 0, 0.16);
   --peek-strong-border: rgba(0, 0, 0, 0.24);
   --peek-icon: #242424;
-  --peek-active-fg: #202020;
+  --peek-active-fg: #111111;
   --peek-list-bg: #ffffff;
-  --peek-list-active: #e8f1fb;
+  --peek-list-active: #e8e8e8;
   --peek-placeholder: #767676;
   --peek-send-bg: #e5e5e5;
   --peek-send-fg: #4d4d4d;
-  --peek-send-active-bg: #0067c0;
+  --peek-send-active-bg: #111111;
   --peek-send-active-fg: #ffffff;
+  --peek-primary-foreground: #ffffff;
   --peek-user-bubble-bg: #f0f0f0;
   --peek-user-bubble-border: rgba(0, 0, 0, 0.14);
   --peek-user-bubble-text: #1f1f1f;
   --peek-warning: #8a6500;
   --peek-danger: #c42b1c;
+  --peek-success: #18794e;
+  --peek-info: #006ab1;
+  --peek-focus: #006ab1;
+  --peek-shadow: rgb(0 0 0 / 18%);
+  --peek-scrollbar: rgba(0, 0, 0, 0.16);
+  --peek-scrollbar-hover: rgba(0, 0, 0, 0.3);
 }
 
 :root,
@@ -67,7 +81,7 @@
   --popover: var(--peek-list-bg);
   --popover-foreground: var(--peek-text);
   --primary: var(--peek-accent);
-  --primary-foreground: var(--peek-send-active-fg);
+  --primary-foreground: var(--peek-primary-foreground, var(--peek-send-active-fg));
   --secondary: var(--peek-surface);
   --secondary-foreground: var(--peek-text);
   --muted: color-mix(in srgb, var(--peek-surface) 86%, var(--peek-bg));
@@ -77,7 +91,7 @@
   --destructive: var(--peek-danger);
   --border: var(--peek-border);
   --input: color-mix(in srgb, var(--peek-input-bg) 82%, var(--peek-text) 18%);
-  --ring: var(--peek-accent);
+  --ring: var(--peek-focus);
   --sidebar: var(--peek-sidebar);
   --sidebar-foreground: var(--peek-text);
   --sidebar-primary: var(--peek-accent);
@@ -85,6 +99,6 @@
   --sidebar-accent: var(--peek-list-active);
   --sidebar-accent-foreground: var(--peek-text);
   --sidebar-border: var(--peek-border);
-  --sidebar-ring: var(--peek-accent);
+  --sidebar-ring: var(--peek-focus);
   --peek-hover-bg: color-mix(in srgb, var(--peek-icon) 9%, transparent);
 }

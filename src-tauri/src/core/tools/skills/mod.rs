@@ -61,7 +61,9 @@ fn sanitize_skill_name(name: &str) -> Result<String, ToolError> {
     if cleaned.is_empty()
         || cleaned.contains("..")
         || cleaned.contains('/')
-        || cleaned.chars().any(|c| !(c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'))
+        || cleaned
+            .chars()
+            .any(|c| !(c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'))
     {
         return Err(ToolError::new(
             "skill name must be a simple identifier (letters, digits, _ - .)",
@@ -182,9 +184,7 @@ pub fn list_skill_infos() -> Result<Vec<SkillInfo>, ToolError> {
     }
     for name in list_user_skill_names()? {
         let body = read_user_skill(&name)?.unwrap_or_default();
-        let path = user_skill_dir(&name)?
-            .to_string_lossy()
-            .to_string();
+        let path = user_skill_dir(&name)?.to_string_lossy().to_string();
         out.push(skill_info_from_body(&name, "user", &body, Some(path)));
     }
     Ok(out)
@@ -479,7 +479,10 @@ impl Tool for InstallSkillTool {
                 ctx.workspace_root.join(candidate)
             }
         };
-        let name = args["name"].as_str().map(str::trim).filter(|s| !s.is_empty());
+        let name = args["name"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
         let info = install_skill_at(&source, name)?;
         Ok(format!(
             "installed skill `{}` -> {}",

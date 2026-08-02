@@ -118,7 +118,7 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.groups.about": "Application",
 
   "settings.fields.colorScheme.title": "Color Scheme",
-  "settings.fields.colorScheme.description": "Choose a built-in theme or any theme installed as a VS Code extension.",
+  "settings.fields.colorScheme.description": "Choose the built-in light or dark theme.",
   "settings.fields.language.title": "Language",
   "settings.fields.language.description": "Choose the display language for the interface.",
   "settings.fields.zoom.title": "Interface Zoom",
@@ -268,7 +268,7 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.groups.about": "应用信息",
 
     "settings.fields.colorScheme.title": "Color Scheme",
-    "settings.fields.colorScheme.description": "选择内置亮色、暗色，或本机已安装的 VS Code 主题插件。",
+    "settings.fields.colorScheme.description": "选择内置亮色或暗色主题。",
     "settings.fields.language.title": "Language",
     "settings.fields.language.description": "界面语言。",
     "settings.fields.zoom.title": "界面缩放",
@@ -993,7 +993,7 @@ const settingsFieldPaths: Record<"zh-CN" | "en-US", Partial<Record<SettingFieldI
 
 const settingsFieldKeywords: Record<"zh-CN" | "en-US", Partial<Record<SettingFieldId, string[]>>> = {
   "en-US": {
-    colorScheme: ["theme", "color", "scheme", "vscode", "extension", "plugin"],
+    colorScheme: ["theme", "color", "scheme"],
     language: ["language", "locale"],
     zoom: ["zoom", "scale", "size", "font"],
     opacity: ["opacity", "transparent", "glass", "blur", "acrylic", "appearance"],
@@ -1026,7 +1026,7 @@ const settingsFieldKeywords: Record<"zh-CN" | "en-US", Partial<Record<SettingFie
     appIdentifier: ["identifier", "bundle"],
   },
   "zh-CN": {
-    colorScheme: ["配色", "主题", "颜色", "vscode", "扩展", "插件", "theme", "color"],
+    colorScheme: ["配色", "主题", "颜色", "theme", "color"],
     language: ["语言", "language", "locale"],
     zoom: ["缩放", "放大", "大小", "字体", "zoom", "scale"],
     opacity: ["透明", "透明度", "毛玻璃", "blur", "opacity", "glass", "acrylic", "外观"],

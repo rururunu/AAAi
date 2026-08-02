@@ -30,7 +30,13 @@ pub async fn chat(
     let result = state
         .core
         .chat()
-        .send(request.session_id, request.message, preferences)
+        .send(
+            request.session_id,
+            request.message,
+            preferences,
+            request.workspace_id,
+            request.quick_ask,
+        )
         .await
         .map_err(|error| error.to_string())?;
 

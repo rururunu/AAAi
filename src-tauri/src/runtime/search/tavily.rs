@@ -30,7 +30,8 @@ impl TavilyProvider {
 
 fn normalize_api_key(raw: String) -> String {
     let mut key = raw.trim().to_string();
-    if (key.starts_with('"') && key.ends_with('"')) || (key.starts_with('\'') && key.ends_with('\''))
+    if (key.starts_with('"') && key.ends_with('"'))
+        || (key.starts_with('\'') && key.ends_with('\''))
     {
         key = key[1..key.len().saturating_sub(1)].trim().to_string();
     }

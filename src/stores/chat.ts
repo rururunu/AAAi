@@ -8,6 +8,7 @@ import {
   resolveSessionId,
   type RawChatStarted,
 } from "@/services/chat/normalize";
+import { estimateMessageTokens } from "@/services/chat/tokenEstimate";
 import type {
   AskUserAnswerItem,
   ChatMessage,
@@ -33,6 +34,7 @@ export function settleInterruptedMessages(messages: ChatMessage[]): ChatMessage[
       status: statusStuck ? "cancelled" : message.status,
       completedAt: message.completedAt ?? Date.now(),
       activityStatus: undefined,
+      estimatedTokens: undefined,
       toolActivities: message.toolActivities?.map((activity) =>
         activity.status === "running"
           ? {
@@ -541,6 +543,7 @@ export const useChatStore = defineStore("chat", {
       next[index] = {
         ...next[index],
         content,
+        estimatedTokens: undefined,
       };
       this.setSessionMessages(resolvedSessionId, next);
     },
@@ -666,7 +669,7 @@ export const useChatStore = defineStore("chat", {
       }
 
       const next = [...messages];
-      next[index] = {
+      const completed: ChatMessage = {
         ...next[index],
         content,
         status: "done",
@@ -674,6 +677,11 @@ export const useChatStore = defineStore("chat", {
         activityStatus: undefined,
         ...(reasoning !== undefined ? { reasoning } : {}),
       };
+      completed.estimatedTokens = estimateMessageTokens({
+        ...completed,
+        estimatedTokens: undefined,
+      });
+      next[index] = completed;
       this.setSessionMessages(resolvedSessionId, next);
       this.clearSendingMany([
         sessionId,
@@ -715,6 +723,7 @@ export const useChatStore = defineStore("chat", {
       next[index] = {
         ...current,
         toolActivities: activities,
+        estimatedTokens: undefined,
         workTimeline: isNewActivity
           ? [
               ...(current.workTimeline ?? []),
@@ -914,7 +923,7 @@ export const useChatStore = defineStore("chat", {
     async send(
       message: string,
       sessionId: string,
-      options?: { staged?: boolean },
+      options?: { staged?: boolean; workspaceId?: string; quickAsk?: boolean },
     ) {
       const trimmed = message.trim();
       if (!trimmed) {
@@ -948,6 +957,8 @@ export const useChatStore = defineStore("chat", {
         const response = await chat({
           message: trimmed,
           sessionId,
+          workspaceId: options?.workspaceId,
+          quickAsk: options?.quickAsk,
         });
         this.reconcileOptimisticIds(
           sessionId,

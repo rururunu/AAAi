@@ -1,5 +1,16 @@
 <template>
-  <div class="chat-input-shell" :class="{ 'overlay-pickers': props.overlayPickers }">
+  <div
+    ref="chatInputShellRef"
+    class="chat-input-shell"
+    :style="chipPickerStyle"
+    :class="{
+      'overlay-pickers': props.overlayPickers,
+      'workbench-composer': props.appearance === 'workbench',
+      'overlay-composer': props.appearance === 'overlay',
+      'picker-open': interactivePickerOpen && !chipPickerOpen,
+      'chip-picker-open': chipPickerOpen,
+    }"
+  >
     <Transition :css="false" mode="out-in" @enter="gsapPickerEnter" @leave="gsapPickerLeave">
       <WorkspacePickerPanel
         v-if="workspacePickerOpen"
@@ -65,7 +76,6 @@
         key="history-list"
         :items="historyItems"
         :selected-index="selectedIndex"
-        :empty-text="historyEmptyText"
         :ariaLabel="tr(language, 'chatHistory')"
         :format-time="formatTime"
         @hover="selectedIndex = $event"
@@ -241,7 +251,26 @@
           <span class="file-mention-name">@{{ fileName(path) }}</span>
         </span>
       </span>
+      <textarea
+        v-if="props.appearance === 'workbench'"
+        ref="inputRef"
+        v-model="message"
+        :placeholder="inputPlaceholder"
+        class="chat-input workbench-textarea peek-scrollbar"
+        data-tauri-drag-region="false"
+        spellcheck="false"
+        autocomplete="off"
+        rows="2"
+        role="combobox"
+        aria-autocomplete="list"
+        :aria-expanded="showSuggestions || interactivePickerOpen"
+        :readonly="inputLockedForTyping"
+        @input="resizeWorkbenchInput"
+        @keydown="handleKeydown"
+        @paste="handlePaste"
+      />
       <input
+        v-else
         ref="inputRef"
         v-model="message"
         type="text"
@@ -292,6 +321,7 @@
 
       <div class="model-picker">
         <button
+          ref="chatModeButtonRef"
           type="button"
           class="model-badge footer-chip"
           data-tauri-drag-region="false"
@@ -315,6 +345,7 @@
 
       <div class="model-picker">
         <button
+          ref="modelButtonRef"
           type="button"
           class="model-badge footer-chip"
           data-tauri-drag-region="false"
@@ -345,6 +376,7 @@
         :aria-hidden="!showThinkingTierPicker"
       >
         <button
+          ref="thinkingTierButtonRef"
           type="button"
           class="model-badge footer-chip"
           data-tauri-drag-region="false"
@@ -370,6 +402,7 @@
         :aria-hidden="settingStore.chatMode === 'ask'"
       >
         <button
+          ref="approvalButtonRef"
           type="button"
           class="model-badge footer-chip"
           data-tauri-drag-region="false"
@@ -398,10 +431,13 @@
         <div class="input-footer-actions">
           <slot name="actions" />
 
-      <ContextUsageRing
-        :ratio="contextUsage.usageRatio"
-        :tooltip="contextUsageTooltip"
-      />
+      <span
+        v-if="conversationTokenCount"
+        class="conversation-token-count"
+        :title="conversationTokenTitle"
+      >
+        ≈ {{ formatTokenCount(conversationTokenCount) }} tokens
+      </span>
 
       <button
         v-if="sending && canSend"
@@ -470,7 +506,6 @@ import ToolApprovalPicker from "./input/ToolApprovalPicker.vue";
 import FileMentionPicker from "./input/FileMentionPicker.vue";
 import CommandSuggestions from "./input/CommandSuggestions.vue";
 import WorkspacePickerPanel from "./input/WorkspacePickerPanel.vue";
-import ContextUsageRing from "./ContextUsageRing.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { executeSlashCommand, fetchEnvironmentContext, slashCommands } from "@/commands/slash";
 import { getContextUsage, setOverlayPopupOpen } from "@/services/ipc";
@@ -481,6 +516,7 @@ import {
   readAttachedFile,
   type AttachedFileChip,
 } from "@/services/chat/attachFiles";
+import { estimateMessageTokens } from "@/services/chat/tokenEstimate";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useChatModelStore } from "@/stores/chatModel";
 import { useSettingStore } from "@/stores/setting";
@@ -560,6 +596,7 @@ const props = withDefaults(
     capturedContext?: CapturedContext | null;
     contextReady?: boolean;
     overlayPickers?: boolean;
+    appearance?: "overlay" | "workbench";
   }>(),
   {
     sending: false,
@@ -572,6 +609,10 @@ const props = withDefaults(
     capturedContext: null,
     contextReady: false,
     overlayPickers: false,
+    appearance: "overlay",
+    // An omitted history list means no picker is open. Without this default,
+    // `undefined !== null` keeps the input locked in history navigation mode.
+    historySessions: null,
   },
 );
 
@@ -678,7 +719,18 @@ async function applyCapturedImages(images?: string[]) {
   emitLayoutChange();
 }
 
-const inputRef = ref<HTMLInputElement | null>(null);
+const inputRef = ref<HTMLInputElement | HTMLTextAreaElement | null>(null);
+const chatInputShellRef = ref<HTMLElement | null>(null);
+const chatModeButtonRef = ref<HTMLButtonElement | null>(null);
+const modelButtonRef = ref<HTMLButtonElement | null>(null);
+const thinkingTierButtonRef = ref<HTMLButtonElement | null>(null);
+const approvalButtonRef = ref<HTMLButtonElement | null>(null);
+const chipPickerPosition = ref({ left: 8, bottom: 42, width: 280 });
+const chipPickerStyle = computed(() => ({
+  "--chip-picker-left": `${chipPickerPosition.value.left}px`,
+  "--chip-picker-bottom": `${chipPickerPosition.value.bottom}px`,
+  "--chip-picker-width": `${chipPickerPosition.value.width}px`,
+}));
 const selectedIndex = ref(0);
 
 watch(selectedIndex, async () => {
@@ -708,43 +760,81 @@ const chatModelStore = useChatModelStore();
 const { language } = storeToRefs(settingStore);
 const { sessions } = storeToRefs(chatStore);
 
+const conversationTokenCount = computed(() =>
+  (sessions.value[props.sessionId] ?? []).reduce(
+    (total, message) => total + estimateMessageTokens(message),
+    0,
+  ),
+);
+
+const conversationTokenTitle = computed(() =>
+  tr(language.value, "tokens.sessionEstimated", {
+    count: new Intl.NumberFormat(language.value).format(conversationTokenCount.value),
+  }),
+);
+
 const contextUsage = ref<ContextUsageSnapshot>({
   usageRatio: 0,
   estimatedTokens: 0,
   contextWindowTokens: settingStore.largeContextEnabled ? 1_000_000 : 64_000,
 });
 
+function emptyContextUsage(): ContextUsageSnapshot {
+  return {
+    usageRatio: 0,
+    estimatedTokens: 0,
+    contextWindowTokens: settingStore.largeContextEnabled ? 1_000_000 : 64_000,
+  };
+}
+
 function buildDraftMessage() {
   const parts = [prefixText.value, message.value].filter(Boolean);
   return parts.join(" ").trim();
 }
 
-const refreshContextUsage = useDebounceFn(async () => {
+let contextUsageRequestId = 0;
+
+const loadContextUsage = useDebounceFn(async (requestId: number) => {
+  const sessionId = props.sessionId;
+  const draftMessage = buildDraftMessage();
+  const hasConversation = (sessions.value[sessionId] ?? []).some(
+    (item) => item.role === "user" || item.role === "assistant",
+  );
+
+  if (!hasConversation && !draftMessage) {
+    contextUsage.value = emptyContextUsage();
+    if (sessionId) {
+      chatStore.setContextUsage(sessionId, contextUsage.value);
+    }
+    return;
+  }
+
   try {
     const response = await getContextUsage({
-      sessionId: props.sessionId || undefined,
-      draftMessage: buildDraftMessage() || undefined,
+      sessionId: sessionId || undefined,
+      draftMessage: draftMessage || undefined,
       context: props.capturedContext ?? undefined,
     });
+    if (requestId !== contextUsageRequestId || sessionId !== props.sessionId) {
+      return;
+    }
     contextUsage.value = {
       usageRatio: response.usageRatio,
       estimatedTokens: response.estimatedTokens,
       contextWindowTokens: response.contextWindowTokens,
     };
-    if (props.sessionId) {
-      chatStore.setContextUsage(props.sessionId, contextUsage.value);
+    if (sessionId) {
+      chatStore.setContextUsage(sessionId, contextUsage.value);
     }
   } catch (error) {
     console.error("Failed to load context usage:", error);
   }
 }, 180);
 
-const contextUsageTooltip = computed(() =>
-  tr(language.value, "contextUsageHint", {
-    used: formatTokenCount(contextUsage.value.estimatedTokens),
-    total: formatTokenCount(contextUsage.value.contextWindowTokens),
-  }),
-);
+function refreshContextUsage() {
+  contextUsageRequestId += 1;
+  return loadContextUsage(contextUsageRequestId);
+}
 
 function sessionMessagesFingerprint(sessionId: string) {
   const messages = sessions.value[sessionId] ?? [];
@@ -1034,11 +1124,10 @@ const approvalBadgeTitle = computed(() =>
   tr(language.value, "currentApprovalMode", { mode: approvalModeLabel.value }),
 );
 
-const showHistoryPicker = computed(() => props.historySessions !== null);
+const showHistoryPicker = computed(() => Array.isArray(props.historySessions));
 
 const historyItems = computed(() => props.historySessions ?? []);
 
-const historyEmptyText = computed(() => tr(language.value, "noChats"));
 
 const historyPickerRowCount = computed(() =>
   showHistoryPicker.value ? Math.max(historyItems.value.length, 1) : 0,
@@ -1048,6 +1137,13 @@ const showModelPicker = computed(() => modelPickerOpen.value);
 const showChatModePicker = computed(() => chatModePickerOpen.value);
 const showApprovalPicker = computed(() => approvalPickerOpen.value);
 const showThinkingTierList = computed(() => thinkingTierPickerOpen.value);
+const chipPickerOpen = computed(
+  () =>
+    showModelPicker.value ||
+    showChatModePicker.value ||
+    showApprovalPicker.value ||
+    showThinkingTierList.value,
+);
 
 const modelPickerRowCount = computed(() => {
   if (!showModelPicker.value) {
@@ -1537,6 +1633,26 @@ async function prepareChipPicker() {
   closeChipPickers();
 }
 
+async function positionChipPicker(
+  button: HTMLButtonElement | null,
+  preferredWidth: number,
+) {
+  if (props.appearance !== "workbench") return;
+  await nextTick();
+  const shell = chatInputShellRef.value;
+  if (!shell || !button) return;
+  const shellRect = shell.getBoundingClientRect();
+  const buttonRect = button.getBoundingClientRect();
+  const edge = 8;
+  const width = Math.max(180, Math.min(preferredWidth, shellRect.width - edge * 2));
+  const naturalLeft = buttonRect.left - shellRect.left;
+  chipPickerPosition.value = {
+    left: Math.min(shellRect.width - width - edge, Math.max(edge, naturalLeft)),
+    bottom: shellRect.bottom - buttonRect.top + 4,
+    width,
+  };
+}
+
 async function openModelPicker() {
   await prepareChipPicker();
   beginModelFilterSession();
@@ -1545,6 +1661,7 @@ async function openModelPicker() {
   );
   selectedIndex.value = currentIdx >= 0 ? currentIdx : 0;
   modelPickerOpen.value = true;
+  await positionChipPicker(modelButtonRef.value, 340);
   await syncPopupState(true);
   emitLayoutChange();
   void focusInput();
@@ -1574,6 +1691,7 @@ async function openApprovalPicker() {
   );
   selectedIndex.value = idx >= 0 ? idx : 0;
   approvalPickerOpen.value = true;
+  await positionChipPicker(approvalButtonRef.value, 340);
   await syncPopupState(true);
   emitLayoutChange();
   void focusInput();
@@ -1586,6 +1704,7 @@ async function openChatModePicker() {
   );
   selectedIndex.value = idx >= 0 ? idx : 0;
   chatModePickerOpen.value = true;
+  await positionChipPicker(chatModeButtonRef.value, 240);
   await syncPopupState(true);
   emitLayoutChange();
   void focusInput();
@@ -1601,6 +1720,7 @@ async function openThinkingTierPicker() {
   );
   selectedIndex.value = idx >= 0 ? idx : 0;
   thinkingTierPickerOpen.value = true;
+  await positionChipPicker(thinkingTierButtonRef.value, 240);
   await syncPopupState(true);
   emitLayoutChange();
   void focusInput();
@@ -1902,6 +2022,14 @@ function fileName(path: string) {
 async function focusInput() {
   await nextTick();
   inputRef.value?.focus({ preventScroll: true });
+}
+
+function resizeWorkbenchInput() {
+  if (props.appearance !== "workbench" || !(inputRef.value instanceof HTMLTextAreaElement)) {
+    return;
+  }
+  inputRef.value.style.height = "auto";
+  inputRef.value.style.height = `${Math.min(inputRef.value.scrollHeight, 144)}px`;
 }
 
 /** Keyboard navigation for pickers must work even if the input lost focus (e.g. after Alt-Tab). */
@@ -2268,6 +2396,10 @@ function selectToolApproval(decision: ToolApprovalDecision) {
 }
 
 function handleKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) {
+    return;
+  }
+
   if ((event.key === "Backspace" || event.key === "Delete") && !showModelPicker.value) {
     const input = inputRef.value;
     const caretAtStart =
@@ -2283,6 +2415,15 @@ function handleKeydown(event: KeyboardEvent) {
       event.preventDefault();
       return;
     }
+  }
+
+  if (
+    props.appearance === "workbench"
+    && event.key === "Enter"
+    && event.shiftKey
+    && !interactivePickerOpen.value
+  ) {
+    return;
   }
 
   if (props.sending && !interactivePickerOpen.value && event.key === "Enter") {
@@ -2650,6 +2791,7 @@ function reset() {
   workspacePickerOpen.value = false;
   workspaceQuickSelectOnly.value = false;
   emitLayoutChange();
+  void nextTick(resizeWorkbenchInput);
 }
 
 function setMessage(text: string) {
@@ -2660,6 +2802,7 @@ function setMessage(text: string) {
   attachedImages.value = [];
   message.value = text;
   emitLayoutChange();
+  void nextTick(resizeWorkbenchInput);
   void focusInput();
 }
 
@@ -2913,7 +3056,7 @@ watch(
 watch(
   () => props.historySessions,
   async (sessions) => {
-    if (sessions !== null) {
+    if (Array.isArray(sessions)) {
       selectedIndex.value = 0;
       if (modelPickerOpen.value) {
         closeModelPicker();
@@ -3016,6 +3159,15 @@ defineExpose({ focusInput, reset, setMessage });
   align-items: center;
 }
 
+.conversation-token-count {
+  flex: none;
+  color: var(--peek-faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  user-select: none;
+}
+
 .chat-input {
   flex: 1;
   min-width: 48px;
@@ -3034,6 +3186,170 @@ defineExpose({ focusInput, reset, setMessage });
 .chat-input::placeholder {
   color: var(--peek-placeholder);
   transition: color 160ms ease, opacity 160ms ease;
+}
+
+.workbench-composer .input-bar {
+  min-height: 116px;
+  max-height: min(280px, calc(100vh - 96px));
+  padding: 13px 13px 10px;
+  gap: 9px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--peek-accent) 24%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--peek-surface) 97%, transparent);
+  box-shadow:
+    0 16px 40px color-mix(in srgb, #000 20%, transparent),
+    0 1px 0 color-mix(in srgb, white 4%, transparent) inset;
+}
+
+.workbench-composer .input-bar:focus-within {
+  border-color: color-mix(in srgb, var(--peek-accent) 30%, transparent);
+  box-shadow:
+    0 18px 42px color-mix(in srgb, #000 22%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--peek-accent) 9%, transparent);
+}
+
+.workbench-composer .input-content {
+  min-height: 52px;
+  align-items: flex-start;
+  overflow-y: auto;
+}
+
+.workbench-composer .workbench-textarea {
+  width: 100%;
+  min-width: 100%;
+  min-height: 48px;
+  max-height: 144px;
+  padding: 1px 2px;
+  overflow-y: auto;
+  resize: none;
+  font-size: 14px;
+  line-height: 22px;
+  white-space: pre-wrap;
+}
+
+.workbench-composer .input-footer {
+  min-height: 30px;
+  align-items: flex-end;
+  padding-top: 2px;
+}
+
+.workbench-composer .input-footer-primary {
+  flex: 1;
+  gap: 3px;
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
+.workbench-composer .input-footer-actions {
+  flex: none;
+  gap: 8px;
+}
+
+.workbench-composer .footer-chip {
+  height: 28px;
+  padding-right: 8px;
+  padding-left: 8px;
+  border-radius: 6px;
+}
+
+.workbench-composer .model-badge { max-width: 164px; }
+
+.workbench-composer.overlay-pickers :deep(.command-list) {
+  bottom: calc(100% - 1px);
+  max-height: min(280px, calc(100vh - 180px));
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--peek-text) 7%, transparent);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background: color-mix(in srgb, var(--peek-surface) 97%, transparent);
+  box-shadow: 0 -14px 32px color-mix(in srgb, #000 14%, transparent);
+}
+
+.workbench-composer.picker-open .input-bar {
+  border-color: color-mix(in srgb, var(--peek-accent) 24%, transparent);
+  border-top-color: transparent;
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 16px 40px color-mix(in srgb, #000 20%, transparent);
+}
+
+.workbench-composer.overlay-pickers :deep(.command-item) {
+  border-radius: 6px;
+}
+
+.workbench-composer.overlay-pickers :deep(.command-item.active) {
+  background: color-mix(in srgb, var(--peek-accent) 10%, var(--peek-surface));
+}
+
+.workbench-composer.overlay-pickers :deep(.command-item.current:not(.active)) {
+  background: transparent;
+}
+
+.workbench-composer.chip-picker-open :deep(.command-list) {
+  position: absolute;
+  z-index: 40;
+  right: auto;
+  bottom: var(--chip-picker-bottom);
+  left: var(--chip-picker-left);
+  width: min(var(--chip-picker-width), calc(100% - 16px));
+  max-height: min(280px, calc(100vh - 32px));
+  padding: 5px;
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, var(--peek-text) 12%, transparent);
+  border-radius: 8px;
+  background: var(--peek-surface);
+  box-shadow: 0 12px 30px color-mix(in srgb, #000 20%, transparent);
+}
+
+.workbench-composer.chip-picker-open :deep(.command-item) {
+  border-radius: 5px;
+}
+
+/* The overlay keeps its compact, composer-attached picker independent from
+   the anchored workbench menus. Input mode stays in normal document flow so
+   the native Alt+Alt window can grow upward around the list. */
+.overlay-composer :deep(.model-picker-list) {
+  --command-list-visible-rows: 8;
+  max-height: min(
+    calc(
+      var(--command-row-height) * var(--command-list-visible-rows) +
+        var(--command-list-padding) +
+        34px
+    ),
+    72vh
+  );
+}
+
+.overlay-composer.overlay-pickers.chip-picker-open :deep(.command-list) {
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  width: auto;
+  padding: 4px 0;
+  border: 1px solid var(--peek-border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--peek-list-bg);
+  box-shadow: 0 -10px 28px color-mix(in srgb, #000 24%, transparent);
+}
+
+@media (max-width: 760px) {
+  .workbench-composer .input-footer { align-items: flex-end; }
+  .workbench-composer .model-name { max-width: 88px; }
+}
+
+@media (max-height: 700px) {
+  .workbench-composer .input-bar { min-height: 88px; padding-top: 9px; }
+  .workbench-composer .input-content { min-height: 30px; }
+  .workbench-composer .workbench-textarea { min-height: 28px; max-height: 64px; }
+}
+
+@media (max-height: 420px) {
+  .workbench-composer .input-bar { min-height: 76px; padding: 7px 10px 6px; gap: 5px; }
+  .workbench-composer .input-content { min-height: 24px; }
+  .workbench-composer .workbench-textarea { min-height: 24px; max-height: 44px; line-height: 20px; }
+  .workbench-composer .input-footer { min-height: 28px; padding-top: 0; }
 }
 
 .model-picker {

@@ -16,6 +16,9 @@ pub struct Workspace {
     pub description: Option<String>,
     pub source: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub last_used_at: DateTime<Utc>,
+    pub pinned: bool,
+    pub sort_order: i64,
 }
 
 pub struct WorkspaceManager {
@@ -58,10 +61,19 @@ impl WorkspaceManager {
     }
 
     pub fn list(&self) -> Vec<Workspace> {
-        self.workspaces
+        let mut workspaces = self
+            .workspaces
             .read()
             .map(|items| items.clone())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        workspaces.sort_by(|left, right| {
+            right
+                .pinned
+                .cmp(&left.pinned)
+                .then_with(|| left.sort_order.cmp(&right.sort_order))
+                .then_with(|| right.created_at.cmp(&left.created_at))
+        });
+        workspaces
     }
 
     pub async fn create(&self, root: PathBuf) -> Result<Workspace, String> {
@@ -72,13 +84,25 @@ impl WorkspaceManager {
             return Ok(existing);
         }
 
+        let now = Utc::now();
+        let sort_order = self
+            .list()
+            .iter()
+            .filter(|workspace| !workspace.pinned)
+            .map(|workspace| workspace.sort_order)
+            .min()
+            .unwrap_or(1)
+            - 1;
         let workspace = Workspace {
             id,
             name: workspace_name(&root),
             root,
             description: None,
             source: None,
-            created_at: Utc::now(),
+            created_at: now,
+            last_used_at: now,
+            pinned: false,
+            sort_order,
         };
         let should_select = self.current().is_none();
         let mut transaction = self
@@ -88,13 +112,16 @@ impl WorkspaceManager {
             .map_err(|error| error.to_string())?;
 
         sqlx::query(
-            "INSERT INTO workspace (id, name, root, description, created_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO workspace (id, name, root, description, created_at, last_used_at, pinned, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&workspace.id)
         .bind(&workspace.name)
         .bind(workspace.root.to_string_lossy().to_string())
         .bind(&workspace.description)
         .bind(workspace.created_at.to_rfc3339())
+        .bind(workspace.last_used_at.to_rfc3339())
+        .bind(workspace.pinned)
+        .bind(workspace.sort_order)
         .execute(&mut *transaction)
         .await
         .map_err(map_workspace_write_error)?;
@@ -162,16 +189,28 @@ impl WorkspaceManager {
             return Ok((existing, true));
         }
 
+        let now = Utc::now();
+        let sort_order = self
+            .list()
+            .iter()
+            .filter(|workspace| !workspace.pinned)
+            .map(|workspace| workspace.sort_order)
+            .min()
+            .unwrap_or(1)
+            - 1;
         let workspace = Workspace {
             id,
             name: workspace_name(&root),
             root,
             description: None,
             source: Some(source),
-            created_at: Utc::now(),
+            created_at: now,
+            last_used_at: now,
+            pinned: false,
+            sort_order,
         };
         sqlx::query(
-            "INSERT INTO workspace (id, name, root, description, source, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO workspace (id, name, root, description, source, created_at, last_used_at, pinned, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&workspace.id)
         .bind(&workspace.name)
@@ -179,6 +218,9 @@ impl WorkspaceManager {
         .bind(&workspace.description)
         .bind(&workspace.source)
         .bind(workspace.created_at.to_rfc3339())
+        .bind(workspace.last_used_at.to_rfc3339())
+        .bind(workspace.pinned)
+        .bind(workspace.sort_order)
         .execute(&self.db_pool)
         .await
         .map_err(map_workspace_write_error)?;
@@ -190,34 +232,23 @@ impl WorkspaceManager {
         Ok((workspace, true))
     }
 
-    pub async fn select_known_ide_workspace(
-        &self,
-        root: &Path,
-    ) -> Result<Option<Workspace>, String> {
-        let Some(workspace) = self.list().into_iter().find(|workspace| {
-            workspace.source.is_some() && workspace_roots_equal(&workspace.root, root)
-        }) else {
-            return Ok(None);
-        };
-        if self
-            .current()
-            .is_some_and(|current| current.id == workspace.id)
-        {
-            return Ok(None);
-        }
-        self.switch(workspace.id.clone()).await.map(Some)
-    }
-
     pub async fn switch(&self, id: WorkspaceId) -> Result<Workspace, String> {
-        let workspace = self
+        let mut workspace = self
             .list()
             .into_iter()
             .find(|workspace| workspace.id == id)
             .ok_or_else(|| "Workspace not found".to_string())?;
+        let now = Utc::now();
 
         let mut transaction = self
             .db_pool
             .begin()
+            .await
+            .map_err(|error| error.to_string())?;
+        sqlx::query("UPDATE workspace SET last_used_at = ? WHERE id = ?")
+            .bind(now.to_rfc3339())
+            .bind(&id)
+            .execute(&mut *transaction)
             .await
             .map_err(|error| error.to_string())?;
         save_current_id(&mut transaction, Some(id)).await?;
@@ -225,12 +256,143 @@ impl WorkspaceManager {
             .commit()
             .await
             .map_err(|error| error.to_string())?;
+        workspace.last_used_at = now;
+        let mut workspaces = self
+            .workspaces
+            .write()
+            .map_err(|_| "Workspace lock is poisoned".to_string())?;
+        if let Some(stored) = workspaces.iter_mut().find(|item| item.id == workspace.id) {
+            *stored = workspace.clone();
+        }
+        drop(workspaces);
         *self
             .current
             .write()
             .map_err(|_| "Workspace lock is poisoned".to_string())? = Some(workspace.clone());
 
         Ok(workspace)
+    }
+
+    pub async fn touch(&self, id: &str) -> Result<(), String> {
+        let now = Utc::now();
+        sqlx::query("UPDATE workspace SET last_used_at = ? WHERE id = ?")
+            .bind(now.to_rfc3339())
+            .bind(id)
+            .execute(&self.db_pool)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        let mut workspaces = self
+            .workspaces
+            .write()
+            .map_err(|_| "Workspace lock is poisoned".to_string())?;
+        if let Some(workspace) = workspaces.iter_mut().find(|workspace| workspace.id == id) {
+            workspace.last_used_at = now;
+        }
+        drop(workspaces);
+        if let Ok(mut current) = self.current.write() {
+            if let Some(workspace) = current.as_mut().filter(|workspace| workspace.id == id) {
+                workspace.last_used_at = now;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn set_pinned(&self, id: &str, pinned: bool) -> Result<(), String> {
+        let sort_order = self
+            .list()
+            .iter()
+            .filter(|workspace| workspace.pinned == pinned && workspace.id != id)
+            .map(|workspace| workspace.sort_order)
+            .min()
+            .unwrap_or(1)
+            - 1;
+        sqlx::query("UPDATE workspace SET pinned = ?, sort_order = ? WHERE id = ?")
+            .bind(pinned)
+            .bind(sort_order)
+            .bind(id)
+            .execute(&self.db_pool)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        let mut workspaces = self
+            .workspaces
+            .write()
+            .map_err(|_| "Workspace lock is poisoned".to_string())?;
+        let workspace = workspaces
+            .iter_mut()
+            .find(|workspace| workspace.id == id)
+            .ok_or_else(|| "Workspace not found".to_string())?;
+        workspace.pinned = pinned;
+        workspace.sort_order = sort_order;
+        let updated_workspace = workspace.clone();
+        drop(workspaces);
+        if let Ok(mut current) = self.current.write() {
+            if current.as_ref().is_some_and(|workspace| workspace.id == id) {
+                *current = Some(updated_workspace);
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn reorder(&self, ids: &[String]) -> Result<(), String> {
+        let known_ids = self
+            .list()
+            .into_iter()
+            .map(|workspace| workspace.id)
+            .collect::<std::collections::HashSet<_>>();
+        let requested_ids = ids
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        if ids.len() != known_ids.len() || requested_ids != known_ids {
+            return Err("Workspace order must include every workspace exactly once".to_string());
+        }
+
+        let mut transaction = self
+            .db_pool
+            .begin()
+            .await
+            .map_err(|error| error.to_string())?;
+        for (sort_order, id) in ids.iter().enumerate() {
+            sqlx::query("UPDATE workspace SET sort_order = ? WHERE id = ?")
+                .bind(sort_order as i64)
+                .bind(id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|error| error.to_string())?;
+
+        let order = ids
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (id.as_str(), index as i64))
+            .collect::<std::collections::HashMap<_, _>>();
+        let mut workspaces = self
+            .workspaces
+            .write()
+            .map_err(|_| "Workspace lock is poisoned".to_string())?;
+        for workspace in workspaces.iter_mut() {
+            workspace.sort_order = order[workspace.id.as_str()];
+        }
+        let updated_current = self.current().and_then(|current| {
+            workspaces
+                .iter()
+                .find(|workspace| workspace.id == current.id)
+                .cloned()
+        });
+        drop(workspaces);
+        if let Some(updated_current) = updated_current {
+            *self
+                .current
+                .write()
+                .map_err(|_| "Workspace lock is poisoned".to_string())? = Some(updated_current);
+        }
+        Ok(())
     }
 
     pub async fn clear_current(&self) -> Result<(), String> {
@@ -319,18 +481,6 @@ fn normalize_ide_source(ide: &str) -> Option<String> {
     })
 }
 
-fn workspace_roots_equal(left: &Path, right: &Path) -> bool {
-    let left = std::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
-    let right = std::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
-    if cfg!(windows) {
-        left.to_string_lossy()
-            .trim_end_matches(['\\', '/'])
-            .eq_ignore_ascii_case(right.to_string_lossy().trim_end_matches(['\\', '/']))
-    } else {
-        left == right
-    }
-}
-
 async fn init_schema(pool: &SqlitePool) -> Result<(), String> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS workspace (
@@ -339,7 +489,10 @@ async fn init_schema(pool: &SqlitePool) -> Result<(), String> {
             root TEXT NOT NULL UNIQUE,
             description TEXT,
             source TEXT,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            last_used_at TEXT NOT NULL,
+            pinned INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0
         )",
     )
     .execute(pool)
@@ -355,6 +508,37 @@ async fn init_schema(pool: &SqlitePool) -> Result<(), String> {
         .any(|row| row.get::<String, _>("name") == "source")
     {
         sqlx::query("ALTER TABLE workspace ADD COLUMN source TEXT")
+            .execute(pool)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    if !columns
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "pinned")
+    {
+        sqlx::query("ALTER TABLE workspace ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+            .execute(pool)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    if !columns
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "sort_order")
+    {
+        sqlx::query("ALTER TABLE workspace ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+            .execute(pool)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    if !columns
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "last_used_at")
+    {
+        sqlx::query("ALTER TABLE workspace ADD COLUMN last_used_at TEXT")
+            .execute(pool)
+            .await
+            .map_err(|error| error.to_string())?;
+        sqlx::query("UPDATE workspace SET last_used_at = created_at WHERE last_used_at IS NULL")
             .execute(pool)
             .await
             .map_err(|error| error.to_string())?;
@@ -395,11 +579,14 @@ async fn init_schema(pool: &SqlitePool) -> Result<(), String> {
 }
 
 async fn load_state(pool: &SqlitePool) -> Result<(Vec<Workspace>, Option<Workspace>), String> {
-    let rows =
-        sqlx::query("SELECT id, root, source, created_at FROM workspace ORDER BY created_at ASC")
-            .fetch_all(pool)
-            .await
-            .map_err(|error| error.to_string())?;
+    let rows = sqlx::query(
+        "SELECT id, root, source, created_at, last_used_at, pinned, sort_order
+             FROM workspace
+             ORDER BY pinned DESC, sort_order ASC, created_at DESC",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|error| error.to_string())?;
     let workspaces = rows
         .into_iter()
         .map(workspace_from_row)
@@ -425,6 +612,9 @@ fn workspace_from_row(row: sqlx::sqlite::SqliteRow) -> Result<Workspace, String>
     let created_at = DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at"))
         .map_err(|error| error.to_string())?
         .with_timezone(&Utc);
+    let last_used_at = DateTime::parse_from_rfc3339(&row.get::<String, _>("last_used_at"))
+        .map_err(|error| error.to_string())?
+        .with_timezone(&Utc);
     Ok(Workspace {
         id,
         name: workspace_name(&root),
@@ -432,6 +622,9 @@ fn workspace_from_row(row: sqlx::sqlite::SqliteRow) -> Result<Workspace, String>
         description: None,
         source: row.get::<Option<String>, _>("source"),
         created_at,
+        last_used_at,
+        pinned: row.get::<bool, _>("pinned"),
+        sort_order: row.get::<i64, _>("sort_order"),
     })
 }
 
@@ -516,8 +709,8 @@ mod tests {
         let root = std::env::temp_dir().join("legacy-project");
         let root_string = root.display().to_string();
         sqlx::query(
-            "INSERT INTO workspace (id, name, root, description, created_at)
-             VALUES ('legacy-uuid', 'Custom Name', ?, 'Old note', '2026-01-01T00:00:00Z')",
+            "INSERT INTO workspace (id, name, root, description, created_at, last_used_at)
+             VALUES ('legacy-uuid', 'Custom Name', ?, 'Old note', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
         )
         .bind(&root_string)
         .execute(&pool)
@@ -566,6 +759,9 @@ mod tests {
         assert!(columns
             .iter()
             .any(|row| row.get::<String, _>("name") == "source"));
+        assert!(columns
+            .iter()
+            .any(|row| row.get::<String, _>("name") == "last_used_at"));
     }
 
     #[tokio::test]
@@ -599,44 +795,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn selects_a_previously_remembered_ide_workspace_on_report() {
+    async fn workspace_order_changes_only_through_manual_controls() {
         let manager = manager().await;
-        let current = manager.create(std::env::temp_dir()).await.unwrap();
-        let ide_root = std::env::current_dir().unwrap();
-        let (remembered, _) = manager
-            .remember_from_ide(ide_root.clone(), "idea")
+        let first = manager.create(std::env::temp_dir()).await.unwrap();
+        let second = manager
+            .create(std::env::current_dir().unwrap())
             .await
             .unwrap();
-        assert_eq!(manager.current().unwrap().id, current.id);
 
-        let selected = manager
-            .select_known_ide_workspace(&ide_root)
+        manager
+            .reorder(&[first.id.clone(), second.id.clone()])
             .await
-            .unwrap()
             .unwrap();
+        let manual_order = manager
+            .list()
+            .into_iter()
+            .map(|workspace| workspace.id)
+            .collect::<Vec<_>>();
+        manager.switch(second.id.clone()).await.unwrap();
+        manager.switch(first.id.clone()).await.unwrap();
+        assert_eq!(
+            manager
+                .list()
+                .into_iter()
+                .map(|workspace| workspace.id)
+                .collect::<Vec<_>>(),
+            manual_order
+        );
 
-        assert_eq!(selected.id, remembered.id);
-        assert_eq!(manager.current().unwrap().id, remembered.id);
-        assert!(manager
-            .select_known_ide_workspace(&ide_root)
-            .await
-            .unwrap()
-            .is_none());
-    }
-
-    #[tokio::test]
-    async fn does_not_auto_select_a_manually_added_workspace() {
-        let manager = manager().await;
-        let current = manager.create(std::env::temp_dir()).await.unwrap();
-        let manual_root = std::env::current_dir().unwrap();
-        let manual = manager.create(manual_root.clone()).await.unwrap();
-        assert!(manual.source.is_none());
-
-        assert!(manager
-            .select_known_ide_workspace(&manual_root)
-            .await
-            .unwrap()
-            .is_none());
-        assert_eq!(manager.current().unwrap().id, current.id);
+        manager.switch(second.id.clone()).await.unwrap();
+        manager.set_pinned(&second.id, true).await.unwrap();
+        assert_eq!(manager.list()[0].id, second.id);
+        assert!(manager.current().unwrap().pinned);
+        let (persisted, _) = load_state(&manager.db_pool).await.unwrap();
+        assert_eq!(persisted[0].id, second.id);
+        assert!(persisted[0].pinned);
     }
 }

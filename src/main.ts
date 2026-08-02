@@ -32,7 +32,6 @@ import type {
 } from "@/types/chat";
 import { useChatStore } from "@/stores/chat";
 import { useSettingStore } from "@/stores/setting";
-import "./services/theme/themes.css";
 import "./styles/index.css";
 
 installBrowserGuards();
@@ -63,7 +62,24 @@ const streamBatch = createRafBatch<StreamBatchUpdate>((batch) => {
 });
 
 async function bootstrap() {
+  const webviewWindow = getCurrentWebviewWindow();
+  const windowLabel = webviewWindow.label;
+  const isOverlay = (windowLabel === "overlay" || windowLabel.startsWith("overlay-"))
+    && !windowLabel.startsWith("overlay-preview-");
+  const mountEarly = windowLabel === "workbench" || isOverlay;
+
+  // Resolve each interactive route before loading settings. Mount immediately
+  // after the theme is applied, without waiting for optional IPC listeners.
+  if (windowLabel === "workbench") {
+    void router.replace("/workbench");
+  } else if (isOverlay) {
+    markPeekWindow();
+    void router.replace("/overlay");
+  }
   await settingStore.load();
+  if (windowLabel === "workbench" || isOverlay) {
+    app.mount("#app");
+  }
 
   await listenSettingsChanged((settings) => {
     settingStore.applyPublicSettings(settings);
@@ -218,18 +234,11 @@ async function bootstrap() {
   await listenToolStarted(handleToolActivity);
   await listenToolFinished(handleToolActivity);
 
-  const webviewWindow = getCurrentWebviewWindow();
-  const windowLabel = webviewWindow.label;
-
   if (windowLabel.startsWith("overlay-preview-")) {
     document.documentElement.classList.add("peek-window");
     await router.replace("/image-preview");
-  } else if (
-    (windowLabel === "overlay" || windowLabel.startsWith("overlay-")) &&
-    !windowLabel.startsWith("overlay-preview-")
-  ) {
-    markPeekWindow();
-    await router.replace("/overlay");
+  } else if (isOverlay) {
+    // The overlay route was mounted eagerly above.
   } else if (windowLabel === "settings") {
     await router.replace("/settings");
 
@@ -246,7 +255,9 @@ async function bootstrap() {
   }
 
   await router.isReady();
-  app.mount("#app");
+  if (!mountEarly) {
+    app.mount("#app");
+  }
 }
 
 void bootstrap();

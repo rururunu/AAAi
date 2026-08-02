@@ -14,6 +14,7 @@ import type {
   ChatStatusEvent,
   ChatUserContentEvent,
   PathPermissionEvent,
+  InteractionResolvedEvent,
   PlanModeChangedEvent,
   TaskListUpdatedEvent,
   ToolActivityEvent,
@@ -102,6 +103,12 @@ export function listenPathPermission(handler: (payload: PathPermissionEvent) => 
 
 export function listenToolApproval(handler: (payload: ToolApprovalEvent) => void) {
   return listenIpcEvent<ToolApprovalEvent>(IPC_EVENTS.toolApproval, handler);
+}
+
+export function listenInteractionResolved(
+  handler: (payload: InteractionResolvedEvent) => void,
+) {
+  return listenIpcEvent<InteractionResolvedEvent>(IPC_EVENTS.interactionResolved, handler);
 }
 
 export function listenPlanModeChanged(handler: (payload: PlanModeChangedEvent) => void) {

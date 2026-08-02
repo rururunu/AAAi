@@ -528,10 +528,7 @@ impl McpManager {
                     budget = budget.saturating_sub(n);
                 }
                 Err(error) => {
-                    eprintln!(
-                        "MCP server `{}` failed to connect: {error}",
-                        server.id
-                    );
+                    eprintln!("MCP server `{}` failed to connect: {error}", server.id);
                 }
             }
         }
@@ -565,7 +562,8 @@ impl McpManager {
                 .map_err(|_| ToolError::new("mcp lock"))?;
             procs.insert(server.id.clone(), proc);
         }
-        let per_server_cap = crate::core::chat::limits::MCP_MAX_TOOLS_PER_SERVER.min(remaining_budget);
+        let per_server_cap =
+            crate::core::chat::limits::MCP_MAX_TOOLS_PER_SERVER.min(remaining_budget);
         let mut registered = 0usize;
         let mut skipped = 0usize;
         for tool in tools {
@@ -602,8 +600,7 @@ impl McpManager {
         if skipped > 0 {
             eprintln!(
                 "MCP server `{}`: registered {registered} tools, skipped {skipped} (cap {})",
-                server.id,
-                per_server_cap
+                server.id, per_server_cap
             );
         }
         Ok(registered)

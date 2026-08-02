@@ -3,9 +3,7 @@ import { defineStore } from "pinia";
 import { DEFAULT_CHAT_MODEL } from "@/constants/chat";
 import { getAppSettings, setAppSettings } from "@/services/ipc";
 import { applyOpacity } from "@/services/overlay/appearance";
-import { applyVscodeTheme, clearVscodeThemeOverrides, invalidatePendingThemeLoad } from "@/services/theme/vscodeThemes";
 import {
-    isLightColorScheme,
     normalizeColorScheme,
     type AppLanguage,
     type AppSettings,
@@ -15,10 +13,10 @@ import {
 } from "@/types/setting";
 
 const LEGACY_STORAGE_KEY = "peek.settings";
+let settingsUpdateSequence = 0;
 
 const defaultSettings: AppSettings = {
     colorScheme: "dark",
-    vscodeTheme: "",
     language: "zh-CN",
     deepseekApiKey: "",
     geminiOauth: defaultGeminiOAuthSettings(),
@@ -56,15 +54,13 @@ const defaultSettings: AppSettings = {
     snipastePinAiEnabled: true,
 };
 
-export function applyTheme(settings: Pick<AppSettings, "colorScheme" | "vscodeTheme" | "language">) {
+export function applyTheme(settings: Pick<AppSettings, "colorScheme" | "language">) {
     const colorScheme = normalizeColorScheme(settings.colorScheme);
-    invalidatePendingThemeLoad();
-    clearVscodeThemeOverrides();
-    document.documentElement.dataset.theme = colorScheme;
-    document.documentElement.lang = settings.language;
-    document.documentElement.classList.toggle("dark", !isLightColorScheme(colorScheme));
-    document.documentElement.style.colorScheme = isLightColorScheme(colorScheme) ? "light" : "dark";
-    if (settings.vscodeTheme?.trim()) void applyVscodeTheme(settings.vscodeTheme.trim());
+    const root = document.documentElement;
+    root.lang = settings.language;
+    root.dataset.theme = colorScheme;
+    root.classList.toggle("dark", colorScheme === "dark");
+    root.style.colorScheme = colorScheme;
 }
 
 export function applyZoom(zoom: number) {
@@ -89,7 +85,6 @@ function normalizeZoomValue(settings: AppSettings): number {
 
 function applyCommonSettings(target: AppSettings, settings: AppSettings) {
     target.colorScheme = normalizeColorScheme(settings.colorScheme);
-    target.vscodeTheme = settings.vscodeTheme ?? "";
     target.language = settings.language;
     target.opacity = normalizeOpacityValue(settings);
     target.chatModel = settings.chatModel ?? DEFAULT_CHAT_MODEL;
@@ -171,8 +166,22 @@ export const useSettingStore = defineStore("setting", {
             }
         },
         async update(partial: AppSettingsPatch) {
-            const settings = await setAppSettings(partial);
-            this.applySettings(settings);
+            const sequence = ++settingsUpdateSequence;
+            const previous = { ...this.$state } as AppSettings;
+            const optimistic = { ...previous, ...partial } as AppSettings;
+            this.applySettings(optimistic);
+
+            try {
+                const settings = await setAppSettings(partial);
+                if (sequence === settingsUpdateSequence) {
+                    this.applySettings(settings);
+                }
+            } catch (error) {
+                if (sequence === settingsUpdateSequence) {
+                    this.applySettings(previous);
+                }
+                throw error;
+            }
         },
     },
 });

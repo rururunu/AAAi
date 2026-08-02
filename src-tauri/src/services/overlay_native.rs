@@ -8,8 +8,8 @@ mod imp {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, IsIconic, IsWindowVisible, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-        GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST, SW_MINIMIZE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-        SWP_NOSIZE, SWP_NOMOVE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+        GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+        SWP_NOSIZE, SW_MINIMIZE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
     };
 
     static OVERLAY_NATIVE_MINIMIZED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();

@@ -193,7 +193,9 @@ fn line_text(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_code_diff, diff_text, parse_unified_diff, CodeDiffLineKind, CodeDiffRequest};
+    use super::{
+        build_code_diff, diff_text, parse_unified_diff, CodeDiffLineKind, CodeDiffRequest,
+    };
 
     #[test]
     fn aligns_replacements_with_similar() {

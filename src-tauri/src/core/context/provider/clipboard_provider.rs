@@ -31,12 +31,12 @@ use crate::core::context::models::{CaptureError, CaptureSource, WindowInfo};
 use crate::core::context::provider::{CaptureProvider, CaptureResult, PartialCapture};
 
 const CF_UNICODETEXT: u32 = 13;
-const CAPTURE_TIMEOUT: Duration = Duration::from_millis(500);
-const POLL_INTERVAL: Duration = Duration::from_millis(8);
-const FOCUS_SETTLE: Duration = Duration::from_millis(120);
-const KEY_SETTLE: Duration = Duration::from_millis(40);
+const CAPTURE_TIMEOUT: Duration = Duration::from_millis(140);
+const POLL_INTERVAL: Duration = Duration::from_millis(6);
+const FOCUS_SETTLE: Duration = Duration::from_millis(55);
+const KEY_SETTLE: Duration = Duration::from_millis(22);
 const CLIPBOARD_OPEN_RETRIES: usize = 8;
-const UI_AUTOMATION_TIMEOUT: Duration = Duration::from_millis(180);
+const UI_AUTOMATION_TIMEOUT: Duration = Duration::from_millis(100);
 const UI_AUTOMATION_PARENT_LIMIT: usize = 6;
 
 pub struct ClipboardProvider;
@@ -55,13 +55,15 @@ impl Default for ClipboardProvider {
 
 impl CaptureProvider for ClipboardProvider {
     fn capture(&self, window: &WindowInfo) -> CaptureResult {
-        if let Some(text) = capture_selected_text_via_ui_automation() {
-            return CaptureResult::Success(PartialCapture {
-                selected_text: Some(text),
-                selected_files: Vec::new(),
-                selected_images: Vec::new(),
-                source: CaptureSource::UiAutomation,
-            });
+        if should_try_ui_automation(window) {
+            if let Some(text) = capture_selected_text_via_ui_automation() {
+                return CaptureResult::Success(PartialCapture {
+                    selected_text: Some(text),
+                    selected_files: Vec::new(),
+                    selected_images: Vec::new(),
+                    source: CaptureSource::UiAutomation,
+                });
+            }
         }
 
         match capture_selected_content(window) {
@@ -73,6 +75,16 @@ impl CaptureProvider for ClipboardProvider {
             }
         }
     }
+}
+
+fn should_try_ui_automation(window: &WindowInfo) -> bool {
+    // Monaco-based Electron editors do not expose their selection through
+    // UI Automation. Going directly to the clipboard path saves a guaranteed
+    // timeout on the primary Alt+Alt workflow.
+    !matches!(
+        window.process_name.to_ascii_lowercase().as_str(),
+        "code.exe" | "code - insiders.exe" | "cursor.exe" | "vscodium.exe" | "windsurf.exe"
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -496,5 +508,21 @@ mod tests {
     fn rejects_unchanged_clipboard_without_sequence_change() {
         let selected = select_captured_text(Some("same".into()), Some("same".into()), false);
         assert_eq!(selected, None);
+    }
+
+    #[test]
+    fn skips_slow_ui_automation_for_monaco_editors() {
+        let vscode = WindowInfo {
+            hwnd: 0,
+            pid: 1,
+            process_name: "Code.exe".into(),
+            title: "editor".into(),
+        };
+        let notepad = WindowInfo {
+            process_name: "notepad.exe".into(),
+            ..vscode.clone()
+        };
+        assert!(!should_try_ui_automation(&vscode));
+        assert!(should_try_ui_automation(&notepad));
     }
 }

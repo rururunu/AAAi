@@ -112,13 +112,11 @@ impl Tool for RunShellTool {
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         let command = args["command"].as_str().unwrap_or("");
         if args["run_in_background"].as_bool().unwrap_or(false) {
-            return self
-                .jobs
-                .spawn_background(
-                    command.to_string(),
-                    Some(&ctx.workspace_root),
-                    Arc::clone(&ctx.cancelled),
-                );
+            return self.jobs.spawn_background(
+                command.to_string(),
+                Some(&ctx.workspace_root),
+                Arc::clone(&ctx.cancelled),
+            );
         }
         run_foreground(command, Some(&ctx.workspace_root), &ctx.cancelled)
     }

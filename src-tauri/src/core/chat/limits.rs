@@ -2,6 +2,8 @@
 
 use regex::Regex;
 
+use crate::core::runtime::ChatMessage;
+
 /// Characters → estimated tokens (coarse).
 pub const CHARS_PER_TOKEN: usize = 4;
 
@@ -66,6 +68,36 @@ pub fn estimate_tokens(text: &str) -> usize {
     base_tokens + (image_count * 1000)
 }
 
+/// Estimate the tokens represented by one persisted chat message.
+///
+/// Reasoning and tool payloads are included because they contribute to the
+/// conversation even when rendered outside the main message body.
+pub fn estimate_message_tokens(message: &ChatMessage) -> usize {
+    let mut total = estimate_tokens(&message.content)
+        + estimate_tokens(message.reasoning.as_deref().unwrap_or(""));
+
+    if let Some(activities) = &message.tool_activities {
+        for activity in activities {
+            total += estimate_tokens(&activity.tool_name);
+            total += estimate_tokens(&activity.title);
+            total += estimate_tokens(activity.detail.as_deref().unwrap_or(""));
+            total += estimate_tokens(activity.result.as_deref().unwrap_or(""));
+            if let Some(arguments) = &activity.arguments {
+                total += estimate_tokens(&arguments.to_string());
+            }
+        }
+    }
+
+    if let Some(calls) = &message.tool_calls {
+        for call in calls {
+            total += estimate_tokens(&call.name);
+            total += estimate_tokens(&call.arguments);
+        }
+    }
+
+    total + 4
+}
+
 pub fn truncate_chars(text: &str, max_chars: usize) -> String {
     if max_chars == 0 {
         return String::new();
@@ -101,6 +133,7 @@ pub fn truncate_tool_output(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::runtime::{MessageStatus, Role};
 
     #[test]
     fn tool_output_keeps_head_and_tail() {
@@ -110,5 +143,25 @@ mod tests {
         assert!(out.starts_with('A'));
         assert!(out.ends_with('B'));
         assert!(out.chars().count() < text.chars().count());
+    }
+
+    #[test]
+    fn message_estimate_includes_content_reasoning_and_overhead() {
+        let message = ChatMessage {
+            id: "message-1".into(),
+            session_id: "session-1".into(),
+            role: Role::Assistant,
+            content: "12345678".into(),
+            reasoning: Some("1234".into()),
+            tool_activities: None,
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+            status: MessageStatus::Done,
+            timestamp: 1,
+            estimated_tokens: None,
+        };
+
+        assert_eq!(estimate_message_tokens(&message), 7);
     }
 }

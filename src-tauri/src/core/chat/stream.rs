@@ -15,6 +15,7 @@ use crate::core::chat::error::ChatError;
 use crate::core::chat::telemetry::TurnSpan;
 use crate::core::event::{BusEvent, EventBus};
 use crate::core::runtime::{ChatRequest, MessageStatus, StreamEvent};
+use crate::core::token::AccountingProvider;
 use crate::core::tools::context::{AskStore, PathPermissionStore, TaskItem, ToolContext};
 use crate::runtime::ToolManager;
 
@@ -106,6 +107,10 @@ impl StreamManager {
         let reasoning_ref = Arc::new(Mutex::new(String::new()));
         let epoch = self.epoch_counter.fetch_add(1, Ordering::Relaxed);
         let turn_id = Uuid::new_v4().to_string();
+        let usage_pool = conversation.db_pool();
+        let usage_session_id = session_id.clone();
+        let usage_model = model.clone();
+        let usage_provider = provider.id().to_string();
 
         if let Ok(mut active) = self.active_tasks.lock() {
             active.insert(
@@ -149,6 +154,11 @@ impl StreamManager {
             );
 
             let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
+            let accounting_provider: Arc<dyn AIProvider> = Arc::new(AccountingProvider::new(
+                Arc::clone(&provider),
+                model.clone(),
+                app_handle.clone(),
+            ));
             let tool_ctx = ToolContext {
                 workspace_root,
                 request_context: request.context.clone(),
@@ -160,7 +170,7 @@ impl StreamManager {
                 ask_store,
                 path_permission_store,
                 registry: Some(tools.registry()),
-                provider: Some(provider.clone()),
+                provider: Some(Arc::clone(&accounting_provider)),
                 subagent_depth: 0,
                 max_subagent_depth: 1,
                 subagent_id: None,
@@ -170,7 +180,7 @@ impl StreamManager {
             };
 
             let runner =
-                AgentRunner::new(provider.clone(), tools).with_max_turn_tokens(max_turn_tokens);
+                AgentRunner::new(accounting_provider, tools).with_max_turn_tokens(max_turn_tokens);
             let agent_task = async_runtime::spawn({
                 let request = request.clone();
                 let tx = tx.clone();
@@ -308,6 +318,39 @@ impl StreamManager {
                         });
                     }
                     StreamEvent::ToolCall(_) => {}
+                    StreamEvent::Usage(usage) => {
+                        let usage = usage.clone();
+                        let persisted_usage = usage.clone();
+                        let pool = usage_pool.clone();
+                        let run_id = turn_id.clone();
+                        let session_id = usage_session_id.clone();
+                        let model = usage_model.clone();
+                        let persisted_model = model.clone();
+                        let provider = usage_provider.clone();
+                        let recorded_at = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|value| value.as_millis() as u64)
+                            .unwrap_or_default();
+                        async_runtime::spawn(async move {
+                            if let Err(error) = crate::core::chat::db::record_token_usage(
+                                &pool,
+                                &run_id,
+                                &session_id,
+                                &persisted_model,
+                                Some(&provider),
+                                &persisted_usage,
+                                recorded_at as i64,
+                            )
+                            .await
+                            {
+                                tracing::warn!(%error, "failed to persist token usage");
+                            }
+                        });
+                        event_bus.emit(BusEvent::TokenUsage {
+                            model: model.clone(),
+                            usage,
+                        });
+                    }
                     StreamEvent::TurnComplete {
                         content: turn_content,
                         reasoning: turn_reasoning,

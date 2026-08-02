@@ -60,11 +60,30 @@ export interface AgentEventRecord {
   event: AgentEvent;
 }
 
+export type TokenAccuracy = "exact" | "mixed" | "estimated";
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  systemTokens: number;
+  contextTokens: number;
+  toolCallTokens: number;
+  toolResultTokens: number;
+  memoryTokens: number;
+  totalTokens: number;
+  accuracy: TokenAccuracy;
+  source?: string;
+}
+
 export type AgentDebugEvent =
   | { type: "runCreated"; data: { runId: string; state: AgentState } }
   | {
       type: "contextSnapshot";
       data: { runId: string; context: CapturedContext };
+    }
+  | {
+      type: "tokenUsage";
+      data: { runId: string; model: string; usage: TokenUsage };
     }
   | { type: "runtimeEvent"; data: { record: AgentEventRecord } }
   | {
@@ -152,6 +171,8 @@ export interface ChatMessage {
   environmentContext?: CapturedContext;
   status: MessageStatus;
   timestamp: number;
+  /** Cached estimate for completed persisted messages. */
+  estimatedTokens?: number;
   /** UI-side completion time used to freeze the processing duration. */
   completedAt?: number;
 }
@@ -163,6 +184,8 @@ export type WorkTimelineItem =
 export interface ChatSendRequest {
   message: string;
   sessionId?: string;
+  workspaceId?: string;
+  quickAsk?: boolean;
 }
 
 /** 与 Rust `RequestContext` 对齐 — overlay 唤起时采集的上下文 */
@@ -288,6 +311,8 @@ export interface ChatSessionSummary {
   workspaceId?: string;
   preview: string;
   messageCount: number;
+  turnCount: number;
+  estimatedTokens: number;
   updatedAt: number;
 }
 
@@ -388,6 +413,11 @@ export interface ToolApprovalSession {
 export interface RespondToolApprovalRequest {
   requestId: string;
   decision: ToolApprovalDecision;
+}
+
+export interface InteractionResolvedEvent {
+  requestId: string;
+  kind: "ask_user" | "path_permission" | "tool_approval";
 }
 
 export interface PlanModeChangedEvent {

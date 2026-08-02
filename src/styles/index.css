@@ -1,6 +1,7 @@
 
 @import "./fonts.css";
 @import "./scrollbars.css";
+@import "./motion.css";
 
 @import "tailwindcss";
 @import "../services/theme/themes.css";

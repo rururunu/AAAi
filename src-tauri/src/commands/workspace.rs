@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::process::Command;
 
 use crate::app_state::AppState;
 use crate::core::workspace::Workspace;
@@ -103,6 +104,53 @@ pub async fn delete_workspace(
 ) -> Result<(), String> {
     let manager = state.core.workspaces();
     manager.delete(id).await?;
+    app.emit("workspaces-changed", manager.current())
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_workspace_folder(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let workspace = state
+        .core
+        .workspaces()
+        .list()
+        .into_iter()
+        .find(|workspace| workspace.id == id)
+        .ok_or_else(|| "Workspace not found".to_string())?;
+    if !workspace.root.is_dir() {
+        return Err("Workspace folder no longer exists".to_string());
+    }
+
+    Command::new("explorer.exe")
+        .arg(format!("/e,/root,{}", workspace.root.display()))
+        .spawn()
+        .map_err(|error| format!("Failed to open workspace folder: {error}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_workspace_pinned(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    pinned: bool,
+) -> Result<(), String> {
+    let manager = state.core.workspaces();
+    manager.set_pinned(&id, pinned).await?;
+    app.emit("workspaces-changed", manager.current())
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reorder_workspaces(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    let manager = state.core.workspaces();
+    manager.reorder(&ids).await?;
     app.emit("workspaces-changed", manager.current())
         .map_err(|error| error.to_string())?;
     Ok(())

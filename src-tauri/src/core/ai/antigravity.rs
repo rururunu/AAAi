@@ -7,17 +7,18 @@ use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 
 use crate::core::runtime::{ChatMessage, ChatRequest, Role, StreamEvent, ToolCallPayload};
+use crate::core::token::TokenUsage;
 use crate::services::gemini_oauth::{
-    self, antigravity_http_error_message, antigravity_production_api_url,
+    self, antigravity_http_client, antigravity_http_error_message, antigravity_production_api_url,
     antigravity_transport_error_message, antigravity_user_agent, client_metadata_header,
-    antigravity_http_client, is_retryable_antigravity_status, ANTIGRAVITY_RETRY_BACKOFF,
-    MAX_ANTIGRAVITY_RETRIES, X_GOOG_API_CLIENT,
+    is_retryable_antigravity_status, ANTIGRAVITY_RETRY_BACKOFF, MAX_ANTIGRAVITY_RETRIES,
+    X_GOOG_API_CLIENT,
 };
 
-use super::provider::{AIProvider, ProviderError};
 use super::image_analysis::{
     decode_image_inline_payload, split_image_content, ImageContentSegment,
 };
+use super::provider::{AIProvider, ProviderError};
 
 const FUNCTION_CALL_GUARD: &str = "\n\n## Function calling\n\
      - When you call a tool, emit a native function call, not code. Never write \
@@ -35,7 +36,10 @@ pub struct AntigravityProvider {
 
 impl AntigravityProvider {
     pub fn for_model(app: tauri::AppHandle, model: String) -> Self {
-        Self { app, model_override: Some(model) }
+        Self {
+            app,
+            model_override: Some(model),
+        }
     }
 }
 
@@ -58,7 +62,10 @@ impl AIProvider for AntigravityProvider {
 
         let settings = crate::services::settings_store::get_settings(&self.app)
             .map_err(ProviderError::message)?;
-        let selected_model = self.model_override.as_deref().unwrap_or(settings.chat_model.trim());
+        let selected_model = self
+            .model_override
+            .as_deref()
+            .unwrap_or(settings.chat_model.trim());
         let model = gemini_oauth::resolve_antigravity_model_id(selected_model);
         if model.is_empty() {
             return emit_error(
@@ -104,9 +111,20 @@ impl AIProvider for AntigravityProvider {
             Ok(value) => value,
             Err(error) => return emit_error(&tx, error).await,
         };
-        let candidate = parsed
+        let response = parsed
             .response
-            .and_then(|r| r.candidates)
+            .ok_or_else(|| ProviderError::message("Antigravity returned no response"))?;
+        if let Some(usage) = response.usage_metadata.as_ref() {
+            let _ = tx
+                .send(StreamEvent::Usage(TokenUsage::exact(
+                    usage.prompt_token_count,
+                    usage.candidates_token_count,
+                    "google/usageMetadata",
+                )))
+                .await;
+        }
+        let candidate = response
+            .candidates
             .and_then(|mut c| c.drain(..).next())
             .ok_or_else(|| ProviderError::message("Antigravity returned no candidate content"))?;
 
@@ -309,6 +327,17 @@ struct CodeAssistGenerateResponse {
 struct VertexGenerateContentResponse {
     #[serde(default)]
     candidates: Option<Vec<GeminiCandidate>>,
+    #[serde(default)]
+    usage_metadata: Option<GeminiUsageMetadata>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiUsageMetadata {
+    #[serde(default)]
+    prompt_token_count: usize,
+    #[serde(default)]
+    candidates_token_count: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -350,8 +379,8 @@ fn build_user_parts(content: &str) -> Result<Vec<GeminiPart>, ProviderError> {
                 }
             }
             ImageContentSegment::ImagePayload(payload) => {
-                let (mime_type, data) = decode_image_inline_payload(&payload)
-                    .map_err(ProviderError::message)?;
+                let (mime_type, data) =
+                    decode_image_inline_payload(&payload).map_err(ProviderError::message)?;
                 parts.push(GeminiPart {
                     inline_data: Some(GeminiInlineData { mime_type, data }),
                     ..Default::default()
@@ -399,10 +428,7 @@ fn build_contents(messages: &[ChatMessage]) -> Result<(String, Vec<GeminiContent
                 }
                 if let Some(calls) = &message.tool_calls {
                     for call in calls {
-                        if let Some(sig) = call
-                            .thought_signature
-                            .as_ref()
-                            .filter(|s| !s.is_empty())
+                        if let Some(sig) = call.thought_signature.as_ref().filter(|s| !s.is_empty())
                         {
                             last_signature = Some(sig.clone());
                         }

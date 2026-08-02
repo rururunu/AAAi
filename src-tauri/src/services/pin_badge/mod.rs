@@ -126,7 +126,7 @@ fn run_loop() {
             continue;
         }
 
-        // Theme accent changed (settings / VS Code theme) → repaint visible badges.
+        // Theme accent changed in settings; repaint visible badges.
         let accent_gen = theme::accent_generation();
         if accent_gen != last_accent_gen {
             last_accent_gen = accent_gen;

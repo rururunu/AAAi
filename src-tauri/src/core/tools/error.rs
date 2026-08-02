@@ -70,7 +70,6 @@ mod tests {
         assert!(!ToolError::new("ordinary failure").is_terminal());
     }
 
-
     #[test]
     fn cancellation_is_distinct_from_user_denial() {
         let error = ToolError::cancelled();

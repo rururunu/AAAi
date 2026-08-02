@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rdev::{listen, Event, EventType, Key};
 use tauri::{
     menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, RunEvent,
 };
 use windows::Win32::Foundation::POINT;
@@ -19,7 +19,8 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 use app_state::AppState;
 use commands::{
-    app, ask, chat, diff, gemini, harness, mcp, permission, settings, skills, themes, window, workspace,
+    app, ask, chat, diff, gemini, harness, mcp, permission, settings, skills, token_usage,
+    window, workspace,
 };
 use services::overlay_native::clear_minimize_pending;
 use services::settings_store::{
@@ -27,7 +28,8 @@ use services::settings_store::{
 };
 use services::window::{
     cleanup_overlay_state, configure_overlay_window, handle_overlay_focused, is_overlay_label,
-    mark_blur_guard, should_keep_overlay_visible, show_settings_window, toggle_overlay,
+    mark_blur_guard, should_keep_overlay_visible, show_settings_window, show_workbench_window,
+    toggle_overlay,
 };
 
 const DOUBLE_TAP_MS: u64 = 400;
@@ -163,9 +165,10 @@ fn start_hotkey_listener(app: AppHandle) {
 }
 
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    let workbench = MenuItem::with_id(app, "workbench", "Open Workbench", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&settings, &quit])?;
+    let menu = Menu::with_items(app, &[&workbench, &settings, &quit])?;
     let icon = app
         .default_window_icon()
         .cloned()
@@ -174,11 +177,25 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     TrayIconBuilder::new()
         .icon(icon)
         .menu(&menu)
+        .show_menu_on_left_click(false)
         .tooltip("AAAi")
         .on_menu_event(|app, event| match event.id.as_ref() {
+            "workbench" => show_workbench_window(app),
             "settings" => show_settings_window(app),
             "quit" => app.exit(0),
             _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+            ) {
+                show_workbench_window(tray.app_handle());
+            }
         })
         .build(app)?;
 
@@ -193,7 +210,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let handle = app.clone();
             let _ = app.run_on_main_thread(move || {
-                show_settings_window(&handle);
+                show_workbench_window(&handle);
             });
         }))
         .setup(|app| {
@@ -218,6 +235,14 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             let label = window.label().to_string();
+
+            if label == "workbench" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    return;
+                }
+            }
 
             if let tauri::WindowEvent::Destroyed = event {
                 if is_overlay_label(&label) {
@@ -260,6 +285,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             window::open_settings,
             window::open_session_in_overlay,
+            window::open_session_in_workbench,
             window::hide_overlay_window,
             window::minimize_overlay_window,
             window::close_overlay_window,
@@ -271,8 +297,6 @@ pub fn run() {
             window::get_preview_image,
             settings::get_app_settings,
             settings::set_app_settings,
-            themes::list_vscode_themes,
-            themes::load_vscode_theme,
             gemini::gemini_auth_status,
             gemini::gemini_oauth_login,
             gemini::gemini_oauth_logout,
@@ -294,6 +318,7 @@ pub fn run() {
             chat::get_environment_context,
             chat::delete_chat_session,
             chat::clear_all_chat_sessions,
+            token_usage::get_token_usage_report,
             workspace::list_workspaces,
             workspace::get_current_workspace,
             workspace::list_workspace_files,
@@ -301,6 +326,9 @@ pub fn run() {
             workspace::switch_workspace,
             workspace::clear_current_workspace,
             workspace::delete_workspace,
+            workspace::open_workspace_folder,
+            workspace::set_workspace_pinned,
+            workspace::reorder_workspaces,
             ask::respond_ask_user,
             permission::respond_path_permission,
             harness::respond_tool_approval,

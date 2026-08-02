@@ -11,7 +11,7 @@ use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::AppHandle;
 
 use crate::core::context::image_capture::file_to_data_url;
 use crate::core::context::models::{CursorPosition, IDEContext};
@@ -262,7 +262,6 @@ fn receive_ide_payload(body: &[u8]) -> Result<(), String> {
         "ide context received"
     );
 
-    let workspace = context.workspace.clone();
     let mut stored = context_store()
         .write()
         .map_err(|error| format!("IDE context store is unavailable: {error}"))?;
@@ -271,43 +270,7 @@ fn receive_ide_payload(body: &[u8]) -> Result<(), String> {
         context,
     });
     drop(stored);
-    select_known_ide_workspace(workspace);
     Ok(())
-}
-
-fn select_known_ide_workspace(root: Option<PathBuf>) {
-    let Some(root) = root else {
-        return;
-    };
-    let Some(app) = APP_HANDLE.get().cloned() else {
-        return;
-    };
-    let Some(state) = app.try_state::<crate::app_state::AppState>() else {
-        return;
-    };
-    let manager = state.core.workspaces();
-
-    match tauri::async_runtime::block_on(manager.select_known_ide_workspace(&root)) {
-        Ok(Some(workspace)) => {
-            if let Err(error) = app.emit("workspaces-changed", Some(workspace.clone())) {
-                tracing::warn!(
-                    provider = "ide",
-                    workspace = %workspace.root.display(),
-                    error = %error,
-                    "failed to emit selected IDE workspace"
-                );
-            }
-        }
-        Ok(None) => {}
-        Err(error) => {
-            tracing::warn!(
-                provider = "ide",
-                workspace = %root.display(),
-                error = %error,
-                "failed to select known IDE workspace"
-            );
-        }
-    }
 }
 
 fn receive_ask_image(body: &[u8]) -> Result<(), String> {

@@ -8,7 +8,20 @@ import {
 } from "@/services/locales/settings";
 import type { AppLanguage } from "@/types/setting";
 
-export type CategoryId = "appearance" | "ai" | "memory" | "search" | "agent" | "mcp" | "skills" | "plugins" | "workspace" | "history" | "about" | "provider";
+export type CategoryId =
+  | "appearance"
+  | "ai"
+  | "memory"
+  | "search"
+  | "agent"
+  | "mcp"
+  | "skills"
+  | "plugins"
+  | "workspace"
+  | "history"
+  | "usage"
+  | "about"
+  | "provider";
 
 export type SettingType =
   | "select-color"
@@ -57,11 +70,19 @@ interface FieldCopy {
   keywords: string[];
 }
 
-function buildFieldCopy(language: AppLanguage): Record<SettingFieldId, FieldCopy> {
+function buildFieldCopy(
+  language: AppLanguage,
+): Record<SettingFieldId, FieldCopy> {
   return Object.fromEntries(
     settingsFieldIds.map((id) => {
-      const title = tr(language, `settings.fields.${id}.title` as SettingsI18nKey);
-      const description = tr(language, `settings.fields.${id}.description` as SettingsI18nKey);
+      const title = tr(
+        language,
+        `settings.fields.${id}.title` as SettingsI18nKey,
+      );
+      const description = tr(
+        language,
+        `settings.fields.${id}.description` as SettingsI18nKey,
+      );
       const entry: FieldCopy = {
         title,
         description,
@@ -73,7 +94,10 @@ function buildFieldCopy(language: AppLanguage): Record<SettingFieldId, FieldCopy
   ) as Record<SettingFieldId, FieldCopy>;
 }
 
-export function buildSettingDefinitions(language: AppLanguage, info: SettingsAppInfo): SettingDefinition[] {
+export function buildSettingDefinitions(
+  language: AppLanguage,
+  info: SettingsAppInfo,
+): SettingDefinition[] {
   const m = buildFieldCopy(language);
   const groups = {
     appearance: tr(language, "settings.groups.appearance"),

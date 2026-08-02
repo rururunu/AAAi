@@ -25,15 +25,21 @@ import type {
   RewindSessionResponse,
 } from "@/types/chat";
 import { IPC_COMMANDS } from "@/types/ipc";
-import type { AppSettings, AppSettingsPatch, GeminiAuthStatus } from "@/types/setting";
-import type { ResolvedVscodeTheme, VscodeThemeSummary } from "@/services/theme/vscodeThemes";
+import type {
+  AppSettings,
+  AppSettingsPatch,
+  GeminiAuthStatus,
+} from "@/types/setting";
+import type { TokenUsageReport } from "@/types/tokenUsage";
 import { invoke } from "@tauri-apps/api/core";
 
 export function ipcInvoke<TResponse>(
   command: string,
   payload?: Record<string, unknown>,
 ): Promise<TResponse> {
-  return payload ? invoke<TResponse>(command, payload) : invoke<TResponse>(command);
+  return payload
+    ? invoke<TResponse>(command, payload)
+    : invoke<TResponse>(command);
 }
 
 export function openSettings() {
@@ -41,15 +47,31 @@ export function openSettings() {
 }
 
 export function openSessionInOverlay(sessionId: string) {
-  return ipcInvoke<void>(IPC_COMMANDS.openSessionInOverlay, { sessionId, session_id: sessionId });
+  return ipcInvoke<void>(IPC_COMMANDS.openSessionInOverlay, {
+    sessionId,
+    session_id: sessionId,
+  });
+}
+
+export function openSessionInWorkbench(sessionId: string, overlayLabel: string) {
+  return ipcInvoke<void>(IPC_COMMANDS.openSessionInWorkbench, {
+    sessionId,
+    overlayLabel,
+  });
 }
 
 export function hideOverlay(label?: string) {
-  return ipcInvoke<void>(IPC_COMMANDS.hideOverlay, label ? { label } : undefined);
+  return ipcInvoke<void>(
+    IPC_COMMANDS.hideOverlay,
+    label ? { label } : undefined,
+  );
 }
 
 export function minimizeOverlay(label?: string) {
-  return ipcInvoke<void>(IPC_COMMANDS.minimizeOverlay, label ? { label } : undefined);
+  return ipcInvoke<void>(
+    IPC_COMMANDS.minimizeOverlay,
+    label ? { label } : undefined,
+  );
 }
 
 export function closeOverlay(label: string) {
@@ -68,14 +90,6 @@ export function setAppSettings(patch: AppSettingsPatch) {
   return ipcInvoke<AppSettings>(IPC_COMMANDS.setAppSettings, { patch });
 }
 
-export function listVscodeThemes() {
-  return ipcInvoke<VscodeThemeSummary[]>(IPC_COMMANDS.listVscodeThemes);
-}
-
-export function loadVscodeTheme(themeId: string) {
-  return ipcInvoke<ResolvedVscodeTheme>(IPC_COMMANDS.loadVscodeTheme, { themeId });
-}
-
 export function geminiAuthStatus() {
   return ipcInvoke<GeminiAuthStatus>(IPC_COMMANDS.geminiAuthStatus);
 }
@@ -89,7 +103,9 @@ export function geminiOauthLogout() {
 }
 
 export function geminiImportClientSecrets(path: string) {
-  return ipcInvoke<GeminiAuthStatus>(IPC_COMMANDS.geminiImportClientSecrets, { path });
+  return ipcInvoke<GeminiAuthStatus>(IPC_COMMANDS.geminiImportClientSecrets, {
+    path,
+  });
 }
 
 export function getAppInfo() {
@@ -117,7 +133,19 @@ export function listChatModels() {
 }
 
 export function getContextUsage(request: ContextUsageRequest = {}) {
-  return ipcInvoke<ContextUsageResponse>(IPC_COMMANDS.getContextUsage, { request });
+  return ipcInvoke<ContextUsageResponse>(IPC_COMMANDS.getContextUsage, {
+    request,
+  });
+}
+
+export function getTokenUsageReport(request: {
+  from?: number;
+  to?: number;
+  granularity: "day" | "week" | "month";
+}) {
+  return ipcInvoke<TokenUsageReport>(IPC_COMMANDS.getTokenUsageReport, {
+    request,
+  });
 }
 
 export function getEnvironmentContext() {
@@ -141,7 +169,9 @@ export function setOverlayPopupOpen(label: string, open: boolean) {
 }
 
 export function takeOverlayContext(label: string) {
-  return ipcInvoke<CapturedContext | null>(IPC_COMMANDS.takeOverlayContext, { label });
+  return ipcInvoke<CapturedContext | null>(IPC_COMMANDS.takeOverlayContext, {
+    label,
+  });
 }
 
 export function openImagePreview(pathOrBase64: string) {
@@ -186,7 +216,9 @@ export function listCheckpoints(sessionId: string) {
 }
 
 export function rewindSession(request: RewindSessionRequest) {
-  return ipcInvoke<RewindSessionResponse>(IPC_COMMANDS.rewindSession, { request });
+  return ipcInvoke<RewindSessionResponse>(IPC_COMMANDS.rewindSession, {
+    request,
+  });
 }
 
 export type {

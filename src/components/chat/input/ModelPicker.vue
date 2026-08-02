@@ -133,7 +133,7 @@ const refreshIndex = computed(() => props.models.length);
 .command-list {
   --command-row-height: 32px;
   --command-list-padding: 6px;
-  --command-list-visible-rows: 8;
+  --command-list-visible-rows: 12;
   --model-group-header-height: 24px;
   list-style: none;
   margin: 0;
@@ -147,7 +147,7 @@ const refreshIndex = computed(() => props.models.length);
         var(--command-list-padding) +
         34px
     ),
-    72vh
+    calc(100vh - 140px)
   );
   overflow-x: hidden;
   overflow-y: auto;
@@ -178,6 +178,11 @@ const refreshIndex = computed(() => props.models.length);
 
 .model-group-header + .model-group-header {
   margin-top: 2px;
+}
+
+.model-picker-item + .model-group-header {
+  margin-top: 5px;
+  border-top: 1px solid color-mix(in srgb, var(--peek-text) 8%, transparent);
 }
 
 .model-group-leading {

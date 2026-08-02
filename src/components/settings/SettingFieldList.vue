@@ -3,15 +3,15 @@
     {{ emptyText }}
   </p>
 
-  <section v-for="group in groups" :key="group.id" class="py-2">
-    <h2 class="text-muted-foreground px-4 py-2 text-[11px] font-semibold tracking-wider uppercase">
+  <section v-for="group in groups" :key="group.id" class="setting-group">
+    <h2 class="setting-group-title">
       {{ group.title }}
     </h2>
 
     <article
       v-for="item in group.items"
       :key="item.id"
-      class="border-t border-border px-4 py-3.5"
+      class="setting-row px-4 py-3.5"
       :class="
         item.type === 'collaboration-models'
           ? 'collaboration-setting grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-3'
@@ -28,7 +28,6 @@
         <Select
           v-if="item.type === 'select-color'"
           :model-value="selectedThemeValue"
-          @update:model-value="(v) => emit('color-scheme-change', v)"
         >
           <SelectTrigger class="w-full">
             <SelectValue />
@@ -40,17 +39,7 @@
                 v-for="option in builtInThemeOptions"
                 :key="option.value"
                 :value="option.value"
-              >
-                {{ option.label }}
-              </SelectItem>
-            </SelectGroup>
-            <SelectSeparator v-if="vscodeThemeOptions.length" />
-            <SelectGroup v-if="vscodeThemeOptions.length">
-              <SelectLabel>{{ vscodeThemeGroupLabel }}</SelectLabel>
-              <SelectItem
-                v-for="option in vscodeThemeOptions"
-                :key="option.value"
-                :value="option.value"
+                @select="onThemeOptionSelect(option.value)"
               >
                 {{ option.label }}
               </SelectItem>
@@ -359,7 +348,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed } from "vue";
 import { RefreshCw } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -371,7 +360,6 @@ import {
   SelectGroup,
   SelectItem,
   SelectLabel,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -384,8 +372,6 @@ import {
   localizeThinkingTierLabel,
 } from "@/lib/modelThinking";
 import { tr } from "@/services/i18n";
-import { listVscodeThemes } from "@/services/ipc";
-import type { VscodeThemeSummary } from "@/services/theme/vscodeThemes";
 import type { SettingDefinition } from "@/pages/Settings/settingsDefinitions";
 import type { ModelSelection } from "@/types/setting";
 import {
@@ -435,11 +421,16 @@ const emit = defineEmits<{
 
 const settingStore = useSettingStore();
 const chatModelStore = useChatModelStore();
-const vscodeThemes = ref<VscodeThemeSummary[]>([]);
 
 const selectedThemeValue = computed(() =>
-  settingStore.vscodeTheme ? `vscode:${settingStore.vscodeTheme}` : `builtin:${settingStore.colorScheme}`,
+  `builtin:${settingStore.colorScheme}`,
 );
+
+function onThemeOptionSelect(value: string) {
+  if (value !== selectedThemeValue.value) {
+    emit("color-scheme-change", value);
+  }
+}
 
 const apiKeyPlaceholder = computed(() => tr(settingStore.language, "settings.apiKeyPlaceholder"));
 
@@ -464,30 +455,7 @@ const builtInThemeOptions = computed(() =>
   })),
 );
 
-const vscodeThemeOptions = computed(() => {
-  const options = vscodeThemes.value.map((theme) => ({
-    value: `vscode:${theme.id}`,
-    label: `${theme.label} · ${theme.extensionName}`,
-  }));
-  if (settingStore.vscodeTheme && !vscodeThemes.value.some((theme) => theme.id === settingStore.vscodeTheme)) {
-    options.unshift({
-      value: `vscode:${settingStore.vscodeTheme}`,
-      label: tr(settingStore.language, "themes.unavailable"),
-    });
-  }
-  return options;
-});
-
 const builtInThemeGroupLabel = computed(() => tr(settingStore.language, "themes.builtIn"));
-const vscodeThemeGroupLabel = computed(() => tr(settingStore.language, "themes.vscodeExtensions"));
-
-onMounted(async () => {
-  try {
-    vscodeThemes.value = await listVscodeThemes();
-  } catch (error) {
-    console.warn("Could not list installed VS Code themes", error);
-  }
-});
 
 const languageSelectOptions = computed(() =>
   languageOptions.map((option) => ({
@@ -699,6 +667,27 @@ function onSearchSecretInput(id: string, value: string | number) {
 </script>
 
 <style scoped>
+.setting-group {
+  padding: 8px 6px;
+}
+
+.setting-group-title {
+  margin: 0;
+  padding: 7px 10px;
+  color: var(--peek-faint);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.setting-row {
+  border-radius: 6px;
+  transition: background-color 120ms ease;
+}
+
+.setting-row:hover {
+  background: color-mix(in srgb, var(--peek-text) 3.5%, transparent);
+}
+
 .setting-toggle {
   position: relative;
   width: 44px;
