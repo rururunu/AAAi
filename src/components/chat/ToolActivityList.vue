@@ -63,8 +63,7 @@
           @click.stop="emit('inspectSubagent', agent.id)"
         >
           <span class="tool-activity-icon" aria-hidden="true">
-            <LoaderCircle v-if="agent.status === 'running'" class="child-agent-spinner" :size="12" />
-            <Bot v-else :size="12" />
+            <SubagentIcon :status="agent.status" :size="12" />
           </span>
           <span class="child-agent-title">{{ agent.title }}</span>
           <span v-if="agent.status === 'running'" class="tool-activity-status">{{ tr(settingStore.language, "running") }}</span>
@@ -139,7 +138,6 @@ import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
 import {
   ChevronRight,
-  Bot,
   FilePenLine,
   FilePlus2,
   FileX2,
@@ -149,8 +147,10 @@ import {
   LoaderCircle,
   PanelRightOpen,
   Wrench,
+  Workflow,
 } from "@lucide/vue";
 import Markdown from "@/components/chat/Markdown.vue";
+import SubagentIcon from "@/components/chat/SubagentIcon.vue";
 import type { ToolActivity } from "@/types/chat";
 import { useSettingStore } from "@/stores/setting";
 import { tr } from "@/services/i18n";
@@ -283,7 +283,7 @@ function isFuzzy(activity: ToolActivity) {
 
 function icon(activity: ToolActivity): Component {
   if (isRunningSubagent(activity)) return LoaderCircle;
-  if (isSubagentTool(activity)) return Bot;
+  if (isSubagentTool(activity)) return Workflow;
   switch (activity.kind) {
     case "shell": return Terminal;
     case "create": return FilePlus2;
@@ -532,7 +532,6 @@ watch(
 .child-agent-title { flex: 1; min-width: 0; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .child-agent-inspect { flex: none; color: var(--peek-faint); }
 .child-agent-row:hover .child-agent-inspect { color: var(--peek-accent); }
-.child-agent-spinner { animation: subagent-tool-spin 900ms linear infinite; }
 .tool-activity-detail {
   padding: 2px 6px 8px 28px;
   font-size: 11px;

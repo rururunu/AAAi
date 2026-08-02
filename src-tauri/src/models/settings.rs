@@ -249,6 +249,9 @@ pub struct AppSettings {
     pub large_context_enabled: bool,
     #[serde(default = "default_zoom")]
     pub zoom: u32,
+    /// WebView2 uses GPU rendering by default. Changing this requires restart.
+    #[serde(default = "default_true")]
+    pub hardware_acceleration_enabled: bool,
     /// Primary overlay shortcut modifier, activated by a double tap.
     #[serde(default = "default_primary_hotkey")]
     pub primary_hotkey: String,
@@ -333,6 +336,7 @@ pub struct AppSettingsPatch {
     pub multimodal_split_analysis: Option<bool>,
     pub large_context_enabled: Option<bool>,
     pub zoom: Option<u32>,
+    pub hardware_acceleration_enabled: Option<bool>,
     pub primary_hotkey: Option<String>,
     pub secondary_hotkey: Option<String>,
     pub custom_providers: Option<Vec<CustomProviderConfig>>,
@@ -374,6 +378,7 @@ impl Default for AppSettings {
             multimodal_split_analysis: true,
             large_context_enabled: true,
             zoom: 100,
+            hardware_acceleration_enabled: true,
             primary_hotkey: default_primary_hotkey(),
             secondary_hotkey: default_secondary_hotkey(),
             custom_providers: Vec::new(),
@@ -477,6 +482,9 @@ impl AppSettings {
                 .large_context_enabled
                 .unwrap_or(self.large_context_enabled),
             zoom: patch.zoom.unwrap_or(self.zoom),
+            hardware_acceleration_enabled: patch
+                .hardware_acceleration_enabled
+                .unwrap_or(self.hardware_acceleration_enabled),
             primary_hotkey: patch
                 .primary_hotkey
                 .map(|value| crate::services::hotkey::normalize_primary_hotkey(&value))
@@ -516,6 +524,7 @@ mod tests {
         assert!(settings.collaboration_models.is_empty());
         assert!(settings.chat_model_provider.is_empty());
         assert!(settings.multimodal_model_provider.is_empty());
+        assert!(settings.hardware_acceleration_enabled);
     }
 
     #[test]
@@ -556,6 +565,16 @@ mod tests {
             ..AppSettingsPatch::default()
         };
         assert!(!settings.merge(patch).show_reasoning);
+    }
+
+    #[test]
+    fn hardware_acceleration_defaults_on_and_can_be_disabled() {
+        let settings = AppSettings::default();
+        let patch = AppSettingsPatch {
+            hardware_acceleration_enabled: Some(false),
+            ..AppSettingsPatch::default()
+        };
+        assert!(!settings.merge(patch).hardware_acceleration_enabled);
     }
 
     #[test]

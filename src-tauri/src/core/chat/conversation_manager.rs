@@ -94,11 +94,14 @@ impl ConversationManager {
         // Nothing is still executing after process start, so finalize them now.
         let dirty = settle_orphaned_in_sessions(&mut sessions);
         let pool_for_settle = db_pool.clone();
+        let journal_for_settle = journal.clone();
         if !dirty.is_empty() {
             tauri::async_runtime::spawn(async move {
                 for message in dirty {
                     if let Err(e) = super::db::save_message(&pool_for_settle, &message).await {
                         eprintln!("Failed to settle interrupted message {}: {}", message.id, e);
+                    } else {
+                        journal_for_settle.discard_message(&message.id);
                     }
                 }
             });
@@ -274,11 +277,18 @@ impl ConversationManager {
         *message = updated.clone();
 
         // Save updated message to SQLite asynchronously
+        let is_terminal = !matches!(
+            &updated.status,
+            MessageStatus::Pending | MessageStatus::Streaming
+        );
         let pool = self.db_pool.clone();
+        let journal = self.journal.clone();
         let msg_to_save = updated.clone();
         tauri::async_runtime::spawn(async move {
             if let Err(e) = super::db::save_message(&pool, &msg_to_save).await {
                 eprintln!("Failed to save updated message to SQLite: {}", e);
+            } else if is_terminal {
+                journal.discard_message(&msg_to_save.id);
             }
         });
 
@@ -343,9 +353,14 @@ impl ConversationManager {
             .begin()
             .await
             .map_err(|error| ChatError::Internal(error.to_string()))?;
-        for id in removed_ids {
+        for id in &removed_ids {
+            sqlx::query("DELETE FROM chat_journal_events WHERE message_id = ?;")
+                .bind(id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| ChatError::Internal(error.to_string()))?;
             sqlx::query("DELETE FROM chat_messages WHERE id = ?;")
-                .bind(&id)
+                .bind(id)
                 .execute(&mut *transaction)
                 .await
                 .map_err(|error| ChatError::Internal(error.to_string()))?;
@@ -354,6 +369,9 @@ impl ConversationManager {
             .commit()
             .await
             .map_err(|error| ChatError::Internal(error.to_string()))?;
+        for id in removed_ids {
+            self.journal.discard_message(&id);
+        }
         Ok(())
     }
 
@@ -367,20 +385,33 @@ impl ConversationManager {
 
         let pool = self.db_pool.clone();
         let sid = session_id.to_string();
+        self.journal.discard_session(session_id);
         tauri::async_runtime::spawn(async move {
-            if let Err(e) = sqlx::query("DELETE FROM chat_messages WHERE session_id = ?;")
-                .bind(&sid)
-                .execute(&pool)
-                .await
-            {
-                eprintln!("Failed to delete session {} from SQLite: {}", sid, e);
+            let result = async {
+                let mut transaction = pool.begin().await?;
+                sqlx::query("DELETE FROM chat_journal_events WHERE session_id = ?;")
+                    .bind(&sid)
+                    .execute(&mut *transaction)
+                    .await?;
+                sqlx::query("DELETE FROM chat_messages WHERE session_id = ?;")
+                    .bind(&sid)
+                    .execute(&mut *transaction)
+                    .await?;
+                sqlx::query("DELETE FROM chat_sessions WHERE session_id = ?;")
+                    .bind(&sid)
+                    .execute(&mut *transaction)
+                    .await?;
+                transaction.commit().await?;
+                // No-op for legacy databases; new databases use incremental
+                // auto-vacuum so deletion can return a bounded batch.
+                sqlx::query("PRAGMA incremental_vacuum(1024)")
+                    .execute(&pool)
+                    .await?;
+                Ok::<(), sqlx::Error>(())
             }
-            if let Err(e) = sqlx::query("DELETE FROM chat_sessions WHERE session_id = ?;")
-                .bind(&sid)
-                .execute(&pool)
-                .await
-            {
-                eprintln!("Failed to delete session metadata {}: {}", sid, e);
+            .await;
+            if let Err(error) = result {
+                eprintln!("Failed to delete session {sid} from SQLite: {error}");
             }
         });
     }
@@ -394,18 +425,28 @@ impl ConversationManager {
         }
 
         let pool = self.db_pool.clone();
+        self.journal.discard_all();
         tauri::async_runtime::spawn(async move {
-            if let Err(e) = sqlx::query("DELETE FROM chat_messages;")
-                .execute(&pool)
-                .await
-            {
-                eprintln!("Failed to clear chat_messages in SQLite: {}", e);
+            let result = async {
+                let mut transaction = pool.begin().await?;
+                sqlx::query("DELETE FROM chat_journal_events")
+                    .execute(&mut *transaction)
+                    .await?;
+                sqlx::query("DELETE FROM chat_messages")
+                    .execute(&mut *transaction)
+                    .await?;
+                sqlx::query("DELETE FROM chat_sessions")
+                    .execute(&mut *transaction)
+                    .await?;
+                transaction.commit().await?;
+                sqlx::query("PRAGMA incremental_vacuum(1024)")
+                    .execute(&pool)
+                    .await?;
+                Ok::<(), sqlx::Error>(())
             }
-            if let Err(e) = sqlx::query("DELETE FROM chat_sessions;")
-                .execute(&pool)
-                .await
-            {
-                eprintln!("Failed to clear chat_sessions in SQLite: {}", e);
+            .await;
+            if let Err(error) = result {
+                eprintln!("Failed to clear chat history in SQLite: {error}");
             }
         });
     }
@@ -585,12 +626,31 @@ mod rewind_tests {
         for message in [&first, &rewind_from, &assistant] {
             db::save_message(&manager.db_pool, message).await.unwrap();
         }
+        for message in [&rewind_from, &assistant] {
+            sqlx::query(
+                "INSERT INTO chat_journal_events
+                 (session_id, turn_id, message_id, kind, payload_json, created_at)
+                 VALUES (?, 'turn', ?, 'delta', '{}', 0)",
+            )
+            .bind(session_id)
+            .bind(&message.id)
+            .execute(&manager.db_pool)
+            .await
+            .unwrap();
+        }
 
         manager
             .truncate_from_message(session_id, &rewind_from.id)
             .await
             .unwrap();
         assert_eq!(manager.messages(session_id), vec![first.clone()]);
+        let journal_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM chat_journal_events WHERE session_id = ?")
+                .bind(session_id)
+                .fetch_one(&manager.db_pool)
+                .await
+                .unwrap();
+        assert_eq!(journal_count, 0);
         drop(manager);
 
         let reloaded = ConversationManager::new(db_path.clone());

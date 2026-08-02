@@ -48,8 +48,8 @@
           :aria-label="tr(settingStore.language, isMaximized ? 'restoreWindow' : 'maximizeWindow')"
           @click="toggleMaximizeWindow"
         >
-          <Minimize2 v-if="isMaximized" :size="13" />
-          <Maximize2 v-else :size="13" />
+          <span v-if="isMaximized" class="windows-caption-icon" aria-hidden="true">&#xE923;</span>
+          <span v-else class="windows-caption-icon" aria-hidden="true">&#xE922;</span>
         </button>
         <button type="button" class="window-button close" :title="labels.close" @click="hideWindow">
           <X :size="14" />
@@ -164,6 +164,9 @@
                   :language="settingStore.language"
                   :untitled-label="labels.untitled"
                   :delete-label="labels.deleteConversation"
+                  :running-session-ids="runningSessionIds"
+                  :attention-session-ids="attentionSessionIds"
+                  :unread-session-ids="unreadSessionIdList"
                   variant="workspace"
                   @select="selectConversation"
                   @delete="removeConversation"
@@ -190,6 +193,9 @@
               :language="settingStore.language"
               :untitled-label="labels.untitled"
               :delete-label="labels.deleteConversation"
+              :running-session-ids="runningSessionIds"
+              :attention-session-ids="attentionSessionIds"
+              :unread-session-ids="unreadSessionIdList"
               variant="quick"
               @select="selectConversation"
               @delete="removeConversation"
@@ -294,8 +300,6 @@ import {
   Folder,
   FolderOpen,
   Image as ImageIcon,
-  Maximize2,
-  Minimize2,
   Minus,
   PanelLeft,
   PanelRight,
@@ -306,7 +310,7 @@ import {
   Settings,
   SquarePen,
   Trash2,
-  Users,
+  Workflow,
   X,
 } from "@lucide/vue";
 import AgentDebugPanel from "@/components/chat/AgentDebugPanel.vue";
@@ -328,12 +332,15 @@ import {
   listChatSessions,
   listCheckpoints,
   listenAskUser,
+  listenChatFinished,
   listenInteractionResolved,
   listenPathPermission,
   listenToolApproval,
   respondAskUser,
   respondPathPermission,
   respondToolApproval,
+  setWindowSessionView,
+  showInteractionNotification,
 } from "@/services/ipc";
 import { tr } from "@/services/i18n";
 import { estimateMessageTokens } from "@/services/chat/tokenEstimate";
@@ -361,6 +368,10 @@ import type {
 
 type ReviewView = "diff" | "agents" | "runtime" | "image";
 type WorkspaceDropPosition = "before" | "after";
+type PendingInteraction =
+  | { kind: "ask_user"; value: AskUserSession }
+  | { kind: "path_permission"; value: PathPermissionSession }
+  | { kind: "tool_approval"; value: ToolApprovalSession };
 type WorkspacePointerDrag = {
   pointerId: number;
   sourceId: string;
@@ -413,9 +424,8 @@ const activeSessionId = ref("");
 const activeSessionWorkspaceId = ref<string | null>(null);
 const initializing = ref(true);
 const checkpoints = ref<CheckpointInfo[]>([]);
-const askUserSession = ref<AskUserSession | null>(null);
-const pathPermissionSession = ref<PathPermissionSession | null>(null);
-const toolApprovalSession = ref<ToolApprovalSession | null>(null);
+const pendingInteractions = ref<Record<string, PendingInteraction>>({});
+const unreadSessionIds = ref(new Set<string>());
 const openedSubagentIds = ref<string[]>([]);
 const selectedSubagentId = ref("");
 const openedImageSources = ref<string[]>([]);
@@ -510,7 +520,7 @@ const emptyConversationPrompt = computed(() => {
 
 const reviewViews = computed(() => [
   { id: "diff" as const, label: labels.value.diff, icon: FileDiff },
-  { id: "agents" as const, label: labels.value.agents, icon: Users },
+  { id: "agents" as const, label: labels.value.agents, icon: Workflow },
   ...(openedImageSources.value.length
     ? [{ id: "image" as const, label: tr(settingStore.language, "image.preview"), icon: ImageIcon }]
     : []),
@@ -550,6 +560,19 @@ const hasConversationMessages = computed(() =>
   messages.value.some((message) => message.role === "user" || message.role === "assistant"),
 );
 const sending = computed(() => Boolean(chatStore.sending[activeSessionId.value]));
+const runningSessionIds = computed(() => Object.keys(chatStore.sending));
+const attentionSessionIds = computed(() => Object.keys(pendingInteractions.value));
+const unreadSessionIdList = computed(() => [...unreadSessionIds.value]);
+const activePendingInteraction = computed(() => pendingInteractions.value[activeSessionId.value]);
+const askUserSession = computed<AskUserSession | null>(() =>
+  activePendingInteraction.value?.kind === "ask_user" ? activePendingInteraction.value.value : null,
+);
+const pathPermissionSession = computed<PathPermissionSession | null>(() =>
+  activePendingInteraction.value?.kind === "path_permission" ? activePendingInteraction.value.value : null,
+);
+const toolApprovalSession = computed<ToolApprovalSession | null>(() =>
+  activePendingInteraction.value?.kind === "tool_approval" ? activePendingInteraction.value.value : null,
+);
 const contextNotice = computed(() => chatStore.contextNotices[activeSessionId.value] ?? "");
 const activeTitle = computed(() => settingsOpen.value
   ? labels.value.settings
@@ -574,6 +597,67 @@ function createSessionId() {
 
 function sessionsForWorkspace(workspaceId: string) {
   return sessionsByWorkspace.value.get(workspaceId) ?? [];
+}
+
+function setPendingInteraction(sessionId: string, interaction: PendingInteraction) {
+  if (!sessionId) return;
+  pendingInteractions.value = { ...pendingInteractions.value, [sessionId]: interaction };
+}
+
+function removePendingInteraction(sessionId: string, requestId?: string) {
+  const current = pendingInteractions.value[sessionId];
+  if (!current || (requestId && current.value.requestId !== requestId)) return false;
+  const next = { ...pendingInteractions.value };
+  delete next[sessionId];
+  pendingInteractions.value = next;
+  return true;
+}
+
+function markSessionUnread(sessionId: string) {
+  if (!sessionId) return;
+  unreadSessionIds.value = new Set([...unreadSessionIds.value, sessionId]);
+}
+
+function clearSessionUnread(sessionId: string) {
+  if (!unreadSessionIds.value.has(sessionId)) return;
+  const next = new Set(unreadSessionIds.value);
+  next.delete(sessionId);
+  unreadSessionIds.value = next;
+}
+
+async function isSessionBeingViewed(sessionId: string) {
+  if (
+    sessionId !== activeSessionId.value
+    || settingsOpen.value
+    || document.visibilityState !== "visible"
+  ) return false;
+  return (await appWindow.isVisible()) && (await appWindow.isFocused());
+}
+
+function sessionDisplayName(sessionId: string) {
+  return sessions.value.find((session) => session.sessionId === sessionId)?.preview || labels.value.untitled;
+}
+
+async function showActionableWindowsNotification(
+  sessionId: string,
+  title: string,
+  body: string,
+  persistent = false,
+) {
+  await showInteractionNotification({
+    sessionId,
+    title,
+    body,
+    ignoreLabel: tr(settingStore.language, "notification.ignore"),
+    openLabel: tr(settingStore.language, "notification.openConversation"),
+    persistent,
+  });
+}
+
+async function notifyWhenNotViewed(sessionId: string, title: string, body: string) {
+  if (await isSessionBeingViewed(sessionId)) return false;
+  await showActionableWindowsNotification(sessionId, title, body, true);
+  return true;
 }
 
 function toggleNavigationSection(id: string) {
@@ -784,9 +868,6 @@ function createConversation(workspaceId: string | null) {
   activeSessionId.value = sessionId;
   activeSessionWorkspaceId.value = workspaceId;
   checkpoints.value = [];
-  askUserSession.value = null;
-  pathPermissionSession.value = null;
-  toolApprovalSession.value = null;
   reviewOpen.value = false;
   void nextTick(() => inputRef.value?.focusInput());
 }
@@ -815,6 +896,7 @@ function toggleWorkspaceGroup(id: string) {
 }
 
 async function selectConversation(sessionId: string) {
+  clearSessionUnread(sessionId);
   const summary = sessions.value.find((session) => session.sessionId === sessionId);
   activeSessionWorkspaceId.value = summary?.workspaceId ?? null;
   if (summary?.workspaceId) {
@@ -839,6 +921,8 @@ async function removeConversation(sessionId: string) {
   if (!confirmed) return;
   await deleteChatSession(sessionId);
   delete chatStore.sessions[sessionId];
+  clearSessionUnread(sessionId);
+  removePendingInteraction(sessionId);
   await refreshSessions();
   if (activeSessionId.value === sessionId) {
     const next = sessions.value[0]?.sessionId;
@@ -891,13 +975,14 @@ async function handleRewound(payload: { text: string }) {
 async function completeAskUser(answer: string) {
   const session = askUserSession.value;
   if (!session) return;
-  askUserSession.value = null;
+  const sessionId = activeSessionId.value;
+  removePendingInteraction(sessionId, session.requestId);
   try {
     await respondAskUser({ requestId: session.requestId, answer });
-    chatStore.completeAskUserToolActivities(activeSessionId.value, answer);
+    chatStore.completeAskUserToolActivities(sessionId, answer);
   } catch (error) {
-    if (!isAlreadyResolvedError(error) && !askUserSession.value) {
-      askUserSession.value = session;
+    if (!isAlreadyResolvedError(error) && !pendingInteractions.value[sessionId]) {
+      setPendingInteraction(sessionId, { kind: "ask_user", value: session });
     }
     console.error("respond_ask_user failed:", error);
   }
@@ -906,12 +991,13 @@ async function completeAskUser(answer: string) {
 async function completePathPermission(decision: PathPermissionDecision) {
   const session = pathPermissionSession.value;
   if (!session) return;
-  pathPermissionSession.value = null;
+  const sessionId = activeSessionId.value;
+  removePendingInteraction(sessionId, session.requestId);
   try {
     await respondPathPermission({ requestId: session.requestId, decision });
   } catch (error) {
-    if (!isAlreadyResolvedError(error) && !pathPermissionSession.value) {
-      pathPermissionSession.value = session;
+    if (!isAlreadyResolvedError(error) && !pendingInteractions.value[sessionId]) {
+      setPendingInteraction(sessionId, { kind: "path_permission", value: session });
     }
     console.error("respond_path_permission failed:", error);
   }
@@ -920,12 +1006,13 @@ async function completePathPermission(decision: PathPermissionDecision) {
 async function completeToolApproval(decision: ToolApprovalDecision) {
   const session = toolApprovalSession.value;
   if (!session) return;
-  toolApprovalSession.value = null;
+  const sessionId = activeSessionId.value;
+  removePendingInteraction(sessionId, session.requestId);
   try {
     await respondToolApproval({ requestId: session.requestId, decision });
   } catch (error) {
-    if (!isAlreadyResolvedError(error) && !toolApprovalSession.value) {
-      toolApprovalSession.value = session;
+    if (!isAlreadyResolvedError(error) && !pendingInteractions.value[sessionId]) {
+      setPendingInteraction(sessionId, { kind: "tool_approval", value: session });
     }
     console.error("respond_tool_approval failed:", error);
   }
@@ -1024,9 +1111,7 @@ function updateReviewWidth() {
 }
 
 watch(activeSessionId, () => {
-  askUserSession.value = null;
-  pathPermissionSession.value = null;
-  toolApprovalSession.value = null;
+  clearSessionUnread(activeSessionId.value);
   openedSubagentIds.value = [];
   selectedSubagentId.value = "";
   openedImageSources.value = [];
@@ -1035,14 +1120,22 @@ watch(activeSessionId, () => {
 });
 
 watch(
+  [activeSessionId, settingsOpen],
+  ([sessionId, showingSettings]) => void setWindowSessionView(showingSettings ? undefined : sessionId),
+  { immediate: true },
+);
+
+watch(
   () => messages.value.map((message) => `${message.id}:${message.status}:${message.toolActivities?.length ?? 0}`).join("|"),
   () => void refreshCheckpoints(),
 );
 
 onMounted(async () => {
-  window.setTimeout(() => openSettings(), 1200);
   await syncMaximizedState();
   unlisteners.push(await appWindow.onResized(() => void syncMaximizedState()));
+  unlisteners.push(await appWindow.onFocusChanged(({ payload: focused }) => {
+    if (focused && !settingsOpen.value) clearSessionUnread(activeSessionId.value);
+  }));
   unlisteners.push(await listen("open-workbench-settings", () => {
     openSettings();
   }));
@@ -1068,36 +1161,65 @@ onMounted(async () => {
     await selectConversation(pendingWorkbenchSessionId);
   }
 
+  unlisteners.push(await listenChatFinished((payload) => {
+    if (!payload.sessionId || payload.finishReason === "cancelled") return;
+    if (payload.sessionId === activeSessionId.value) void refreshCheckpoints();
+    void (async () => {
+      if (await isSessionBeingViewed(payload.sessionId)) {
+        clearSessionUnread(payload.sessionId);
+        return;
+      }
+      markSessionUnread(payload.sessionId);
+      await showActionableWindowsNotification(
+        payload.sessionId,
+        tr(settingStore.language, "notification.taskCompleted"),
+        sessionDisplayName(payload.sessionId),
+      );
+    })();
+  }));
   unlisteners.push(await listenAskUser((payload) => {
-    if (payload.sessionId && payload.sessionId !== activeSessionId.value) return;
-    askUserSession.value = { requestId: payload.requestId, questions: payload.questions };
-    pathPermissionSession.value = null;
-    toolApprovalSession.value = null;
+    const sessionId = payload.sessionId || activeSessionId.value;
+    setPendingInteraction(sessionId, {
+      kind: "ask_user",
+      value: { requestId: payload.requestId, questions: payload.questions },
+    });
+    void notifyWhenNotViewed(
+      sessionId,
+      tr(settingStore.language, "notification.needsInput"),
+      payload.questions[0]?.question || sessionDisplayName(sessionId),
+    );
   }));
   unlisteners.push(await listenPathPermission((payload) => {
-    if (payload.sessionId && payload.sessionId !== activeSessionId.value) return;
-    pathPermissionSession.value = payload;
-    askUserSession.value = null;
-    toolApprovalSession.value = null;
+    const sessionId = payload.sessionId || activeSessionId.value;
+    setPendingInteraction(sessionId, { kind: "path_permission", value: payload });
+    void notifyWhenNotViewed(
+      sessionId,
+      tr(settingStore.language, "notification.pathPermission"),
+      payload.path,
+    );
   }));
   unlisteners.push(await listenToolApproval((payload) => {
-    if (payload.sessionId && payload.sessionId !== activeSessionId.value) return;
-    toolApprovalSession.value = payload;
-    askUserSession.value = null;
-    pathPermissionSession.value = null;
+    const sessionId = payload.sessionId || activeSessionId.value;
+    setPendingInteraction(sessionId, { kind: "tool_approval", value: payload });
     chatStore.attachToolApprovalPreview(
-      payload.sessionId || activeSessionId.value,
+      sessionId,
       payload.toolName,
       payload.preview ?? null,
       activeSessionId.value,
     );
+    void notifyWhenNotViewed(
+      sessionId,
+      tr(settingStore.language, "notification.approval"),
+      payload.title || payload.toolName,
+    );
   }));
   unlisteners.push(await listenInteractionResolved((payload) => {
-    let matched = false;
-    if (askUserSession.value?.requestId === payload.requestId) { askUserSession.value = null; matched = true; }
-    if (pathPermissionSession.value?.requestId === payload.requestId) { pathPermissionSession.value = null; matched = true; }
-    if (toolApprovalSession.value?.requestId === payload.requestId) { toolApprovalSession.value = null; matched = true; }
-    if (matched) void nextTick(() => inputRef.value?.focusInput());
+    const matchedSessionId = Object.entries(pendingInteractions.value).find(
+      ([, interaction]) => interaction.value.requestId === payload.requestId,
+    )?.[0];
+    if (!matchedSessionId) return;
+    removePendingInteraction(matchedSessionId, payload.requestId);
+    if (matchedSessionId === activeSessionId.value) void nextTick(() => inputRef.value?.focusInput());
   }));
   unlisteners.push(await appWindow.listen("workbench-opened", () => {
     void refreshSessions();
@@ -1180,6 +1302,11 @@ button { font: inherit; }
 .icon-button { position: relative; width: 30px; height: 30px; }
 .small-icon-button { width: 27px; height: 27px; }
 .window-button { width: 42px; height: 42px; border-radius: 0; }
+.windows-caption-icon {
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets", sans-serif;
+  font-size: 10px;
+  line-height: 1;
+}
 .icon-button:hover, .icon-button.active, .small-icon-button:hover, .window-button:hover { color: var(--peek-text); background: var(--peek-hover-bg); }
 .icon-button.active { color: var(--peek-accent); }
 .window-button.close:hover { color: white; background: #c42b1c; }

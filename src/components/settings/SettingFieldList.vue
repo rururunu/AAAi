@@ -637,6 +637,7 @@ function toggleActive(id: string) {
   if (id === "showReasoning") return settingStore.showReasoning;
   if (id === "multimodalSplitAnalysis") return settingStore.multimodalSplitAnalysis;
   if (id === "largeContextEnabled") return settingStore.largeContextEnabled;
+  if (id === "hardwareAccelerationEnabled") return settingStore.hardwareAccelerationEnabled;
   if (id === "pixpinPinAiEnabled") return settingStore.pixpinPinAiEnabled;
   if (id === "snipastePinAiEnabled") return settingStore.snipastePinAiEnabled;
   return false;

@@ -131,6 +131,12 @@ export const uiEn = {
   "runtime.done": "done",
   "runtime.failed": "failed",
   "themes.builtIn": "Built in",
+  "notification.ignore": "Ignore",
+  "notification.openConversation": "Open conversation",
+  "notification.taskCompleted": "AAAi task completed",
+  "notification.needsInput": "AAAi needs your input",
+  "notification.pathPermission": "AAAi requests path permission",
+  "notification.approval": "AAAi requests approval",
 } as const;
 
 export type UiI18nKey = keyof typeof uiEn;
@@ -266,6 +272,57 @@ const zhCN: UiLocale = {
   "runtime.done": "完成",
   "runtime.failed": "失败",
   "themes.builtIn": "内置",
+  "notification.ignore": "忽略",
+  "notification.openConversation": "跳转至对话",
+  "notification.taskCompleted": "AAAi 任务已完成",
+  "notification.needsInput": "AAAi 需要你的输入",
+  "notification.pathPermission": "AAAi 请求路径权限",
+  "notification.approval": "AAAi 请求操作确认",
+};
+
+const notificationLocales: Record<AppLanguage, UiLocale> = {
+  "en-US": {},
+  "zh-CN": {},
+  "ja-JP": {
+    "notification.ignore": "無視",
+    "notification.openConversation": "会話を開く",
+    "notification.taskCompleted": "AAAi のタスクが完了しました",
+    "notification.needsInput": "AAAi が入力を求めています",
+    "notification.pathPermission": "AAAi がパスへのアクセス権限を要求しています",
+    "notification.approval": "AAAi が操作の承認を求めています",
+  },
+  "ru-RU": {
+    "notification.ignore": "Игнорировать",
+    "notification.openConversation": "Открыть диалог",
+    "notification.taskCompleted": "Задача AAAi завершена",
+    "notification.needsInput": "AAAi ожидает ваш ответ",
+    "notification.pathPermission": "AAAi запрашивает доступ к пути",
+    "notification.approval": "AAAi запрашивает подтверждение",
+  },
+  "de-DE": {
+    "notification.ignore": "Ignorieren",
+    "notification.openConversation": "Unterhaltung öffnen",
+    "notification.taskCompleted": "AAAi-Aufgabe abgeschlossen",
+    "notification.needsInput": "AAAi benötigt Ihre Eingabe",
+    "notification.pathPermission": "AAAi fordert Pfadzugriff an",
+    "notification.approval": "AAAi fordert eine Bestätigung an",
+  },
+  "fr-FR": {
+    "notification.ignore": "Ignorer",
+    "notification.openConversation": "Ouvrir la conversation",
+    "notification.taskCompleted": "Tâche AAAi terminée",
+    "notification.needsInput": "AAAi attend votre réponse",
+    "notification.pathPermission": "AAAi demande l’accès au chemin",
+    "notification.approval": "AAAi demande une confirmation",
+  },
+  "ko-KR": {
+    "notification.ignore": "무시",
+    "notification.openConversation": "대화 열기",
+    "notification.taskCompleted": "AAAi 작업이 완료되었습니다",
+    "notification.needsInput": "AAAi가 입력을 기다리고 있습니다",
+    "notification.pathPermission": "AAAi가 경로 접근 권한을 요청합니다",
+    "notification.approval": "AAAi가 작업 승인을 요청합니다",
+  },
 };
 
 const translations: Record<
@@ -367,9 +424,9 @@ function sharedLocale(language: keyof typeof translations): UiLocale {
 export const uiLocales: Record<AppLanguage, UiLocale> = {
   "en-US": uiEn,
   "zh-CN": zhCN,
-  "ja-JP": sharedLocale("ja-JP"),
-  "ru-RU": sharedLocale("ru-RU"),
-  "de-DE": sharedLocale("de-DE"),
-  "fr-FR": sharedLocale("fr-FR"),
-  "ko-KR": sharedLocale("ko-KR"),
+  "ja-JP": { ...sharedLocale("ja-JP"), ...notificationLocales["ja-JP"] },
+  "ru-RU": { ...sharedLocale("ru-RU"), ...notificationLocales["ru-RU"] },
+  "de-DE": { ...sharedLocale("de-DE"), ...notificationLocales["de-DE"] },
+  "fr-FR": { ...sharedLocale("fr-FR"), ...notificationLocales["fr-FR"] },
+  "ko-KR": { ...sharedLocale("ko-KR"), ...notificationLocales["ko-KR"] },
 };

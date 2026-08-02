@@ -19,8 +19,8 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 use app_state::AppState;
 use commands::{
-    app, ask, chat, diff, gemini, harness, mcp, permission, settings, skills, token_usage,
-    window, workspace,
+    app, ask, chat, diff, gemini, harness, mcp, permission, settings, skills, token_usage, window,
+    workspace,
 };
 use services::overlay_native::clear_minimize_pending;
 use services::settings_store::{
@@ -286,6 +286,8 @@ pub fn run() {
             window::open_settings,
             window::open_session_in_overlay,
             window::open_session_in_workbench,
+            window::show_interaction_notification,
+            window::set_window_session_view,
             window::hide_overlay_window,
             window::minimize_overlay_window,
             window::close_overlay_window,
@@ -311,6 +313,7 @@ pub fn run() {
             diff::build_code_diff,
             chat::chat,
             chat::chat_cancel,
+            chat::agent_debug_snapshot,
             chat::chat_history,
             chat::list_chat_sessions,
             chat::list_chat_models,
@@ -346,6 +349,10 @@ pub fn run() {
                 }
             }
         });
+}
+
+pub fn configure_prestart_webview() {
+    services::settings_store::configure_prestart_webview();
 }
 
 #[cfg(test)]

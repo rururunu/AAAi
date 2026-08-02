@@ -1,7 +1,7 @@
 <template>
   <aside class="subagent-sidebar" :class="{ embedded }" data-tauri-drag-region="false" :aria-label="sidebarTitle">
     <header v-if="!embedded" class="subagent-sidebar-header">
-      <Bot :size="15" />
+      <SubagentIcon :size="15" />
       <strong>{{ sidebarTitle }}</strong>
       <button type="button" class="close-button" @click="emit('close')"><X :size="14" /></button>
     </header>
@@ -24,10 +24,8 @@
             :title="entry.title"
             @click="activeId = entry.id"
           >
-            <component :is="entry.modelIcon" v-if="entry.modelIcon" :size="15" />
-            <Bot v-else :size="15" />
+            <SubagentIcon :status="entry.status" :size="15" />
             <span>{{ entry.title }}</span>
-            <i :class="entry.status" :title="statusLabel(entry.status)" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -50,8 +48,7 @@
       >
         <header class="subagent-panel-header">
           <div class="subagent-identity">
-            <component :is="activeEntry.modelIcon" v-if="activeEntry.modelIcon" :size="14" />
-            <Bot v-else :size="14" />
+            <SubagentIcon :status="activeEntry.status" :size="14" />
             <strong :title="activeEntry.title">{{ activeEntry.title }}</strong>
             <span class="agent-status" :class="activeEntry.status">{{ statusLabel(activeEntry.status) }}</span>
           </div>
@@ -100,13 +97,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, type Component } from "vue";
-import { Bot, ChevronRight, X } from "@lucide/vue";
+import { computed, ref, watch } from "vue";
+import { ChevronRight, X } from "@lucide/vue";
 import AgentWorkDetails from "@/components/chat/AgentWorkDetails.vue";
 import Markdown from "@/components/chat/Markdown.vue";
+import SubagentIcon from "@/components/chat/SubagentIcon.vue";
 import { useSettingStore } from "@/stores/setting";
-import { useChatModelStore } from "@/stores/chatModel";
-import { getProviderIcon } from "@/lib/providerIcons";
 import { tr } from "@/services/i18n";
 import type { ChatMessage, MessageStatus, ToolActivity } from "@/types/chat";
 
@@ -117,7 +113,6 @@ type AgentEntry = {
   task: string;
   status: AgentStatus;
   model?: string;
-  modelIcon?: Component;
   children: ToolActivity[];
   message: ChatMessage;
 };
@@ -131,7 +126,6 @@ const props = withDefaults(defineProps<{
 }>(), { openedEntryIds: () => [], selectedEntryId: "", embedded: false });
 const emit = defineEmits<{ close: []; closeEntry: [entryId: string] }>();
 const settingStore = useSettingStore();
-const chatModelStore = useChatModelStore();
 const activeId = ref("");
 const tabsRef = ref<HTMLElement | null>(null);
 const openTaskDetails = ref(new Set<string>());
@@ -157,14 +151,12 @@ const agentEntries = computed<AgentEntry[]>(() => {
       const task = labels[index] ?? labels[0] ?? fallbackTask(parent);
       const title = shortTaskTitle(task, entries.length);
       const model = models[index] ?? models[0];
-      const modelEntry = chatModelStore.models.find((candidate) => candidate.id === model);
       entries.push({
         id,
         title,
         task,
         status,
         model,
-        modelIcon: modelEntry ? getProviderIcon(modelEntry.provider) ?? undefined : undefined,
         children,
         message: makeAgentMessage(id, index, parent, children, status),
       });
@@ -327,9 +319,6 @@ function statusLabel(status: AgentStatus) {
 .subagent-tab { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 7px; padding: 0 4px 0 9px; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .subagent-tab > svg { flex: none; width: 15px; height: 15px; color: color-mix(in srgb, var(--peek-accent) 82%, var(--peek-text)); }
 .subagent-tab span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
-.subagent-tab i { flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--peek-faint); }
-.subagent-tab i.running { background: var(--peek-accent); }
-.subagent-tab i.error { background: var(--destructive); }
 .subagent-tab-close { position: relative; z-index: 1; flex: none; width: 24px; height: 24px; display: inline-grid; place-items: center; margin-right: 4px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--peek-faint); cursor: pointer; opacity: 0; }
 .subagent-tab-shell:hover .subagent-tab-close, .subagent-tab-shell.active .subagent-tab-close { opacity: 1; }
 .subagent-tab-close:hover { color: var(--peek-text); background: color-mix(in srgb, var(--peek-text) 8%, transparent); }

@@ -13,6 +13,27 @@
       @keydown.space.prevent="emit('select', session.sessionId)"
     >
       <strong>{{ session.preview || untitledLabel }}</strong>
+      <span
+        class="session-status"
+        role="status"
+        :title="sessionStatusLabel(session.sessionId)"
+        :aria-label="sessionStatusLabel(session.sessionId) || undefined"
+      >
+        <ShieldAlert
+          v-if="attentionSessionIds.includes(session.sessionId)"
+          :size="13"
+          class="attention-icon"
+        />
+        <LoaderCircle
+          v-else-if="runningSessionIds.includes(session.sessionId)"
+          :size="13"
+          class="running-icon"
+        />
+        <span
+          v-else-if="unreadSessionIds.includes(session.sessionId)"
+          class="unread-dot"
+        />
+      </span>
       <button
         type="button"
         class="delete-session"
@@ -26,7 +47,7 @@
 </template>
 
 <script setup lang="ts">
-import { Trash2 } from "@lucide/vue";
+import { LoaderCircle, ShieldAlert, Trash2 } from "@lucide/vue";
 import type { ChatSessionSummary } from "@/types/chat";
 import type { AppLanguage } from "@/types/setting";
 
@@ -36,6 +57,9 @@ const props = defineProps<{
   language: AppLanguage;
   untitledLabel: string;
   deleteLabel: string;
+  runningSessionIds: string[];
+  attentionSessionIds: string[];
+  unreadSessionIds: string[];
   variant?: "workspace" | "quick";
 }>();
 const emit = defineEmits<{
@@ -61,6 +85,19 @@ function formatTurnCount(count: number) {
 
 function sessionHoverText(session: ChatSessionSummary) {
   return `${formatSessionTime(session.updatedAt)}\n${formatTurnCount(session.turnCount)}`;
+}
+
+function sessionStatusLabel(sessionId: string) {
+  if (props.attentionSessionIds.includes(sessionId)) {
+    return props.language === "zh-CN" ? "需要处理请求" : "Action required";
+  }
+  if (props.runningSessionIds.includes(sessionId)) {
+    return props.language === "zh-CN" ? "运行中" : "Running";
+  }
+  if (props.unreadSessionIds.includes(sessionId)) {
+    return props.language === "zh-CN" ? "任务已完成" : "Task completed";
+  }
+  return "";
 }
 </script>
 
@@ -93,6 +130,22 @@ function sessionHoverText(session: ChatSessionSummary) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.session-status {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--peek-accent);
+}
+.running-icon { animation: session-running-spin 0.9s linear infinite; }
+.attention-icon { color: var(--peek-warning, #d97706); }
+.unread-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--peek-accent);
+}
 .delete-session {
   flex: none;
   width: 23px;
@@ -109,4 +162,8 @@ function sessionHoverText(session: ChatSessionSummary) {
 }
 .session-row:hover .delete-session, .session-row:focus-within .delete-session { opacity: 1; }
 .delete-session:hover { color: var(--peek-danger); background: color-mix(in srgb, var(--peek-danger) 12%, transparent); }
+@keyframes session-running-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .running-icon { animation-duration: 1.8s; }
+}
 </style>

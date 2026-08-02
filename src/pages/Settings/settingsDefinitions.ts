@@ -141,6 +141,16 @@ export function buildSettingDefinitions(
       keywords: [...m.zoom.keywords],
     },
     {
+      id: "hardwareAccelerationEnabled",
+      category: "appearance",
+      group: groups.appearance,
+      path: m.hardwareAccelerationEnabled.path,
+      title: m.hardwareAccelerationEnabled.title,
+      description: m.hardwareAccelerationEnabled.description,
+      type: "toggle",
+      keywords: [...m.hardwareAccelerationEnabled.keywords],
+    },
+    {
       id: "opacity",
       category: "appearance",
       group: groups.appearance,

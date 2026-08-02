@@ -1,6 +1,7 @@
 use tauri::{AppHandle, State};
 
 use crate::app_state::AppState;
+use crate::core::agent::AgentDebugEvent;
 use crate::core::ai::deepseek;
 use crate::core::chat::SendPreferences;
 use crate::models::chat::{
@@ -55,6 +56,11 @@ pub fn chat_cancel(state: State<'_, AppState>, request: ChatCancelRequest) -> Re
         .chat()
         .cancel(&request.message_id)
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn agent_debug_snapshot(state: State<'_, AppState>) -> Result<Vec<AgentDebugEvent>, String> {
+    Ok(state.core.chat().agent_debug_snapshot())
 }
 
 #[tauri::command]

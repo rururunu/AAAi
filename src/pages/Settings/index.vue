@@ -447,6 +447,11 @@ function onMultimodalModelChange(value: unknown) {
 }
 
 function onToggle(id: string) {
+  if (id === "hardwareAccelerationEnabled") {
+    void settingStore.update({
+      hardwareAccelerationEnabled: !settingStore.hardwareAccelerationEnabled,
+    });
+  }
   if (id === "memoryEnabled") {
     void settingStore.update({ memoryEnabled: !settingStore.memoryEnabled });
   }

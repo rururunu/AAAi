@@ -1,10 +1,166 @@
-use tauri::{AppHandle, Emitter, Manager};
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 use crate::core::runtime::RequestContext;
 use crate::services::window::{
     destroy_overlay, hide_overlay, is_overlay_label, minimize_overlay, set_overlay_chat_mode,
     set_overlay_popup_open, show_settings_window,
 };
+
+fn window_sessions() -> &'static Mutex<HashMap<String, String>> {
+    static SESSIONS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn session_is_being_viewed(app: &AppHandle, session_id: &str) -> bool {
+    let labels = window_sessions()
+        .lock()
+        .map(|sessions| {
+            sessions
+                .iter()
+                .filter(|(_, viewed_session)| viewed_session.as_str() == session_id)
+                .map(|(label, _)| label.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    labels.into_iter().any(|label| {
+        app.get_webview_window(&label).is_some_and(|window| {
+            window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false)
+        })
+    })
+}
+
+#[tauri::command]
+pub fn set_window_session_view(window: WebviewWindow, session_id: Option<String>) {
+    if let Ok(mut sessions) = window_sessions().lock() {
+        match session_id.filter(|id| !id.is_empty()) {
+            Some(session_id) => {
+                sessions.insert(window.label().to_string(), session_id);
+            }
+            None => {
+                sessions.remove(window.label());
+            }
+        }
+    }
+}
+
+fn dismiss_matching_notification(
+    app_id: &str,
+    title: &str,
+    body: &str,
+) -> windows::core::Result<()> {
+    use windows::core::HSTRING;
+    use windows::UI::Notifications::ToastNotificationManager;
+
+    let app_id = HSTRING::from(app_id);
+    let history = ToastNotificationManager::History()?;
+    let notifications = history.GetHistoryWithId(&app_id)?;
+    let notifier = ToastNotificationManager::CreateToastNotifierWithId(&app_id)?;
+
+    for index in 0..notifications.Size()? {
+        let toast = notifications.GetAt(index)?;
+        let text_nodes = toast
+            .Content()?
+            .GetElementsByTagName(&HSTRING::from("text"))?;
+        let mut has_title = false;
+        let mut has_body = false;
+        for text_index in 0..text_nodes.Length()? {
+            let text = text_nodes.Item(text_index)?.InnerText()?.to_string();
+            has_title |= text == title;
+            has_body |= text == body;
+        }
+        if has_title && has_body {
+            notifier.Hide(&toast)?;
+            break;
+        }
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InteractionNotificationRequest {
+    session_id: String,
+    title: String,
+    body: String,
+    ignore_label: String,
+    open_label: String,
+    #[serde(default)]
+    persistent: bool,
+}
+
+#[tauri::command]
+pub fn show_interaction_notification(
+    app: AppHandle,
+    request: InteractionNotificationRequest,
+) -> Result<(), String> {
+    if session_is_being_viewed(&app, &request.session_id) {
+        return Ok(());
+    }
+    std::thread::spawn(move || {
+        let mut notification = notify_rust::Notification::new();
+        notification
+            .summary(&request.title)
+            .body(&request.body)
+            .action("ignore", &request.ignore_label)
+            .action("open", &request.open_label);
+
+        if request.persistent {
+            notification.urgency(notify_rust::Urgency::Critical);
+        }
+
+        if !tauri::is_dev() {
+            notification.app_id(&app.config().identifier);
+        }
+
+        match notification.show() {
+            Ok(handle) => {
+                let result = handle.wait_for_response(
+                    |response: &notify_rust::NotificationResponse| {
+                        let should_open = match response {
+                            notify_rust::NotificationResponse::Default => true,
+                            notify_rust::NotificationResponse::Action(action) => action == "open",
+                            _ => false,
+                        };
+                        let should_dismiss = matches!(
+                            response,
+                            notify_rust::NotificationResponse::Default
+                                | notify_rust::NotificationResponse::Action(_)
+                        );
+                        if should_dismiss {
+                            if let Err(error) = dismiss_matching_notification(
+                                &app.config().identifier,
+                                &request.title,
+                                &request.body,
+                            ) {
+                                tracing::warn!(%error, "failed to dismiss interaction notification");
+                            }
+                        }
+                        if !should_open {
+                            return;
+                        }
+                        let app_handle = app.clone();
+                        let session_id = request.session_id.clone();
+                        let _ = app.run_on_main_thread(move || {
+                            crate::services::window::show_workbench_window(&app_handle);
+                            let _ = app_handle
+                                .emit_to("workbench", "workbench-open-session", session_id);
+                        });
+                    },
+                );
+                if let Err(error) = result {
+                    tracing::warn!(%error, "failed to wait for interaction notification action");
+                }
+            }
+            Err(error) => tracing::error!(%error, "failed to show interaction notification"),
+        }
+    });
+
+    Ok(())
+}
 
 #[tauri::command]
 pub async fn open_session_in_overlay(app: AppHandle, session_id: String) -> Result<(), String> {
@@ -118,7 +274,6 @@ pub fn take_overlay_context(label: String) -> Option<RequestContext> {
 }
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
 
 fn preview_image_store() -> &'static Mutex<String> {
     static STORE: OnceLock<Mutex<String>> = OnceLock::new();

@@ -7,9 +7,46 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::models::settings::AppSettings;
 
 const SETTINGS_FILE: &str = "settings.json";
+const APP_IDENTIFIER: &str = "ai.aaai.desktop";
 
 pub struct SettingsState {
     pub settings: Mutex<AppSettings>,
+}
+
+/// Read the one setting needed before Tauri creates the WebView2 environment.
+/// WebView2 already enables GPU rendering by default, so only the opt-out path
+/// needs a browser argument.
+pub fn configure_prestart_webview() {
+    let Some(app_data) = std::env::var_os("APPDATA") else {
+        return;
+    };
+    let path = PathBuf::from(app_data)
+        .join(APP_IDENTIFIER)
+        .join(SETTINGS_FILE);
+    let hardware_acceleration_enabled = fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|settings| {
+            settings
+                .get("hardwareAccelerationEnabled")
+                .and_then(serde_json::Value::as_bool)
+        })
+        .unwrap_or(true);
+    if hardware_acceleration_enabled {
+        return;
+    }
+
+    const DISABLE_GPU_ARGS: &str = "--disable-gpu --disable-gpu-compositing";
+    let existing = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+    if existing.contains("--disable-gpu") {
+        return;
+    }
+    let arguments = if existing.trim().is_empty() {
+        DISABLE_GPU_ARGS.to_string()
+    } else {
+        format!("{} {}", existing.trim(), DISABLE_GPU_ARGS)
+    };
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", arguments);
 }
 
 impl SettingsState {

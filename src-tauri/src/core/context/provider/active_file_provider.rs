@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::core::runtime::RequestContext;
+use crate::runtime::terminal::prepare_command;
 
 /// Infer an active file without IDE integration. Explicit absolute file paths
 /// captured from the foreground application take precedence over title hints.
@@ -35,13 +36,14 @@ fn path_from_title(title: &str) -> Option<PathBuf> {
 }
 
 fn git_root(start: &Path) -> Option<PathBuf> {
-    let output = match Command::new("git")
+    let mut command = Command::new("git");
+    command
         .args(["rev-parse", "--show-toplevel"])
         .current_dir(start)
         .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-    {
+        .stderr(Stdio::null());
+    prepare_command(&mut command);
+    let output = match command.output() {
         Ok(output) => output,
         Err(error) => {
             tracing::warn!(provider = "active_file_git_root", error = %error, "context provider failed");

@@ -5,6 +5,8 @@ commands.allow = [
     "open_settings",
     "open_session_in_overlay",
     "open_session_in_workbench",
+    "show_interaction_notification",
+    "set_window_session_view",
     "hide_overlay_window",
     "minimize_overlay_window",
     "close_overlay_window",

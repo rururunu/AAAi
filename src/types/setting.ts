@@ -122,6 +122,8 @@ export interface AppSettings {
     multiModelCollaboration: boolean;
     collaborationModels: string[];
     zoom: number;
+    /** WebView2 hardware acceleration. A full app restart is required to apply changes. */
+    hardwareAccelerationEnabled: boolean;
     primaryHotkey: string;
     secondaryHotkey: string;
     customProviders: CustomProviderConfig[];
@@ -163,6 +165,7 @@ export interface AppSettingsPatch {
     multiModelCollaboration?: boolean;
     collaborationModels?: string[];
     zoom?: number;
+    hardwareAccelerationEnabled?: boolean;
     primaryHotkey?: string;
     secondaryHotkey?: string;
     customProviders?: CustomProviderConfig[];

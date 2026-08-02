@@ -1,24 +1,41 @@
 use crate::core::runtime::stream::ToolCallPayload;
 use crate::core::runtime::{ChatMessage, MessageStatus, Role, ToolActivity};
 use crate::core::token::TokenUsage;
-use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub async fn init_db(db_path: &Path) -> Result<SqlitePool, String> {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
+    let is_new_database = std::fs::metadata(db_path)
+        .map(|metadata| metadata.len() == 0)
+        .unwrap_or(true);
     let options = SqliteConnectOptions::new()
         .filename(db_path)
-        .create_if_missing(true);
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(5));
 
-    let pool = SqlitePool::connect_with(options)
+    let pool = SqlitePoolOptions::new()
+        .max_connections(4)
+        .connect_with(options)
         .await
         .map_err(|e| e.to_string())?;
+
+    // This must be selected before the first table is created. It lets new
+    // databases return free pages gradually without a blocking full VACUUM.
+    if is_new_database {
+        sqlx::query("PRAGMA auto_vacuum = INCREMENTAL")
+            .execute(&pool)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
 
     // Create messages table if not exists
     sqlx::query(
@@ -74,6 +91,7 @@ pub async fn init_db(db_path: &Path) -> Result<SqlitePool, String> {
 
     init_chat_session_schema(&pool).await?;
     crate::core::chat::journal::init_journal_schema(&pool).await?;
+    crate::core::chat::journal::compact_recovery_journal(&pool).await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS token_usage_records (

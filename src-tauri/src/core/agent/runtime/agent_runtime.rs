@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -118,6 +118,7 @@ impl AgentRun {
 struct AgentRuntimeInner {
     runs: Mutex<HashMap<String, AgentRun>>,
     message_runs: Mutex<HashMap<String, String>>,
+    debug_events: Mutex<VecDeque<AgentDebugEvent>>,
     event_bus: Arc<dyn EventBus>,
     planner: Arc<dyn Planner>,
     executor: AgentExecutor,
@@ -146,6 +147,7 @@ impl AgentRuntime {
             inner: Arc::new(AgentRuntimeInner {
                 runs: Mutex::new(HashMap::new()),
                 message_runs: Mutex::new(HashMap::new()),
+                debug_events: Mutex::new(VecDeque::new()),
                 event_bus,
                 planner,
                 executor: AgentExecutor::new(tools),
@@ -162,11 +164,9 @@ impl AgentRuntime {
             runs.insert(run_id.clone(), run);
         }
         tracing::debug!(run_id = %run_id, "agent run created");
-        self.inner.event_bus.emit(BusEvent::AgentDebugEvent {
-            event: AgentDebugEvent::RunCreated {
-                run_id: run_id.clone(),
-                state: AgentState::Created,
-            },
+        self.inner.emit_debug(AgentDebugEvent::RunCreated {
+            run_id: run_id.clone(),
+            state: AgentState::Created,
         });
         if let Some(event) = first_event {
             self.emit_record(event);
@@ -206,11 +206,9 @@ impl AgentRuntime {
             run.context = Some(context.clone());
             run.push_event(context_event)
         });
-        self.inner.event_bus.emit(BusEvent::AgentDebugEvent {
-            event: AgentDebugEvent::ContextSnapshot {
-                run_id: run_id.to_string(),
-                context: Box::new(context.clone()),
-            },
+        self.inner.emit_debug(AgentDebugEvent::ContextSnapshot {
+            run_id: run_id.to_string(),
+            context: Box::new(context.clone()),
         });
         self.transition(run_id, AgentState::Planning)?;
         tracing::debug!(run_id = %run_id, "agent planning started");
@@ -225,6 +223,14 @@ impl AgentRuntime {
 
     pub fn run(&self, run_id: &str) -> Option<AgentRun> {
         self.inner.runs.lock().ok()?.get(run_id).cloned()
+    }
+
+    pub fn debug_snapshot(&self) -> Vec<AgentDebugEvent> {
+        self.inner
+            .debug_events
+            .lock()
+            .map(|events| events.iter().cloned().collect())
+            .unwrap_or_default()
     }
 
     pub fn run_for_message(&self, message_id: &str) -> Option<AgentRun> {
@@ -365,6 +371,17 @@ impl AgentRuntime {
 }
 
 impl AgentRuntimeInner {
+    fn emit_debug(&self, event: AgentDebugEvent) {
+        const MAX_DEBUG_EVENTS: usize = 2_000;
+        if let Ok(mut events) = self.debug_events.lock() {
+            events.push_back(event.clone());
+            while events.len() > MAX_DEBUG_EVENTS {
+                events.pop_front();
+            }
+        }
+        self.event_bus.emit(BusEvent::AgentDebugEvent { event });
+    }
+
     fn configure_accounting(&self, run_id: &str, model: &str) {
         if let Ok(mut runs) = self.runs.lock() {
             if let Some(run) = runs.get_mut(run_id) {
@@ -391,12 +408,10 @@ impl AgentRuntimeInner {
             ))
         });
         if let Some((display_model, usage)) = snapshot {
-            self.event_bus.emit(BusEvent::AgentDebugEvent {
-                event: AgentDebugEvent::TokenUsage {
-                    run_id: run_id.to_string(),
-                    model: display_model,
-                    usage,
-                },
+            self.emit_debug(AgentDebugEvent::TokenUsage {
+                run_id: run_id.to_string(),
+                model: display_model,
+                usage,
             });
         }
     }
@@ -438,9 +453,7 @@ impl AgentRuntimeInner {
         self.event_bus.emit(BusEvent::AgentEvent {
             event: record.clone(),
         });
-        self.event_bus.emit(BusEvent::AgentDebugEvent {
-            event: AgentDebugEvent::RuntimeEvent { record },
-        });
+        self.emit_debug(AgentDebugEvent::RuntimeEvent { record });
     }
 
     fn tool_called(
@@ -487,14 +500,12 @@ impl AgentRuntimeInner {
                 description: description.to_string(),
             },
         );
-        self.event_bus.emit(BusEvent::AgentDebugEvent {
-            event: AgentDebugEvent::ToolCall {
-                run_id: run_id.to_string(),
-                call_id: call_id.to_string(),
-                tool: tool.to_string(),
-                description: description.to_string(),
-                arguments: arguments.clone(),
-            },
+        self.emit_debug(AgentDebugEvent::ToolCall {
+            run_id: run_id.to_string(),
+            call_id: call_id.to_string(),
+            tool: tool.to_string(),
+            description: description.to_string(),
+            arguments: arguments.clone(),
         });
         tracing::debug!(run_id = %run_id, tool = %tool, "agent tool called");
     }
@@ -657,16 +668,14 @@ impl EventBus for AgentEventBridge {
                 ..
             } => {
                 if let Some(subagent_id) = subagent_id {
-                    self.inner.event_bus.emit(BusEvent::AgentDebugEvent {
-                        event: AgentDebugEvent::SubagentToolCall {
-                            run_id: self.run_id.clone(),
-                            subagent_id: subagent_id.clone(),
-                            call_id: activity_id.clone(),
-                            tool: tool_name.clone(),
-                            description: title.clone(),
-                            arguments: arguments.clone(),
-                            timestamp_ms: now_millis(),
-                        },
+                    self.inner.emit_debug(AgentDebugEvent::SubagentToolCall {
+                        run_id: self.run_id.clone(),
+                        subagent_id: subagent_id.clone(),
+                        call_id: activity_id.clone(),
+                        tool: tool_name.clone(),
+                        description: title.clone(),
+                        arguments: arguments.clone(),
+                        timestamp_ms: now_millis(),
                     });
                 } else {
                     self.inner
@@ -683,16 +692,14 @@ impl EventBus for AgentEventBridge {
                 ..
             } => {
                 if let Some(subagent_id) = subagent_id {
-                    self.inner.event_bus.emit(BusEvent::AgentDebugEvent {
-                        event: AgentDebugEvent::SubagentToolResult {
-                            run_id: self.run_id.clone(),
-                            subagent_id: subagent_id.clone(),
-                            call_id: activity_id.clone(),
-                            tool: tool_name.clone(),
-                            success: *success,
-                            result: result.clone(),
-                            timestamp_ms: now_millis(),
-                        },
+                    self.inner.emit_debug(AgentDebugEvent::SubagentToolResult {
+                        run_id: self.run_id.clone(),
+                        subagent_id: subagent_id.clone(),
+                        call_id: activity_id.clone(),
+                        tool: tool_name.clone(),
+                        success: *success,
+                        result: result.clone(),
+                        timestamp_ms: now_millis(),
                     });
                     self.inner.event_bus.emit(event);
                     return;
@@ -722,16 +729,14 @@ impl EventBus for AgentEventBridge {
                 depth,
                 timestamp_ms,
             } => {
-                self.inner.event_bus.emit(BusEvent::AgentDebugEvent {
-                    event: AgentDebugEvent::SubagentStarted {
-                        run_id: self.run_id.clone(),
-                        subagent_id: subagent_id.clone(),
-                        parent_subagent_id: parent_subagent_id.clone(),
-                        description: description.clone(),
-                        read_only: *read_only,
-                        depth: *depth,
-                        timestamp_ms: *timestamp_ms,
-                    },
+                self.inner.emit_debug(AgentDebugEvent::SubagentStarted {
+                    run_id: self.run_id.clone(),
+                    subagent_id: subagent_id.clone(),
+                    parent_subagent_id: parent_subagent_id.clone(),
+                    description: description.clone(),
+                    read_only: *read_only,
+                    depth: *depth,
+                    timestamp_ms: *timestamp_ms,
                 });
             }
             BusEvent::SubagentProgress {
@@ -740,14 +745,12 @@ impl EventBus for AgentEventBridge {
                 content,
                 timestamp_ms,
             } => {
-                self.inner.event_bus.emit(BusEvent::AgentDebugEvent {
-                    event: AgentDebugEvent::SubagentProgress {
-                        run_id: self.run_id.clone(),
-                        subagent_id: subagent_id.clone(),
-                        kind: kind.clone(),
-                        content: content.clone(),
-                        timestamp_ms: *timestamp_ms,
-                    },
+                self.inner.emit_debug(AgentDebugEvent::SubagentProgress {
+                    run_id: self.run_id.clone(),
+                    subagent_id: subagent_id.clone(),
+                    kind: kind.clone(),
+                    content: content.clone(),
+                    timestamp_ms: *timestamp_ms,
                 });
             }
             BusEvent::SubagentFinished {
@@ -756,14 +759,12 @@ impl EventBus for AgentEventBridge {
                 summary,
                 timestamp_ms,
             } => {
-                self.inner.event_bus.emit(BusEvent::AgentDebugEvent {
-                    event: AgentDebugEvent::SubagentFinished {
-                        run_id: self.run_id.clone(),
-                        subagent_id: subagent_id.clone(),
-                        success: *success,
-                        summary: summary.clone(),
-                        timestamp_ms: *timestamp_ms,
-                    },
+                self.inner.emit_debug(AgentDebugEvent::SubagentFinished {
+                    run_id: self.run_id.clone(),
+                    subagent_id: subagent_id.clone(),
+                    success: *success,
+                    summary: summary.clone(),
+                    timestamp_ms: *timestamp_ms,
                 });
             }
             BusEvent::ChatFinished { finish_reason, .. } => {
@@ -909,6 +910,12 @@ mod tests {
             .inner
             .tool_result(&run_id, "call-1", "shell", true, "ok", &[]);
         runtime.inner.complete(&run_id);
+
+        let snapshot = runtime.debug_snapshot();
+        assert!(snapshot.iter().any(|event| matches!(
+            event,
+            AgentDebugEvent::ToolCall { call_id, .. } if call_id == "call-1"
+        )));
 
         let events = bus.events.lock().unwrap();
         assert!(events.iter().any(|event| matches!(

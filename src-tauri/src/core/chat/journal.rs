@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -19,8 +20,15 @@ pub struct JournalEvent {
 
 #[derive(Clone)]
 pub struct SessionJournal {
-    tx: mpsc::UnboundedSender<JournalEvent>,
-    delta_buffer: Arc<Mutex<DeltaBuffer>>,
+    tx: mpsc::UnboundedSender<JournalCommand>,
+    delta_buffers: Arc<Mutex<HashMap<String, DeltaBuffer>>>,
+}
+
+enum JournalCommand {
+    Append(JournalEvent),
+    DeleteMessage(String),
+    DeleteSession(String),
+    DeleteAll,
 }
 
 struct DeltaBuffer {
@@ -30,33 +38,41 @@ struct DeltaBuffer {
     content: String,
     reasoning: String,
     last_flush: Instant,
+    flushed_len: usize,
 }
 
 impl SessionJournal {
     pub fn new(pool: SqlitePool) -> Self {
-        let (tx, mut rx) = mpsc::unbounded_channel::<JournalEvent>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<JournalCommand>();
         async_runtime::spawn(async move {
-            while let Some(event) = rx.recv().await {
-                if let Err(error) = insert_event(&pool, &event).await {
-                    eprintln!("Failed to append journal event: {error}");
+            while let Some(command) = rx.recv().await {
+                let result = match command {
+                    JournalCommand::Append(event) => insert_event(&pool, &event).await,
+                    JournalCommand::DeleteMessage(message_id) => {
+                        delete_by_column(&pool, "message_id", &message_id).await
+                    }
+                    JournalCommand::DeleteSession(session_id) => {
+                        delete_by_column(&pool, "session_id", &session_id).await
+                    }
+                    JournalCommand::DeleteAll => sqlx::query("DELETE FROM chat_journal_events")
+                        .execute(&pool)
+                        .await
+                        .map(|_| ())
+                        .map_err(|error| error.to_string()),
+                };
+                if let Err(error) = result {
+                    eprintln!("Failed to update chat journal: {error}");
                 }
             }
         });
 
         Self {
             tx,
-            delta_buffer: Arc::new(Mutex::new(DeltaBuffer {
-                session_id: String::new(),
-                turn_id: String::new(),
-                message_id: String::new(),
-                content: String::new(),
-                reasoning: String::new(),
-                last_flush: Instant::now() - Duration::from_secs(1),
-            })),
+            delta_buffers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    pub fn append(
+    fn append(
         &self,
         session_id: &str,
         turn_id: &str,
@@ -64,13 +80,13 @@ impl SessionJournal {
         kind: &str,
         payload: Value,
     ) {
-        let _ = self.tx.send(JournalEvent {
+        let _ = self.tx.send(JournalCommand::Append(JournalEvent {
             session_id: session_id.to_string(),
             turn_id: turn_id.to_string(),
             message_id: message_id.to_string(),
             kind: kind.to_string(),
             payload,
-        });
+        }));
     }
 
     pub fn record_delta(
@@ -81,52 +97,86 @@ impl SessionJournal {
         delta: &str,
         is_reasoning: bool,
     ) {
-        let should_flush = {
-            let Ok(mut buf) = self.delta_buffer.lock() else {
+        let snapshot = {
+            let Ok(mut buffers) = self.delta_buffers.lock() else {
                 return;
             };
-            if buf.message_id != message_id {
-                buf.session_id = session_id.to_string();
-                buf.turn_id = turn_id.to_string();
-                buf.message_id = message_id.to_string();
-                buf.content.clear();
-                buf.reasoning.clear();
-                buf.last_flush = Instant::now() - Duration::from_secs(1);
-            }
+            let buf = buffers
+                .entry(message_id.to_string())
+                .or_insert_with(|| DeltaBuffer {
+                    session_id: session_id.to_string(),
+                    turn_id: turn_id.to_string(),
+                    message_id: message_id.to_string(),
+                    content: String::new(),
+                    reasoning: String::new(),
+                    last_flush: Instant::now() - Duration::from_secs(1),
+                    flushed_len: 0,
+                });
             if is_reasoning {
                 buf.reasoning.push_str(delta);
             } else {
                 buf.content.push_str(delta);
             }
-            buf.last_flush.elapsed() >= Duration::from_millis(200)
-                || buf.content.len() + buf.reasoning.len() >= 2048
+            let current_len = buf.content.len() + buf.reasoning.len();
+            if buf.last_flush.elapsed() >= Duration::from_secs(1)
+                || current_len.saturating_sub(buf.flushed_len) >= 4096
+            {
+                buf.last_flush = Instant::now();
+                buf.flushed_len = current_len;
+                Some(buf.snapshot())
+            } else {
+                None
+            }
         };
-        if should_flush {
-            self.flush_delta();
+        if let Some(snapshot) = snapshot {
+            self.append_snapshot(snapshot);
         }
     }
 
-    pub fn flush_delta(&self) {
+    pub fn flush_message(&self, message_id: &str) {
         let snapshot = {
-            let Ok(mut buf) = self.delta_buffer.lock() else {
+            let Ok(mut buffers) = self.delta_buffers.lock() else {
                 return;
             };
-            if buf.message_id.is_empty() {
+            let Some(buf) = buffers.get_mut(message_id) else {
                 return;
-            }
+            };
             if buf.content.is_empty() && buf.reasoning.is_empty() {
                 return;
             }
-            let snap = (
-                buf.session_id.clone(),
-                buf.turn_id.clone(),
-                buf.message_id.clone(),
-                buf.content.clone(),
-                buf.reasoning.clone(),
-            );
             buf.last_flush = Instant::now();
-            snap
+            buf.flushed_len = buf.content.len() + buf.reasoning.len();
+            buf.snapshot()
         };
+        self.append_snapshot(snapshot);
+    }
+
+    pub fn discard_message(&self, message_id: &str) {
+        if let Ok(mut buffers) = self.delta_buffers.lock() {
+            buffers.remove(message_id);
+        }
+        let _ = self
+            .tx
+            .send(JournalCommand::DeleteMessage(message_id.to_string()));
+    }
+
+    pub fn discard_session(&self, session_id: &str) {
+        if let Ok(mut buffers) = self.delta_buffers.lock() {
+            buffers.retain(|_, buffer| buffer.session_id != session_id);
+        }
+        let _ = self
+            .tx
+            .send(JournalCommand::DeleteSession(session_id.to_string()));
+    }
+
+    pub fn discard_all(&self) {
+        if let Ok(mut buffers) = self.delta_buffers.lock() {
+            buffers.clear();
+        }
+        let _ = self.tx.send(JournalCommand::DeleteAll);
+    }
+
+    fn append_snapshot(&self, snapshot: (String, String, String, String, String)) {
         self.append(
             &snapshot.0,
             &snapshot.1,
@@ -140,12 +190,55 @@ impl SessionJournal {
     }
 }
 
+impl DeltaBuffer {
+    fn snapshot(&self) -> (String, String, String, String, String) {
+        (
+            self.session_id.clone(),
+            self.turn_id.clone(),
+            self.message_id.clone(),
+            self.content.clone(),
+            self.reasoning.clone(),
+        )
+    }
+}
+
+async fn delete_by_column(pool: &SqlitePool, column: &str, value: &str) -> Result<(), String> {
+    let query = format!("DELETE FROM chat_journal_events WHERE {column} = ?");
+    sqlx::query(&query)
+        .bind(value)
+        .execute(pool)
+        .await
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
 async fn insert_event(pool: &SqlitePool, event: &JournalEvent) -> Result<(), String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
     let payload = serde_json::to_string(&event.payload).unwrap_or_else(|_| "{}".into());
+    if event.kind == "delta" {
+        let updated = sqlx::query(
+            "UPDATE chat_journal_events
+             SET session_id = ?1, turn_id = ?2, payload_json = ?3, created_at = ?4
+             WHERE seq = (
+                 SELECT MAX(seq) FROM chat_journal_events
+                 WHERE message_id = ?5 AND kind = 'delta'
+             )",
+        )
+        .bind(&event.session_id)
+        .bind(&event.turn_id)
+        .bind(&payload)
+        .bind(now)
+        .bind(&event.message_id)
+        .execute(pool)
+        .await
+        .map_err(|error| error.to_string())?;
+        if updated.rows_affected() > 0 {
+            return Ok(());
+        }
+    }
     sqlx::query(
         "INSERT INTO chat_journal_events (session_id, turn_id, message_id, kind, payload_json, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -160,6 +253,75 @@ async fn insert_event(pool: &SqlitePool, event: &JournalEvent) -> Result<(), Str
     .await
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// The journal is crash-recovery state, not permanent history. Keep only the
+/// latest stream snapshot for messages that were still active at shutdown.
+pub async fn compact_recovery_journal(pool: &SqlitePool) -> Result<(), String> {
+    let needs_repair: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1
+            FROM chat_journal_events journal
+            LEFT JOIN chat_messages message ON message.id = journal.message_id
+            WHERE journal.kind != 'delta'
+               OR message.id IS NULL
+               OR message.status NOT IN ('pending', 'streaming')
+               OR journal.seq != (
+                   SELECT MAX(candidate.seq)
+                   FROM chat_journal_events candidate
+                   WHERE candidate.message_id = journal.message_id
+                     AND candidate.kind = 'delta'
+               )
+            LIMIT 1
+        )",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|error| error.to_string())?;
+    if !needs_repair {
+        return Ok(());
+    }
+
+    let mut transaction = pool.begin().await.map_err(|error| error.to_string())?;
+    for statement in [
+        "CREATE TEMP TABLE retained_chat_journal AS
+         SELECT session_id, turn_id, message_id, kind, payload_json, created_at
+         FROM chat_journal_events
+         WHERE kind = 'delta'
+           AND seq IN (
+               SELECT MAX(seq) FROM chat_journal_events
+               WHERE kind = 'delta' GROUP BY message_id
+           )
+           AND message_id IN (
+               SELECT id FROM chat_messages WHERE status IN ('pending', 'streaming')
+           )",
+        "DROP TABLE chat_journal_events",
+        "CREATE TABLE chat_journal_events (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )",
+        "INSERT INTO chat_journal_events
+         (session_id, turn_id, message_id, kind, payload_json, created_at)
+         SELECT session_id, turn_id, message_id, kind, payload_json, created_at
+         FROM retained_chat_journal",
+        "DROP TABLE retained_chat_journal",
+        "CREATE INDEX idx_chat_journal_message
+         ON chat_journal_events(message_id, seq)",
+    ] {
+        sqlx::query(statement)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|error| error.to_string())
 }
 
 pub async fn init_journal_schema(pool: &SqlitePool) -> Result<(), String> {
@@ -247,6 +409,36 @@ pub async fn hydrate_orphaned_from_journal(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn wait_for_count(pool: &SqlitePool, expected: i64) {
+        for _ in 0..100 {
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM chat_journal_events")
+                .fetch_one(pool)
+                .await
+                .unwrap();
+            if count == expected {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("journal row count did not reach {expected}");
+    }
+
+    async fn wait_for_content(pool: &SqlitePool, message_id: &str, expected: &str) {
+        for _ in 0..100 {
+            if rebuild_partial_from_journal(pool, message_id)
+                .await
+                .unwrap()
+                .0
+                == expected
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("journal content for {message_id} did not reach expected snapshot");
+    }
 
     #[tokio::test]
     async fn journal_schema_and_delta_rebuild() {
@@ -275,5 +467,97 @@ mod tests {
             .expect("rebuild");
         assert_eq!(content, "hello world");
         assert_eq!(reasoning, "think more");
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM chat_journal_events WHERE message_id = 'm1' AND kind = 'delta'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn recovery_compaction_keeps_only_latest_active_snapshot() {
+        let pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("memory sqlite");
+        sqlx::query("CREATE TABLE chat_messages (id TEXT PRIMARY KEY, status TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO chat_messages VALUES ('active', 'streaming'), ('done', 'done')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        init_journal_schema(&pool).await.unwrap();
+
+        for (message_id, content) in [
+            ("active", "first"),
+            ("active", "latest"),
+            ("done", "discard me"),
+        ] {
+            insert_event(
+                &pool,
+                &JournalEvent {
+                    session_id: "s1".into(),
+                    turn_id: "t1".into(),
+                    message_id: message_id.into(),
+                    kind: "delta".into(),
+                    payload: json!({ "content": content }),
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        compact_recovery_journal(&pool).await.unwrap();
+        assert_eq!(
+            rebuild_partial_from_journal(&pool, "active")
+                .await
+                .unwrap()
+                .0,
+            "latest"
+        );
+        assert_eq!(
+            rebuild_partial_from_journal(&pool, "done").await.unwrap().0,
+            ""
+        );
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM chat_journal_events")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn worker_keeps_independent_snapshots_and_discards_session() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        init_journal_schema(&pool).await.unwrap();
+        let journal = SessionJournal::new(pool.clone());
+
+        journal.record_delta("s1", "t1", "m1", "hello", false);
+        journal.record_delta("s1", "t2", "m2", "other", false);
+        journal.record_delta("s1", "t1", "m1", " world", false);
+        journal.flush_message("m1");
+        journal.flush_message("m2");
+        wait_for_count(&pool, 2).await;
+        wait_for_content(&pool, "m1", "hello world").await;
+        wait_for_content(&pool, "m2", "other").await;
+
+        assert_eq!(
+            rebuild_partial_from_journal(&pool, "m1").await.unwrap().0,
+            "hello world"
+        );
+        assert_eq!(
+            rebuild_partial_from_journal(&pool, "m2").await.unwrap().0,
+            "other"
+        );
+
+        journal.discard_session("s1");
+        wait_for_count(&pool, 0).await;
     }
 }

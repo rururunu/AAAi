@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use crate::core::agent::{AgentRuntime, AgentSpawnInput};
+use crate::core::agent::{AgentDebugEvent, AgentRuntime, AgentSpawnInput};
 use crate::core::ai::provider::AIProvider;
 use crate::core::chat::compact::{self, context_window_tokens};
 use crate::core::chat::conversation_manager::{create_message, ConversationManager};
@@ -74,6 +74,10 @@ impl ChatService {
 
     pub fn path_permission_store(&self) -> Arc<PathPermissionStore> {
         Arc::clone(&self.path_permission_store)
+    }
+
+    pub fn agent_debug_snapshot(&self) -> Vec<AgentDebugEvent> {
+        self.agent_runtime.debug_snapshot()
     }
 
     /// Resolve the AI provider from current settings on every turn.

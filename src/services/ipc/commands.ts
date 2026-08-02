@@ -1,5 +1,6 @@
 import type { AppInfo } from "@/types/app";
 import type {
+  AgentDebugEvent,
   ChatCancelRequest,
   CapturedContext,
   ChatDeltaEvent,
@@ -57,6 +58,23 @@ export function openSessionInWorkbench(sessionId: string, overlayLabel: string) 
   return ipcInvoke<void>(IPC_COMMANDS.openSessionInWorkbench, {
     sessionId,
     overlayLabel,
+  });
+}
+
+export function showInteractionNotification(request: {
+  sessionId: string;
+  title: string;
+  body: string;
+  ignoreLabel: string;
+  openLabel: string;
+  persistent?: boolean;
+}) {
+  return ipcInvoke<void>(IPC_COMMANDS.showInteractionNotification, { request });
+}
+
+export function setWindowSessionView(sessionId?: string) {
+  return ipcInvoke<void>(IPC_COMMANDS.setWindowSessionView, {
+    sessionId: sessionId || null,
   });
 }
 
@@ -118,6 +136,10 @@ export function chat(request: ChatSendRequest) {
 
 export function chatCancel(request: ChatCancelRequest) {
   return ipcInvoke<void>(IPC_COMMANDS.chatCancel, { request });
+}
+
+export function getAgentDebugSnapshot() {
+  return ipcInvoke<AgentDebugEvent[]>(IPC_COMMANDS.agentDebugSnapshot);
 }
 
 export function chatHistory(request: ChatHistoryRequest = {}) {

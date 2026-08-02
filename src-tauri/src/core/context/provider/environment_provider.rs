@@ -4,6 +4,7 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::core::context::platform::WindowDetector;
 use crate::core::runtime::RequestContext;
+use crate::runtime::terminal::prepare_command;
 
 static LAST_SHELL_EXECUTION: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 
@@ -63,7 +64,8 @@ fn foreground_window() -> Option<String> {
 }
 
 fn git_status(root: &Path) -> Option<String> {
-    let output = match Command::new("git")
+    let mut command = Command::new("git");
+    command
         .args([
             "-c",
             "core.quotepath=false",
@@ -73,9 +75,9 @@ fn git_status(root: &Path) -> Option<String> {
         ])
         .current_dir(root)
         .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-    {
+        .stderr(Stdio::null());
+    prepare_command(&mut command);
+    let output = match command.output() {
         Ok(output) => output,
         Err(error) => {
             tracing::warn!(provider = "git_status", error = %error, "context provider failed");

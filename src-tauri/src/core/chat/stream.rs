@@ -3,7 +3,6 @@ use std::env;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use serde_json::json;
 use tauri::async_runtime;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -127,14 +126,6 @@ impl StreamManager {
         }
 
         let journal = conversation.journal().clone();
-        journal.append(
-            &session_id,
-            &turn_id,
-            &assistant_message_id,
-            "assistant_created",
-            json!({ "status": "pending" }),
-        );
-
         let active_tasks = Arc::clone(&self.active_tasks);
         let workspace_root = request
             .context
@@ -219,13 +210,6 @@ impl StreamManager {
                                 None,
                                 None,
                             );
-                            journal.append(
-                                &session_id,
-                                &turn_id,
-                                &assistant_message_id,
-                                "status",
-                                json!({ "status": "streaming" }),
-                            );
                         }
                         turn_span.mark_first_token();
                         content.push_str(&delta);
@@ -239,16 +223,6 @@ impl StreamManager {
                             &delta,
                             false,
                         );
-                        // Also project content periodically via update_message for crash UX.
-                        if content.len() % 512 < delta.len() {
-                            conversation.update_message(
-                                &session_id,
-                                &assistant_message_id,
-                                MessageStatus::Streaming,
-                                Some(content.clone()),
-                                Some(non_empty_string(reasoning.clone())),
-                            );
-                        }
                         event_bus.emit(BusEvent::ChatDelta {
                             session_id: session_id.clone(),
                             message_id: assistant_message_id.clone(),
@@ -277,13 +251,6 @@ impl StreamManager {
                     StreamEvent::Status { kind } => {
                         if kind == "soft_injected" {
                             turn_span.soft_inject(0);
-                            journal.append(
-                                &session_id,
-                                &turn_id,
-                                &assistant_message_id,
-                                "soft_inject",
-                                json!({}),
-                            );
                         }
                         if kind.starts_with("tools:") {
                             if let Ok(count) = kind.trim_start_matches("tools:").parse::<u32>() {
@@ -373,14 +340,7 @@ impl StreamManager {
                     }
                     StreamEvent::Finish => break,
                     StreamEvent::Error(message) => {
-                        journal.flush_delta();
-                        journal.append(
-                            &session_id,
-                            &turn_id,
-                            &assistant_message_id,
-                            "error",
-                            json!({ "message": message }),
-                        );
+                        journal.flush_message(&assistant_message_id);
                         turn_span.finish_err(&message);
                         let _ = crate::core::checkpoint::shared_checkpoint_store()
                             .finish_turn(&session_id);
@@ -405,7 +365,7 @@ impl StreamManager {
                 }
             }
 
-            journal.flush_delta();
+            journal.flush_message(&assistant_message_id);
 
             let should_finish = match active_tasks.lock() {
                 Ok(mut active) => match active.get(&assistant_message_id) {
@@ -438,16 +398,6 @@ impl StreamManager {
             let _ = crate::core::checkpoint::shared_checkpoint_store().finish_turn(&session_id);
             match result {
                 Ok(()) => {
-                    journal.append(
-                        &session_id,
-                        &turn_id,
-                        &assistant_message_id,
-                        "finished",
-                        json!({
-                            "finish_reason": finish_reason.clone().unwrap_or_else(|| "stop".into()),
-                            "content_len": content.len(),
-                        }),
-                    );
                     turn_span.finish_ok(finish_reason.as_deref());
                     finish_success(
                         &event_bus,
@@ -460,24 +410,17 @@ impl StreamManager {
                     );
                 }
                 Err(ProviderError::Cancelled) => {
-                    journal.append(
+                    conversation.update_message(
                         &session_id,
-                        &turn_id,
                         &assistant_message_id,
-                        "finished",
-                        json!({ "finish_reason": "cancelled" }),
+                        MessageStatus::Cancelled,
+                        Some(content),
+                        Some(non_empty_string(reasoning)),
                     );
                     turn_span.finish_err("cancelled");
                 }
                 Err(error) => {
                     let message = error.to_string();
-                    journal.append(
-                        &session_id,
-                        &turn_id,
-                        &assistant_message_id,
-                        "error",
-                        json!({ "message": message }),
-                    );
                     turn_span.finish_err(&message);
                     finish_with_error(
                         &event_bus,
@@ -536,14 +479,7 @@ impl StreamManager {
             .map(|value| value.clone())
             .unwrap_or_default();
 
-        conversation.journal().flush_delta();
-        conversation.journal().append(
-            &task.session_id,
-            "cancel",
-            message_id,
-            "finished",
-            json!({ "finish_reason": "cancelled" }),
-        );
+        conversation.journal().flush_message(message_id);
 
         let (session_id, message) = conversation.find_message(message_id)?;
         let updated = conversation.update_message(

@@ -137,9 +137,8 @@
                 <span>{{ diffTabLabel }}</span>
               </button>
               <button type="button" class="workspace-view-tab peek-card-tab" :class="{ active: sidebarTab === 'subagents' }" :title="subagentTabLabel" @click="selectSidebarTab('subagents')">
-                <Bot :size="13" />
+                <SubagentIcon :status="runningSubagentCount ? 'running' : 'idle'" :size="13" />
                 <span>{{ subagentTabLabel }}</span>
-                <span v-if="runningSubagentCount" class="tab-running-dot" aria-hidden="true" />
               </button>
               <button v-if="openedImageSources.length" type="button" class="workspace-view-tab peek-card-tab" :class="{ active: sidebarTab === 'image' }" :title="imageTabLabel" @click="selectSidebarTab('image')">
                 <ImageIcon :size="13" />
@@ -237,7 +236,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { AppWindow, Bot, Bug, FileDiff, Image as ImageIcon, Minus, PanelRight, Pin, PinOff, X } from "@lucide/vue";
+import { AppWindow, Bug, FileDiff, Image as ImageIcon, Minus, PanelRight, Pin, PinOff, X } from "@lucide/vue";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import ChatInputBar, {
@@ -247,6 +246,7 @@ import ChatInputBar, {
 import CodeDiffSidebar from "@/components/chat/CodeDiffSidebar.vue";
 import AgentDebugPanel from "@/components/chat/AgentDebugPanel.vue";
 import SubagentSidebar from "@/components/chat/SubagentSidebar.vue";
+import SubagentIcon from "@/components/chat/SubagentIcon.vue";
 import ImagePreviewSidebar from "@/components/chat/ImagePreviewSidebar.vue";
 import MessageList from "@/components/chat/MessageList.vue";
 import {
@@ -269,6 +269,7 @@ import {
   respondAskUser,
   respondPathPermission,
   respondToolApproval,
+  setWindowSessionView,
   setOverlayPopupOpen,
   openImagePreview,
 } from "@/services/ipc";
@@ -470,6 +471,11 @@ const contextPreview = computed(() => {
 
   return "";
 });
+watch(
+  [activeSessionId, panelVisible],
+  ([sessionId, visible]) => void setWindowSessionView(visible ? sessionId : undefined),
+  { immediate: true },
+);
 const chatTitle = computed(() => {
   const userMsg = messages.value.find(
     (message) => String(message.role).toLowerCase() === "user",
@@ -1237,6 +1243,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  void setWindowSessionView();
   clearMinimizePreview();
   stopDiffSidebarResize();
 });
@@ -1353,10 +1360,9 @@ onUnmounted(() => {
 .workspace-sidebar-tabs .workspace-view-tab:hover { background: color-mix(in srgb, var(--peek-text) 5%, transparent); color: var(--peek-text); }
 .workspace-sidebar-tabs .workspace-view-tab.active { background: color-mix(in srgb, var(--peek-text) 8%, transparent); color: var(--peek-text); box-shadow: 0 3px 10px color-mix(in srgb, #000 9%, transparent); }
 .workspace-sidebar-tabs .workspace-view-tab > svg { flex: none; }
-.workspace-sidebar-tabs .workspace-view-tab > span:not(.tab-running-dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-sidebar-tabs .workspace-view-tab > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-sidebar-tabs .sidebar-close-button { flex: none; min-width: 28px; width: 28px; height: 28px; display: grid; place-items: center; margin: 1px 0 0 auto; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--peek-muted); cursor: pointer; }
 .workspace-sidebar-tabs .sidebar-close-button:hover { color: var(--peek-text); background: color-mix(in srgb, var(--peek-text) 7%, transparent); }
-.tab-running-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--peek-accent); }
 .workspace-sidebar-content { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 
 @container workspace-sidebar (max-width: 560px) {
@@ -1368,14 +1374,8 @@ onUnmounted(() => {
     justify-content: center;
   }
 
-  .workspace-sidebar-tabs .workspace-view-tab > span:not(.tab-running-dot) {
+  .workspace-sidebar-tabs .workspace-view-tab > span {
     display: none;
-  }
-
-  .workspace-sidebar-tabs .tab-running-dot {
-    position: absolute;
-    top: 4px;
-    right: 4px;
   }
 }
 

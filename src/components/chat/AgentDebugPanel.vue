@@ -123,8 +123,7 @@
       >
         <button type="button" class="subagent-header" @click="toggleSubagent(agent)">
           <ChevronRight :size="12" class="subagent-chevron" :class="{ open: isSubagentExpanded(agent) }" />
-          <LoaderCircle v-if="agent.status === 'running'" :size="13" class="subagent-spinner" />
-          <Bot v-else :size="13" />
+          <SubagentIcon :status="agent.status" :size="13" />
           <strong>{{ shortId(agent.id) }}</strong>
           <span v-if="agent.readOnly" class="readonly-badge">{{ tr(settingStore.language, "runtime.readOnly") }}</span>
           <span :class="['tool-status', agent.status]">{{ runtimeStatusLabel(agent.status) }}</span>
@@ -218,8 +217,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { Bot, Bug, Check, ChevronRight, Copy, LoaderCircle, TerminalSquare, Trash2, X } from "@lucide/vue";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Bug, Check, ChevronRight, Copy, TerminalSquare, Trash2, X } from "@lucide/vue";
+import SubagentIcon from "@/components/chat/SubagentIcon.vue";
 import { listenAgentDebugEvent } from "@/services/ipc/events";
+import { getAgentDebugSnapshot } from "@/services/ipc/commands";
 import { copyText } from "@/services/clipboard";
 import { tr } from "@/services/i18n";
 import { useSettingStore } from "@/stores/setting";
@@ -281,6 +283,7 @@ const tabs = computed<Array<{ id: DebugTab; label: string }>>(() => [
   { id: "context", label: tr(settingStore.language, "runtime.context") },
 ]);
 let unlisten: UnlistenFn | undefined;
+let unlistenFocus: UnlistenFn | undefined;
 let copyResetTimer: ReturnType<typeof setTimeout> | undefined;
 
 const runList = computed(() => Object.values(runs).reverse());
@@ -337,11 +340,14 @@ function receive(payload: AgentDebugEvent) {
     if (payload.type === "subagentProgress") {
       const agent = findSubagent(payload.data.runId, payload.data.subagentId);
       if (agent) {
-        agent.progress.push({
+        const progress = {
           kind: payload.data.kind,
           content: payload.data.content,
           timestampMs: payload.data.timestampMs,
-        });
+        };
+        if (!agent.progress.some((item) => item.timestampMs === progress.timestampMs && item.kind === progress.kind && item.content === progress.content)) {
+          agent.progress.push(progress);
+        }
         if (agent.progress.length > 100) agent.progress.splice(0, agent.progress.length - 100);
       }
       return;
@@ -374,7 +380,7 @@ function receive(payload: AgentDebugEvent) {
     }
     const { record } = payload.data;
     const run = ensureRun(record.runId);
-    run.events.push(record);
+    if (!run.events.some((item) => item.sequence === record.sequence)) run.events.push(record);
     if (run.events.length > 500) run.events.splice(0, run.events.length - 500);
     if (record.event.type === "stateChanged") run.state = record.event.data.to;
     if (record.event.type === "toolResult") {
@@ -472,15 +478,29 @@ function clear() {
   expandedSubagents.clear();
 }
 
+async function hydrateSnapshot() {
+  try {
+    const snapshot = await getAgentDebugSnapshot();
+    snapshot.forEach(receive);
+  } catch (error) {
+    console.warn("Agent debug snapshot unavailable:", error);
+  }
+}
+
 onMounted(async () => {
   try {
     unlisten = await listenAgentDebugEvent(receive);
+    await hydrateSnapshot();
+    unlistenFocus = await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) void hydrateSnapshot();
+    });
   } catch (error) {
     console.warn("Agent debug listener unavailable:", error);
   }
 });
 onUnmounted(() => {
   unlisten?.();
+  unlistenFocus?.();
   if (copyResetTimer) window.clearTimeout(copyResetTimer);
 });
 </script>
@@ -553,7 +573,6 @@ summary { cursor: pointer; }
 .subagent-body { padding: 0 9px 9px 28px; }
 .subagent-chevron { color: var(--peek-muted); transition: transform 120ms ease; }
 .subagent-chevron.open { transform: rotate(90deg); }
-.subagent-spinner { color: var(--peek-accent); animation: subagent-spin 900ms linear infinite; }
 .tool-status.running, .active-count { color: var(--peek-accent); }
 .active-count { font-weight: 700; }
 .readonly-badge { color: var(--peek-muted); font-size: 8px; letter-spacing: .04em; }
@@ -573,5 +592,4 @@ summary { cursor: pointer; }
 .subagent-tool-row small { color: var(--peek-muted); }
 .subagent-tool-row small.done { color: #58b887; }
 .subagent-tool-row small.failed { color: #e06c75; }
-@keyframes subagent-spin { to { transform: rotate(360deg); } }
 </style>
