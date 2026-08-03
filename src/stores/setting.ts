@@ -42,7 +42,6 @@ const defaultSettings: AppSettings = {
     largeContextEnabled: true,
     reasoningEffort: "high",
     reasoningLanguage: "auto",
-    responseTone: "rigorous",
     passToolReasoning: true,
     showReasoning: true,
     multiModelCollaboration: false,
@@ -97,7 +96,6 @@ function applyCommonSettings(target: AppSettings, settings: AppSettings) {
     target.largeContextEnabled = settings.largeContextEnabled ?? true;
     target.reasoningEffort = settings.reasoningEffort ?? "high";
     target.reasoningLanguage = settings.reasoningLanguage ?? "auto";
-    target.responseTone = settings.responseTone ?? "rigorous";
     target.passToolReasoning = settings.passToolReasoning ?? true;
     target.showReasoning = settings.showReasoning ?? true;
     target.multiModelCollaboration = settings.multiModelCollaboration ?? false;

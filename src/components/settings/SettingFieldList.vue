@@ -227,25 +227,6 @@
         </Select>
 
         <Select
-          v-else-if="item.type === 'select-response-tone'"
-          :model-value="settingStore.responseTone"
-          @update:model-value="(v) => emit('response-tone-change', v)"
-        >
-          <SelectTrigger class="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem
-              v-for="option in responseToneSelectOptions"
-              :key="option.value"
-              :value="option.value"
-            >
-              {{ option.label }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select
           v-else-if="item.type === 'select-web-search-provider'"
           :model-value="settingStore.webSearchProvider"
           :disabled="!settingStore.webSearchEnabled"
@@ -399,7 +380,6 @@ import {
   localizedOptionLabel,
   reasoningEffortOptions,
   reasoningLanguageOptions,
-  responseToneOptions,
   webSearchProviderOptions,
   toolApprovalModeOptions,
   zoomOptions,
@@ -424,7 +404,6 @@ const emit = defineEmits<{
   "zoom-change": [value: unknown];
   "reasoning-effort-change": [value: unknown];
   "reasoning-language-change": [value: unknown];
-  "response-tone-change": [value: unknown];
   "tool-approval-mode-change": [value: unknown];
   "web-search-provider-change": [value: unknown];
   "default-model-change": [value: unknown];
@@ -494,13 +473,6 @@ const reasoningEffortSelectOptions = computed(() =>
 
 const reasoningLanguageSelectOptions = computed(() =>
   reasoningLanguageOptions.map((option) => ({
-    value: option.value,
-    label: localizedOptionLabel(option, settingStore.language),
-  })),
-);
-
-const responseToneSelectOptions = computed(() =>
-  responseToneOptions.map((option) => ({
     value: option.value,
     label: localizedOptionLabel(option, settingStore.language),
   })),
