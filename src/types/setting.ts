@@ -19,6 +19,8 @@ export type ReasoningEffort = "disabled" | "high" | "max";
 
 export type ReasoningLanguage = "auto" | "zh" | "en";
 
+export type ResponseTone = "rigorous" | "friendly" | "abstract" | "irritable";
+
 export type WebSearchProvider = "serper" | "tavily";
 
 export type ToolApprovalMode = "ask" | "auto" | "alwaysAllow";
@@ -115,6 +117,7 @@ export interface AppSettings {
     largeContextEnabled: boolean;
     reasoningEffort: ReasoningEffort;
     reasoningLanguage: ReasoningLanguage;
+    responseTone: ResponseTone;
     /** Pass reasoning_content back on tool-call turns (DeepSeek thinking + tools). */
     passToolReasoning: boolean;
     /** Display reasoning content supplied by the model in chat. */
@@ -160,6 +163,7 @@ export interface AppSettingsPatch {
     largeContextEnabled?: boolean;
     reasoningEffort?: ReasoningEffort;
     reasoningLanguage?: ReasoningLanguage;
+    responseTone?: ResponseTone;
     passToolReasoning?: boolean;
     showReasoning?: boolean;
     multiModelCollaboration?: boolean;
@@ -241,6 +245,25 @@ export const reasoningLanguageOptions: SelectOption<ReasoningLanguage>[] = [
     {
         value: "en",
         label: { "zh-CN": "English", "en-US": "English" },
+    },
+];
+
+export const responseToneOptions: SelectOption<ResponseTone>[] = [
+    {
+        value: "rigorous",
+        label: { "zh-CN": "严谨", "en-US": "Rigorous", "ja-JP": "厳密", "ru-RU": "Строгий", "de-DE": "Präzise", "fr-FR": "Rigoureux", "ko-KR": "엄격함" },
+    },
+    {
+        value: "friendly",
+        label: { "zh-CN": "亲和", "en-US": "Friendly", "ja-JP": "親しみやすい", "ru-RU": "Дружелюбный", "de-DE": "Freundlich", "fr-FR": "Amical", "ko-KR": "친근함" },
+    },
+    {
+        value: "abstract",
+        label: { "zh-CN": "抽象", "en-US": "Abstract", "ja-JP": "抽象的", "ru-RU": "Абстрактный", "de-DE": "Abstrakt", "fr-FR": "Abstrait", "ko-KR": "추상적" },
+    },
+    {
+        value: "irritable",
+        label: { "zh-CN": "暴躁", "en-US": "Irritable", "ja-JP": "苛立ち気味", "ru-RU": "Раздражительный", "de-DE": "Gereizt", "fr-FR": "Irritable", "ko-KR": "까칠함" },
     },
 ];
 

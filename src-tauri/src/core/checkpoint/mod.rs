@@ -235,7 +235,11 @@ pub fn shared_checkpoint_store() -> &'static CheckpointStore {
         let root = std::env::var("APPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("."))
-            .join("peek")
+            .join(if cfg!(debug_assertions) {
+                "peek-debug"
+            } else {
+                "peek"
+            })
             .join("checkpoints");
         let _ = fs::create_dir_all(&root);
         CheckpointStore::new(root)

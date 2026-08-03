@@ -243,6 +243,7 @@ impl ChatService {
         let prompt_preferences = PromptPreferences {
             app_language: preferences.app_language,
             reasoning_language: preferences.reasoning_language,
+            response_tone: preferences.response_tone,
             collaboration_models,
         };
         let request = PromptBuilder::build(PromptBuildInput {

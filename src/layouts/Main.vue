@@ -13,7 +13,7 @@
         @click="navigationOpen = !navigationOpen"
       >
         <PanelLeft :size="15" />
-        <strong>AAAi</strong>
+        <strong>{{ appDisplayName }}</strong>
       </button>
 
       <div class="titlebar-context" data-tauri-drag-region>
@@ -399,6 +399,7 @@ const SettingsPage = defineAsyncComponent(() => import("@/pages/Settings/index.v
 
 const chatStore = useChatStore();
 const settingStore = useSettingStore();
+const appDisplayName = import.meta.env.DEV ? "AAAi Debug" : "AAAi";
 const appWindow = getCurrentWebviewWindow();
 const inputRef = ref<InstanceType<typeof ChatInputBar> | null>(null);
 const confirmDialogRef = ref<InstanceType<typeof AppConfirmDialog> | null>(null);

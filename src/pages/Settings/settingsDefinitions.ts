@@ -28,6 +28,7 @@ export type SettingType =
   | "select-language"
   | "select-reasoning-effort"
   | "select-reasoning-language"
+  | "select-response-tone"
   | "select-web-search-provider"
   | "select-tool-approval-mode"
   | "select-model"
@@ -242,6 +243,16 @@ export function buildSettingDefinitions(
       description: m.reasoningLanguage.description,
       type: "select-reasoning-language",
       keywords: [...m.reasoningLanguage.keywords],
+    },
+    {
+      id: "responseTone",
+      category: "ai",
+      group: groups.ai,
+      path: m.responseTone.path,
+      title: m.responseTone.title,
+      description: m.responseTone.description,
+      type: "select-response-tone",
+      keywords: [...m.responseTone.keywords],
     },
     {
       id: "showReasoning",

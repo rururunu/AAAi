@@ -222,7 +222,7 @@ fn create_new_overlay(app: &AppHandle, context: &RequestContext) {
     let label = next_overlay_label(app);
     pending_contexts().insert(label.clone(), context.clone());
     match WebviewWindowBuilder::new(app, &label, WebviewUrl::App("/#/overlay".into()))
-        .title("AAAi")
+        .title(app.package_info().name.clone())
         .inner_size(640.0, 82.0)
         .min_inner_size(640.0, 82.0)
         .decorations(false)
@@ -455,7 +455,7 @@ fn place_and_show_overlay_at_mouse(
         let label = next_overlay_label(app);
         pending_contexts().insert(label.clone(), context.clone());
         match WebviewWindowBuilder::new(app, &label, WebviewUrl::App("/#/overlay".into()))
-            .title("AAAi")
+            .title(app.package_info().name.clone())
             .inner_size(WIN_W, WIN_H)
             .min_inner_size(640.0, WIN_H)
             .decorations(false)

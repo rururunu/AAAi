@@ -7,7 +7,16 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::models::settings::AppSettings;
 
 const SETTINGS_FILE: &str = "settings.json";
-const APP_IDENTIFIER: &str = "ai.aaai.desktop";
+const RELEASE_APP_IDENTIFIER: &str = "ai.aaai.desktop";
+const DEBUG_APP_IDENTIFIER: &str = "ai.aaai.desktop.debug";
+
+fn app_identifier() -> &'static str {
+    if cfg!(debug_assertions) {
+        DEBUG_APP_IDENTIFIER
+    } else {
+        RELEASE_APP_IDENTIFIER
+    }
+}
 
 pub struct SettingsState {
     pub settings: Mutex<AppSettings>,
@@ -21,7 +30,7 @@ pub fn configure_prestart_webview() {
         return;
     };
     let path = PathBuf::from(app_data)
-        .join(APP_IDENTIFIER)
+        .join(app_identifier())
         .join(SETTINGS_FILE);
     let hardware_acceleration_enabled = fs::read_to_string(path)
         .ok()

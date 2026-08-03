@@ -12,6 +12,7 @@ const EMBEDDED_OAUTH_KEY: &[u8] = b"AAAi-build-credential";
 
 fn main() {
     embed_oauth_credentials();
+    configure_debug_identity();
     tauri_build::build();
     // Prefer Common Controls 6.0 (TaskDialogIndirect / SetWindowSubclass).
     // Use MANIFESTDEPENDENCY instead of embedding a second RT_MANIFEST — tauri_build
@@ -25,6 +26,42 @@ fn main() {
          publicKeyToken='6595b64144ccf1df' \
          language='*'"
     );
+}
+
+fn configure_debug_identity() {
+    println!("cargo:rerun-if-env-changed=DEBUG");
+    if std::env::var("DEBUG").as_deref() != Ok("true") {
+        return;
+    }
+
+    let config_from_env = std::env::var("TAURI_CONFIG")
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok());
+    let mut config = config_from_env.unwrap_or_else(|| {
+        let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory");
+        let raw = fs::read_to_string(Path::new(&manifest_dir).join("tauri.conf.json"))
+            .expect("read tauri.conf.json");
+        serde_json::from_str(&raw).expect("parse tauri.conf.json")
+    });
+
+    config["productName"] = serde_json::Value::String("AAAi Debug".into());
+    config["identifier"] = serde_json::Value::String("ai.aaai.desktop.debug".into());
+    if let Some(windows) = config
+        .get_mut("app")
+        .and_then(|app| app.get_mut("windows"))
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for window in windows {
+            window["title"] = serde_json::Value::String("AAAi Debug".into());
+        }
+    }
+
+    let serialized = serde_json::to_string(&config).expect("serialize debug Tauri config");
+    // tauri_build reads the build-script environment, while generate_context!
+    // runs later inside rustc. Export the same config to both so runtime identity
+    // (including the single-instance mutex) matches the Windows metadata.
+    println!("cargo:rustc-env=TAURI_CONFIG={serialized}");
+    std::env::set_var("TAURI_CONFIG", serialized);
 }
 
 fn embed_oauth_credentials() {

@@ -64,6 +64,16 @@ pub enum ReasoningLanguage {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
+pub enum ResponseTone {
+    #[default]
+    Rigorous,
+    Friendly,
+    Abstract,
+    Irritable,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum WebSearchProvider {
     #[default]
     Serper,
@@ -230,6 +240,8 @@ pub struct AppSettings {
     pub reasoning_effort: ReasoningEffort,
     #[serde(default)]
     pub reasoning_language: ReasoningLanguage,
+    #[serde(default)]
+    pub response_tone: ResponseTone,
     /// When true, assistant turns that contain `tool_calls` include `reasoning_content`
     /// in subsequent API history (required by DeepSeek thinking + tools).
     #[serde(default = "default_true")]
@@ -329,6 +341,7 @@ pub struct AppSettingsPatch {
     pub multimodal_model_provider: Option<String>,
     pub reasoning_effort: Option<ReasoningEffort>,
     pub reasoning_language: Option<ReasoningLanguage>,
+    pub response_tone: Option<ResponseTone>,
     pub pass_tool_reasoning: Option<bool>,
     pub show_reasoning: Option<bool>,
     pub multi_model_collaboration: Option<bool>,
@@ -371,6 +384,7 @@ impl Default for AppSettings {
             multimodal_model_provider: String::new(),
             reasoning_effort: ReasoningEffort::default(),
             reasoning_language: ReasoningLanguage::default(),
+            response_tone: ResponseTone::default(),
             pass_tool_reasoning: true,
             show_reasoning: true,
             multi_model_collaboration: false,
@@ -465,6 +479,7 @@ impl AppSettings {
                 .unwrap_or_else(|| self.multimodal_model_provider.clone()),
             reasoning_effort: patch.reasoning_effort.unwrap_or(self.reasoning_effort),
             reasoning_language: patch.reasoning_language.unwrap_or(self.reasoning_language),
+            response_tone: patch.response_tone.unwrap_or(self.response_tone),
             pass_tool_reasoning: patch
                 .pass_tool_reasoning
                 .unwrap_or(self.pass_tool_reasoning),
@@ -508,7 +523,7 @@ impl AppSettings {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppSettings, AppSettingsPatch, ColorScheme};
+    use super::{AppSettings, AppSettingsPatch, ColorScheme, ResponseTone};
 
     #[test]
     fn legacy_settings_default_to_showing_reasoning() {
@@ -525,6 +540,7 @@ mod tests {
         assert!(settings.chat_model_provider.is_empty());
         assert!(settings.multimodal_model_provider.is_empty());
         assert!(settings.hardware_acceleration_enabled);
+        assert_eq!(settings.response_tone, ResponseTone::Rigorous);
     }
 
     #[test]
@@ -575,6 +591,18 @@ mod tests {
             ..AppSettingsPatch::default()
         };
         assert!(!settings.merge(patch).hardware_acceleration_enabled);
+    }
+
+    #[test]
+    fn response_tone_patch_is_optional_and_mergeable() {
+        let settings = AppSettings::default();
+        assert_eq!(settings.response_tone, ResponseTone::Rigorous);
+
+        let patch = AppSettingsPatch {
+            response_tone: Some(ResponseTone::Friendly),
+            ..AppSettingsPatch::default()
+        };
+        assert_eq!(settings.merge(patch).response_tone, ResponseTone::Friendly);
     }
 
     #[test]

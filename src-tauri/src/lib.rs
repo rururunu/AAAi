@@ -178,7 +178,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .icon(icon)
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .tooltip("AAAi")
+        .tooltip(app.package_info().name.clone())
         .on_menu_event(|app, event| match event.id.as_ref() {
             "workbench" => show_workbench_window(app),
             "settings" => show_settings_window(app),

@@ -605,7 +605,11 @@ fn dirs_path() -> PathBuf {
     std::env::var("APPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("."))
-        .join("AAAi")
+        .join(if cfg!(debug_assertions) {
+            "AAAi Debug"
+        } else {
+            "AAAi"
+        })
 }
 pub fn skills_dir() -> PathBuf {
     dirs_path().join("skills")
