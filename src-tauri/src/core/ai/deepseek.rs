@@ -746,6 +746,25 @@ pub(crate) fn build_api_body(
     pass_tool_reasoning: bool,
     include_thinking: bool,
 ) -> Value {
+    // After tools have already run in this turn, disable thinking so DeepSeek
+    // does not re-generate the same chain-of-thought every continuation step.
+    // Historical tool-call turns still pass reasoning_content (protocol).
+    let continuing = is_tool_continuation(&request.messages);
+    let effective_effort = if continuing {
+        ReasoningEffort::Disabled
+    } else {
+        effort
+    };
+    // Thinking+tools requires returning prior reasoning_content. Force pass
+    // whenever effort is on, or when continuing a turn that already thought.
+    let effective_pass = match effort {
+        ReasoningEffort::Disabled => {
+            continuing && messages_have_tool_call_reasoning(&request.messages)
+        }
+        _ => true,
+    };
+    let _ = pass_tool_reasoning; // settings flag is superseded by the rules above
+
     let messages: Vec<_> = request
         .messages
         .iter()
@@ -757,7 +776,7 @@ pub(crate) fn build_api_body(
                     .is_some_and(|calls| !calls.is_empty())
                 || !message.content.trim().is_empty()
         })
-        .map(|message| message_to_api_json(message, pass_tool_reasoning))
+        .map(|message| message_to_api_json(message, effective_pass))
         .collect();
 
     let mut body = Map::new();
@@ -784,10 +803,37 @@ pub(crate) fn build_api_body(
     }
 
     if include_thinking {
-        apply_thinking_effort(&mut body, effort);
+        apply_thinking_effort(&mut body, effective_effort);
     }
 
     Value::Object(body)
+}
+
+/// True when this request already includes tool results after the latest real
+/// user message — i.e. an agent-loop continuation, not the opening model call.
+fn is_tool_continuation(messages: &[crate::core::runtime::ChatMessage]) -> bool {
+    for message in messages.iter().rev() {
+        match message.role {
+            Role::Tool => return true,
+            Role::User if message.content.starts_with("[System]") => return true,
+            Role::User => return false,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn messages_have_tool_call_reasoning(messages: &[crate::core::runtime::ChatMessage]) -> bool {
+    messages.iter().any(|message| {
+        message
+            .tool_calls
+            .as_ref()
+            .is_some_and(|calls| !calls.is_empty())
+            && message
+                .reasoning
+                .as_ref()
+                .is_some_and(|value| !value.trim().is_empty())
+    })
 }
 
 fn parse_multimodal_content(content: &str) -> Value {
@@ -874,17 +920,18 @@ fn message_to_api_json(message: &ChatMessage, pass_tool_reasoning: bool) -> Valu
                 "tool_calls": calls,
             });
             if pass_tool_reasoning {
-                if let Some(reasoning) = message
+                // DeepSeek requires reasoning_content on every tool-call assistant
+                // message once thinking was used; use a space placeholder if empty.
+                let reasoning = message
                     .reasoning
-                    .as_ref()
-                    .map(|value| value.trim())
+                    .as_deref()
+                    .map(str::trim)
                     .filter(|value| !value.is_empty())
-                {
-                    payload
-                        .as_object_mut()
-                        .expect("assistant payload object")
-                        .insert("reasoning_content".into(), json!(reasoning));
-                }
+                    .unwrap_or(" ");
+                payload
+                    .as_object_mut()
+                    .expect("assistant payload object")
+                    .insert("reasoning_content".into(), json!(reasoning));
             }
             return payload;
         }
@@ -1196,10 +1243,62 @@ mod tests {
         let assistant_json = message_to_api_json(&assistant, true);
         assert_eq!(assistant_json["role"], "assistant");
         assert!(assistant_json["tool_calls"].is_array());
+        assert_eq!(assistant_json["reasoning_content"], " ");
 
         let tool_json = message_to_api_json(&tool, true);
         assert_eq!(tool_json["role"], "tool");
         assert_eq!(tool_json["tool_call_id"], "call-1");
+    }
+
+    #[test]
+    fn tool_continuation_disables_thinking() {
+        use crate::core::runtime::ToolCallPayload;
+
+        let assistant = ChatMessage {
+            id: "a1".into(),
+            session_id: "default".into(),
+            role: Role::Assistant,
+            content: String::new(),
+            reasoning: Some("plan once".into()),
+            tool_activities: None,
+            tool_calls: Some(vec![ToolCallPayload {
+                id: "call-1".into(),
+                name: "read_file".into(),
+                arguments: r#"{"path":"a.rs"}"#.into(),
+                thought_signature: None,
+            }]),
+            tool_call_id: None,
+            name: None,
+            status: MessageStatus::Done,
+            timestamp: 1,
+            estimated_tokens: None,
+        };
+        let tool = ChatMessage {
+            id: "t1".into(),
+            session_id: "default".into(),
+            role: Role::Tool,
+            content: "ok".into(),
+            reasoning: None,
+            tool_activities: None,
+            tool_calls: None,
+            tool_call_id: Some("call-1".into()),
+            name: Some("read_file".into()),
+            status: MessageStatus::Done,
+            timestamp: 2,
+            estimated_tokens: None,
+        };
+        let body = build_api_body(
+            &sample_request(vec![assistant, tool]),
+            "deepseek-reasoner",
+            true,
+            ReasoningEffort::High,
+            true,
+            true,
+        );
+        let obj = body.as_object().expect("object body");
+        assert_eq!(obj.get("thinking"), Some(&json!({ "type": "disabled" })));
+        let messages = body["messages"].as_array().expect("messages");
+        assert_eq!(messages[0]["reasoning_content"], "plan once");
     }
 
     #[test]

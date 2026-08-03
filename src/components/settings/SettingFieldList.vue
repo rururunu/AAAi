@@ -15,7 +15,7 @@
       :class="
         item.type === 'collaboration-models'
           ? 'collaboration-setting grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-3'
-          : 'grid grid-cols-[minmax(0,1fr)_220px] items-start gap-4'
+          : 'grid grid-cols-[minmax(0,1fr)_minmax(140px,min(240px,36%))] items-start gap-4'
       "
     >
       <div class="space-y-1">
@@ -265,6 +265,25 @@
           </SelectContent>
         </Select>
 
+        <Select
+          v-else-if="item.type === 'select-agent-work-display'"
+          :model-value="settingStore.agentWorkDisplay"
+          @update:model-value="(v) => emit('agent-work-display-change', v)"
+        >
+          <SelectTrigger class="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem
+              v-for="option in agentWorkDisplaySelectOptions"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+
         <SecretInput
           v-else-if="item.type === 'secret'"
           :model-value="apiKeyDraft"
@@ -382,6 +401,7 @@ import {
   reasoningLanguageOptions,
   webSearchProviderOptions,
   toolApprovalModeOptions,
+  agentWorkDisplayOptions,
   zoomOptions,
 } from "@/types/setting";
 
@@ -405,6 +425,7 @@ const emit = defineEmits<{
   "reasoning-effort-change": [value: unknown];
   "reasoning-language-change": [value: unknown];
   "tool-approval-mode-change": [value: unknown];
+  "agent-work-display-change": [value: unknown];
   "web-search-provider-change": [value: unknown];
   "default-model-change": [value: unknown];
   "multimodal-model-change": [value: unknown];
@@ -487,6 +508,13 @@ const webSearchProviderSelectOptions = computed(() =>
 
 const toolApprovalModeSelectOptions = computed(() =>
   toolApprovalModeOptions.map((option) => ({
+    value: option.value,
+    label: localizedOptionLabel(option, settingStore.language),
+  })),
+);
+
+const agentWorkDisplaySelectOptions = computed(() =>
+  agentWorkDisplayOptions.map((option) => ({
     value: option.value,
     label: localizedOptionLabel(option, settingStore.language),
   })),

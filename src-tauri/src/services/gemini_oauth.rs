@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -39,6 +40,13 @@ const DEFAULT_CALLBACK_PORT: u16 = 51121;
 const REDIRECT_PATH: &str = "/oauth-callback";
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(180);
 const EXPIRY_SKEW_SECS: i64 = 60;
+
+/// Set while a browser OAuth wait is in progress; flipped by [`cancel_login`].
+static LOGIN_CANCELLED: AtomicBool = AtomicBool::new(false);
+
+pub fn cancel_login() {
+    LOGIN_CANCELLED.store(true, Ordering::SeqCst);
+}
 
 const PRODUCTION_ENDPOINT: &str = "https://cloudcode-pa.googleapis.com";
 
@@ -276,6 +284,7 @@ pub fn import_client_secrets(app: &AppHandle, path: &str) -> Result<GeminiAuthSt
 
 /// Start the Antigravity Desktop OAuth loopback flow and persist tokens on success.
 pub fn login(app: &AppHandle) -> Result<GeminiAuthStatus, String> {
+    LOGIN_CANCELLED.store(false, Ordering::SeqCst);
     let credentials = load_oauth_credentials(app)?;
     let client_id = credentials.client_id.as_str();
     let client_secret = credentials.client_secret.as_str();
@@ -462,6 +471,9 @@ fn wait_for_auth_code(listener: TcpListener, expected_state: &str) -> Result<Str
         let result = (|| {
             let deadline = std::time::Instant::now() + LOGIN_TIMEOUT;
             let (mut stream, _addr) = loop {
+                if LOGIN_CANCELLED.load(Ordering::SeqCst) {
+                    return Err("Google sign-in was cancelled.".into());
+                }
                 match listener.accept() {
                     Ok(conn) => break conn,
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {

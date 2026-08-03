@@ -16,6 +16,7 @@ import {
   listenSettingsOpened,
   listenToolFinished,
   listenToolStarted,
+  listenTaskListUpdated,
 } from "@/services/ipc";
 import { normalizeToolActivityEvent, resolveSessionId } from "@/services/chat/normalize";
 import { createRafBatch } from "@/services/chat/rafBatch";
@@ -31,7 +32,7 @@ import type {
   ChatUserContentEvent,
 } from "@/types/chat";
 import { useChatStore } from "@/stores/chat";
-import { useSettingStore } from "@/stores/setting";
+import { applyTheme, useSettingStore } from "@/stores/setting";
 import "./styles/index.css";
 
 installBrowserGuards();
@@ -44,6 +45,13 @@ app.use(router);
 
 const settingStore = useSettingStore();
 const chatStore = useChatStore();
+
+function hideBootSplash() {
+  const splash = document.getElementById("boot-splash");
+  if (!splash) return;
+  splash.setAttribute("hidden", "");
+  splash.setAttribute("aria-busy", "false");
+}
 
 type StreamBatchUpdate = {
   sessionId: string;
@@ -66,19 +74,27 @@ async function bootstrap() {
   const windowLabel = webviewWindow.label;
   const isOverlay = (windowLabel === "overlay" || windowLabel.startsWith("overlay-"))
     && !windowLabel.startsWith("overlay-preview-");
-  const mountEarly = windowLabel === "workbench" || isOverlay;
 
-  // Resolve each interactive route before loading settings. Mount immediately
-  // after the theme is applied, without waiting for optional IPC listeners.
+  // Resolve each interactive route before loading settings. Mount the workbench
+  // immediately so the boot splash / WorkbenchLoading cover the white-screen gap.
   if (windowLabel === "workbench") {
     void router.replace("/workbench");
+    applyTheme({
+      colorScheme: settingStore.colorScheme,
+      language: settingStore.language,
+    });
+    app.mount("#app");
+    hideBootSplash();
+    await settingStore.load();
   } else if (isOverlay) {
+    hideBootSplash();
     markPeekWindow();
     void router.replace("/overlay");
-  }
-  await settingStore.load();
-  if (windowLabel === "workbench" || isOverlay) {
+    await settingStore.load();
     app.mount("#app");
+  } else {
+    hideBootSplash();
+    await settingStore.load();
   }
 
   await listenSettingsChanged((settings) => {
@@ -238,6 +254,12 @@ async function bootstrap() {
   await listenToolStarted(handleToolActivity);
   await listenToolFinished(handleToolActivity);
 
+  await listenTaskListUpdated((payload) => {
+    const sessionId = resolveSessionId(payload.sessionId, chatStore.overlayDraftSessionId);
+    if (!sessionId) return;
+    chatStore.setSessionTasks(sessionId, payload.tasks ?? []);
+  });
+
   if (windowLabel.startsWith("overlay-preview-")) {
     document.documentElement.classList.add("peek-window");
     await router.replace("/image-preview");
@@ -259,7 +281,8 @@ async function bootstrap() {
   }
 
   await router.isReady();
-  if (!mountEarly) {
+  if (windowLabel !== "workbench" && !isOverlay) {
+    hideBootSplash();
     app.mount("#app");
   }
 }

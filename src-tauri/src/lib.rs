@@ -231,6 +231,7 @@ pub fn run() {
                 configure_overlay_window(&window);
             }
             start_hotkey_listener(app.handle().clone());
+            show_workbench_window(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -301,6 +302,7 @@ pub fn run() {
             settings::set_app_settings,
             gemini::gemini_auth_status,
             gemini::gemini_oauth_login,
+            gemini::gemini_oauth_cancel_login,
             gemini::gemini_oauth_logout,
             gemini::gemini_import_client_secrets,
             skills::list_skills,

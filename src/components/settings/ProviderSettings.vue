@@ -206,14 +206,30 @@
 
           <div class="form-actions pt-2">
             <Button 
-              v-if="!isGeminiConfigured"
+              v-if="!isGeminiConfigured && !geminiBusy"
               size="sm" 
               class="h-8 flex-1 gap-1.5" 
-              :disabled="geminiBusy"
               @click="loginGemini"
             >
-              {{ geminiBusy ? t('settings.provider.geminiLoggingIn') : t('settings.provider.geminiLogin') }}
+              {{ t('settings.provider.geminiLogin') }}
             </Button>
+            <template v-else-if="!isGeminiConfigured && geminiBusy">
+              <Button 
+                size="sm" 
+                class="h-8 flex-1 gap-1.5" 
+                disabled
+              >
+                {{ t('settings.provider.geminiLoggingIn') }}
+              </Button>
+              <Button 
+                variant="outline"
+                size="sm" 
+                class="h-8 flex-1 gap-1.5" 
+                @click="cancelGeminiLogin"
+              >
+                {{ t('settings.provider.geminiCancelLogin') }}
+              </Button>
+            </template>
             <Button 
               v-else
               variant="outline"
@@ -345,7 +361,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SecretInput } from "@/components/ui/secret-input";
 import { AppConfirmDialog } from "@/components/ui/confirm-dialog";
-import { geminiOauthLogin, geminiOauthLogout } from "@/services/ipc";
+import { geminiOauthCancelLogin, geminiOauthLogin, geminiOauthLogout } from "@/services/ipc";
 import { tr } from "@/services/i18n";
 import type { SettingsI18nKey } from "@/services/locales/settings";
 
@@ -408,9 +424,23 @@ async function loginGemini() {
     await settingStore.load();
     await chatModelStore.refresh();
   } catch (error) {
-    geminiError.value = error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
+    // Browser cancel / Google consent decline should not look like a hard failure.
+    if (
+      !/sign-in was cancelled|sign-in was canceled|access_denied/i.test(message)
+    ) {
+      geminiError.value = message;
+    }
   } finally {
     geminiBusy.value = false;
+  }
+}
+
+async function cancelGeminiLogin() {
+  try {
+    await geminiOauthCancelLogin();
+  } catch {
+    // Login await will surface the cancel/timeout result.
   }
 }
 

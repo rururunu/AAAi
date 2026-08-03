@@ -116,6 +116,10 @@ export function geminiOauthLogin() {
   return ipcInvoke<GeminiAuthStatus>(IPC_COMMANDS.geminiOauthLogin);
 }
 
+export function geminiOauthCancelLogin() {
+  return ipcInvoke<void>(IPC_COMMANDS.geminiOauthCancelLogin);
+}
+
 export function geminiOauthLogout() {
   return ipcInvoke<GeminiAuthStatus>(IPC_COMMANDS.geminiOauthLogout);
 }

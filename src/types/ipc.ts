@@ -12,6 +12,7 @@ export const IPC_COMMANDS = {
   setAppSettings: "set_app_settings",
   geminiAuthStatus: "gemini_auth_status",
   geminiOauthLogin: "gemini_oauth_login",
+  geminiOauthCancelLogin: "gemini_oauth_cancel_login",
   geminiOauthLogout: "gemini_oauth_logout",
   geminiImportClientSecrets: "gemini_import_client_secrets",
   getAppInfo: "get_app_info",

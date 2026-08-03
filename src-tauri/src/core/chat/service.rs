@@ -225,7 +225,9 @@ impl ChatService {
             .map(|settings| settings.large_context_enabled)
             .unwrap_or(true);
         let context_window = context_window_tokens(large_context);
+        // Mid-turn auto-compact uses the same window; overshoot → compact & continue.
         let max_turn_tokens = max_turn_tokens_for(large_context);
+        debug_assert_eq!(max_turn_tokens, context_window);
         let provider = self.resolve_provider(&overrides);
         let summarizer = crate::core::chat::compact::ProviderSummarizer::new(Arc::clone(&provider));
         let compact = compact::prepare_history_for_prompt(
@@ -300,7 +302,7 @@ impl ChatService {
             })
             .unwrap_or_default();
         let tools = if chat_mode == ChatMode::Ask {
-            Arc::new(self.tools.read_only())
+            Arc::new(self.tools.ask_mode())
         } else {
             Arc::clone(&self.tools)
         };

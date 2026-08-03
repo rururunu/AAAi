@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 import { DEFAULT_CHAT_MODEL } from "@/constants/chat";
 import { getAppSettings, setAppSettings } from "@/services/ipc";
@@ -16,7 +17,7 @@ const LEGACY_STORAGE_KEY = "peek.settings";
 let settingsUpdateSequence = 0;
 
 const defaultSettings: AppSettings = {
-    colorScheme: "dark",
+    colorScheme: "light",
     language: "zh-CN",
     deepseekApiKey: "",
     geminiOauth: defaultGeminiOAuthSettings(),
@@ -40,10 +41,11 @@ const defaultSettings: AppSettings = {
     multimodalModelProvider: "",
     multimodalSplitAnalysis: true,
     largeContextEnabled: true,
-    reasoningEffort: "high",
+    reasoningEffort: "disabled",
     reasoningLanguage: "auto",
     passToolReasoning: true,
     showReasoning: true,
+    agentWorkDisplay: "detailed",
     multiModelCollaboration: false,
     collaborationModels: [],
     zoom: 100,
@@ -53,6 +55,7 @@ const defaultSettings: AppSettings = {
     customProviders: [],
     pixpinPinAiEnabled: true,
     snipastePinAiEnabled: true,
+    onboardingCompleted: false,
 };
 
 export function applyTheme(settings: Pick<AppSettings, "colorScheme" | "language">) {
@@ -65,7 +68,26 @@ export function applyTheme(settings: Pick<AppSettings, "colorScheme" | "language
 }
 
 export function applyZoom(zoom: number) {
-    document.documentElement.style.zoom = String(zoom / 100);
+    const normalized = Math.max(zoom, 1) / 100;
+    const root = document.documentElement;
+    root.style.setProperty("--ui-zoom", String(normalized));
+
+    // Workbench uses transform:scale on `.workbench` (see Main.vue).
+    // Overlay/Settings keep document zoom paired with window resize.
+    let isWorkbench = false;
+    try {
+        isWorkbench = getCurrentWebviewWindow().label === "workbench";
+    } catch {
+        isWorkbench = false;
+    }
+
+    if (isWorkbench) {
+        root.style.removeProperty("zoom");
+        root.dataset.zoomShell = "workbench";
+    } else {
+        root.style.zoom = String(normalized);
+        root.dataset.zoomShell = "window";
+    }
 }
 
 function normalizeOpacityValue(settings: AppSettings): number {
@@ -94,10 +116,11 @@ function applyCommonSettings(target: AppSettings, settings: AppSettings) {
     target.multimodalModelProvider = settings.multimodalModelProvider ?? "";
     target.multimodalSplitAnalysis = settings.multimodalSplitAnalysis ?? true;
     target.largeContextEnabled = settings.largeContextEnabled ?? true;
-    target.reasoningEffort = settings.reasoningEffort ?? "high";
+    target.reasoningEffort = settings.reasoningEffort ?? "disabled";
     target.reasoningLanguage = settings.reasoningLanguage ?? "auto";
     target.passToolReasoning = settings.passToolReasoning ?? true;
     target.showReasoning = settings.showReasoning ?? true;
+    target.agentWorkDisplay = settings.agentWorkDisplay === "compact" ? "compact" : "detailed";
     target.multiModelCollaboration = settings.multiModelCollaboration ?? false;
     target.collaborationModels = settings.collaborationModels ?? [];
     target.memoryEnabled = settings.memoryEnabled ?? true;
@@ -117,6 +140,7 @@ function applyCommonSettings(target: AppSettings, settings: AppSettings) {
     target.customProviders = settings.customProviders ?? [];
     target.pixpinPinAiEnabled = settings.pixpinPinAiEnabled ?? true;
     target.snipastePinAiEnabled = settings.snipastePinAiEnabled ?? true;
+    target.onboardingCompleted = settings.onboardingCompleted ?? true;
 }
 
 function applySecretSettings(target: AppSettings, settings: AppSettings) {

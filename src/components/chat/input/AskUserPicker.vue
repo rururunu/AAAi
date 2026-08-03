@@ -5,13 +5,15 @@
     role="listbox"
     :aria-label="ariaLabel"
   >
-    <li class="picker-meta">
-      <span class="picker-meta-label">{{ header }}</span>
-      <span v-if="questionCount > 1" class="picker-meta-progress">
-        {{ questionIndex + 1 }}/{{ questionCount }}
-      </span>
+    <li class="picker-sticky-head" aria-hidden="false">
+      <div class="picker-meta">
+        <span class="picker-meta-label">{{ header }}</span>
+        <span v-if="questionCount > 1" class="picker-meta-progress">
+          {{ questionIndex + 1 }}/{{ questionCount }}
+        </span>
+      </div>
+      <div class="picker-meta question">{{ question }}</div>
     </li>
-    <li class="picker-meta question">{{ question }}</li>
     <li
       v-for="(option, index) in options"
       :key="option.slug"
@@ -89,13 +91,24 @@ defineEmits<{
 
 .ask-user-list {
   max-height: min(
+    var(--interaction-picker-max-height, 48vh),
     calc(
       var(--picker-meta-row-height) * 2 +
         var(--command-row-height) * var(--command-list-visible-rows) +
-        var(--command-list-padding)
-    ),
-    72vh
+        var(--command-list-padding) +
+        48px
+    )
   );
+}
+
+.picker-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+  background: var(--peek-list-bg);
 }
 
 .ask-user-list .picker-meta {
@@ -108,16 +121,18 @@ defineEmits<{
   font-size: 11px;
   color: var(--peek-muted);
   pointer-events: none;
+  background: inherit;
 }
 
 .ask-user-list .picker-meta.question {
   min-height: 28px;
   align-items: flex-start;
   padding-top: 2px;
-  padding-bottom: 4px;
+  padding-bottom: 6px;
   line-height: 1.45;
   color: var(--peek-text);
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .picker-meta-label {

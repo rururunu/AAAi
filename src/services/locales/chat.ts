@@ -27,6 +27,11 @@ export const chatEn = {
   thinkingTierLow: "Low",
   thinkingTierHigh: "High",
   thinkingTierAgent: "Agent",
+  configureProviderHint:
+    "No provider or model is configured yet. Add a provider to start chatting.",
+  configureProviderAction: "Configure provider",
+  taskListTitle: "Task list",
+  taskListProgress: "{done}/{total}",
   continueQuestion: "Ask a follow-up...", askAnything: "Ask anything...", newChat: "New chat", expand: "Expand", close: "Close", collapse: "Collapse", minimize: "Minimize", pinWindow: "Keep window on top", unpinWindow: "Stop keeping window on top", maximizeWindow: "Maximize window", restoreWindow: "Restore window",
   showSecret: "Show secret", hideSecret: "Hide secret", userMessageNav: "User message navigation", jumpMessage: "Jump to message {count}",
   confirmSelection: "Confirm current selection", commandSuggestions: "Command suggestions", resetThemeColor: "Reset to default white",
@@ -107,6 +112,10 @@ Object.assign(chatLocales["zh-CN"], {
   changesAppearHere: "Agent 对文件的修改将显示在这里。",
   copyDiff: "复制 Diff",
   resizeCodeChanges: "调整代码变更宽度",
+  configureProviderHint: "还没有配置提供商或可用模型。添加提供商后即可开始对话。",
+  configureProviderAction: "去配置提供商",
+  taskListTitle: "任务列表",
+  taskListProgress: "{done}/{total}",
 });
 
 export const chatSupplements: Partial<Record<AppLanguage, LocalePartial>> = {

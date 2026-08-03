@@ -6,6 +6,11 @@ import {
   type ChatI18nKey,
 } from "@/services/locales/chat";
 import { mcpEn, mcpLocales, type McpI18nKey } from "@/services/locales/mcp";
+import {
+  onboardingEn,
+  onboardingLocales,
+  type OnboardingI18nKey,
+} from "@/services/locales/onboarding";
 import { settingsEn, settingsLocales, type SettingsI18nKey } from "@/services/locales/settings";
 import { skillsEn, skillsLocales, type SkillsI18nKey } from "@/services/locales/skills";
 import { chatInputEn, chatInputLocales, type ChatInputI18nKey } from "@/services/locales/chatInput";
@@ -30,6 +35,10 @@ const modules: Array<{
   {
     en: mcpEn as unknown as ModuleEn,
     locales: mcpLocales as unknown as ModuleLocales,
+  },
+  {
+    en: onboardingEn as unknown as ModuleEn,
+    locales: onboardingLocales as unknown as ModuleLocales,
   },
   {
     en: settingsEn as unknown as ModuleEn,
@@ -73,6 +82,7 @@ export type I18nKey =
   | ChatI18nKey
   | ChatInputI18nKey
   | McpI18nKey
+  | OnboardingI18nKey
   | SettingsI18nKey
   | SkillsI18nKey
   | WorkspaceI18nKey

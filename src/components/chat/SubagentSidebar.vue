@@ -81,6 +81,7 @@
                 :message="activeEntry.message"
                 :language="settingStore.language"
                 :show-reasoning="settingStore.showReasoning"
+                :display-mode="settingStore.agentWorkDisplay"
               />
             </div>
           </section>

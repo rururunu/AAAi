@@ -30,6 +30,7 @@ export type SettingType =
   | "select-reasoning-language"
   | "select-web-search-provider"
   | "select-tool-approval-mode"
+  | "select-agent-work-display"
   | "select-model"
   | "select-zoom"
   | "secret"
@@ -352,6 +353,16 @@ export function buildSettingDefinitions(
       description: m.toolApprovalMode.description,
       type: "select-tool-approval-mode",
       keywords: [...m.toolApprovalMode.keywords],
+    },
+    {
+      id: "agentWorkDisplay",
+      category: "agent",
+      group: groups.agent,
+      path: m.agentWorkDisplay.path,
+      title: m.agentWorkDisplay.title,
+      description: m.agentWorkDisplay.description,
+      type: "select-agent-work-display",
+      keywords: [...m.agentWorkDisplay.keywords],
     },
     {
       id: "lspEnabled",

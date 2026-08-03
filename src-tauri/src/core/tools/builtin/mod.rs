@@ -101,6 +101,10 @@ impl Tool for RunShellTool {
             "type": "object",
             "properties": {
                 "command": { "type": "string" },
+                "description": {
+                    "type": "string",
+                    "description": "Short human-readable label for the UI (e.g. 'Run unit tests'). Prefer 3–8 words."
+                },
                 "run_in_background": {
                     "type": "boolean",
                     "description": "Only for persistent processes (follow/watch/dev server/foreground service). Finite commands are forced to foreground."
@@ -217,7 +221,7 @@ impl Tool for UpdateTasksTool {
         "update_tasks"
     }
     fn description(&self) -> &str {
-        "Replace the in-session task list."
+        "Maintain the in-session task checklist (Cursor TodoWrite equivalent). Call before multi-step work. Each item needs content + status (pending|in_progress|completed|cancelled). Keep exactly one in_progress; mark completed as you finish; skip for trivial one-step work."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -263,7 +267,7 @@ impl Tool for AskUserTool {
         "ask_user"
     }
     fn description(&self) -> &str {
-        "Ask the user multiple-choice questions and wait for answers."
+        "Ask the user a structured multiple-choice question and wait (Cursor AskQuestion equivalent). Use for genuine user-owned decisions — UI style, approach, trade-offs — with 2-4 concrete options. Never substitute a plain-text option list in the chat reply when this tool is available. Do not use for routine confirmations."
     }
     fn parameters_schema(&self) -> Value {
         json!({

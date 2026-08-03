@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 
 import { chat, chatHistory } from "@/services/ipc";
 import { useSettingStore } from "./setting";
+import { useChatModelStore } from "./chatModel";
 import {
   normalizeChatStarted,
   normalizeMessage,
@@ -10,10 +11,17 @@ import {
   type RawChatStarted,
 } from "@/services/chat/normalize";
 import { estimateMessageTokens } from "@/services/chat/tokenEstimate";
+import {
+  CONFIGURE_PROVIDER_MARKER,
+  isConfigureProviderError,
+} from "@/services/chat/ensureDefaultModel";
+import { isKnownModelSelection } from "@/lib/modelThinking";
+import { tr } from "@/services/i18n";
 import type {
   AskUserAnswerItem,
   ChatMessage,
   ContextUsageSnapshot,
+  TaskItem,
   ToolActivity,
   ToolPreviewPayload,
   WorkTimelineItem,
@@ -193,6 +201,8 @@ export const useChatStore = defineStore("chat", {
     overlayDraftSessionId: "" as string,
     contextNotices: {} as Record<string, string | undefined>,
     contextUsage: {} as Record<string, ContextUsageSnapshot | undefined>,
+    /** Live in-session task list from update_tasks. */
+    sessionTasks: {} as Record<string, TaskItem[]>,
   }),
   getters: {
     overlayMessages(state): ChatMessage[] {
@@ -341,6 +351,23 @@ export const useChatStore = defineStore("chat", {
         ...this.contextNotices,
         [sessionId]: message,
       };
+    },
+    setSessionTasks(sessionId: string, tasks: TaskItem[]) {
+      if (!sessionId) {
+        return;
+      }
+      this.sessionTasks = {
+        ...this.sessionTasks,
+        [sessionId]: tasks,
+      };
+    },
+    clearSessionTasks(sessionId: string) {
+      if (!sessionId || !(sessionId in this.sessionTasks)) {
+        return;
+      }
+      const next = { ...this.sessionTasks };
+      delete next[sessionId];
+      this.sessionTasks = next;
     },
     setContextUsage(sessionId: string, usage: ContextUsageSnapshot | undefined) {
       if (!sessionId) {
@@ -735,9 +762,16 @@ export const useChatStore = defineStore("chat", {
         (item) => normalizeRole(item.role) === "assistant" && item.status === "pending",
       );
       if (index === -1) return;
+      const settingStore = useSettingStore();
+      const raw = String(error);
+      const configureProvider =
+        raw === "CONFIGURE_PROVIDER" || isConfigureProviderError(raw);
+      const content = configureProvider
+        ? `${CONFIGURE_PROVIDER_MARKER}\n${tr(settingStore.language, "configureProviderHint")}`
+        : `发送失败：${raw}`;
       messages[index] = {
         ...messages[index],
-        content: `发送失败：${String(error)}`,
+        content,
         status: "error",
         completedAt: Date.now(),
       };
@@ -1287,7 +1321,51 @@ export const useChatStore = defineStore("chat", {
 
       this.sending[sessionId] = true;
       try {
-        const compose = this.ensureCompose(sessionId);
+        const chatModelStore = useChatModelStore();
+        if (chatModelStore.models.length === 0 && !chatModelStore.loading) {
+          await chatModelStore.fetch();
+        }
+
+        let compose = this.ensureCompose(sessionId);
+        if (
+          chatModelStore.models.length > 0 &&
+          (!compose.chatModel.trim() ||
+            !isKnownModelSelection(
+              chatModelStore.models,
+              compose.chatModel,
+              compose.chatModelProvider,
+            ))
+        ) {
+          const first = chatModelStore.models[0]!;
+          this.setCompose(sessionId, {
+            chatModel: first.id,
+            chatModelProvider: first.provider,
+          });
+          const settingStore = useSettingStore();
+          if (
+            !settingStore.chatModel.trim() ||
+            !isKnownModelSelection(
+              chatModelStore.models,
+              settingStore.chatModel,
+              settingStore.chatModelProvider,
+            )
+          ) {
+            void settingStore.update({
+              chatModel: first.id,
+              chatModelProvider: first.provider,
+            });
+          }
+          compose = this.ensureCompose(sessionId);
+        }
+
+        if (chatModelStore.models.length === 0 || !compose.chatModel.trim()) {
+          this.failOptimisticSend(sessionId, "CONFIGURE_PROVIDER", softInject);
+          if (!softInject) {
+            this.clearSending(sessionId);
+          }
+          return false;
+        }
+
         this.markSessionStarted(sessionId);
         const response = await chat({
           message: trimmed,

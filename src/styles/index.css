@@ -19,6 +19,14 @@ body,
   overflow: hidden;
 }
 
+html {
+  --ui-zoom: 1;
+}
+
+#app {
+  position: relative;
+}
+
 html.peek-window,
 html.peek-window body,
 html.peek-window #app,

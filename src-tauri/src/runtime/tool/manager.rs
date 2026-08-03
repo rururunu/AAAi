@@ -36,14 +36,15 @@ impl ToolManager {
     ///
     /// - Plan mode active for `plan_session_id` → read-only tools plus the
     ///   planning/interaction tools plan mode allows.
-    /// - Question-only request (Answer/explain/review, Diagnose) → read-only tools.
+    /// - Question-only request (Answer/explain/review, Diagnose) → read-only
+    ///   tools plus `ask_user` / `update_tasks`.
     /// - Otherwise → the full toolset.
     pub fn schemas_for_request(&self, request: &ChatRequest, plan_session_id: &str) -> Arc<[Value]> {
         if crate::core::tools::plan_mode::shared_plan_mode_store().is_active(plan_session_id) {
             return self.registry.filter_for_plan_mode().schemas_arc();
         }
         if is_question_only_request(request) {
-            return self.read_only().schemas_arc();
+            return self.ask_mode().schemas_arc();
         }
         self.schemas_arc()
     }
@@ -122,6 +123,10 @@ impl ToolManager {
         Self::new(self.registry.filter_read_only())
     }
 
+    pub fn ask_mode(&self) -> Self {
+        Self::new(self.registry.filter_for_ask_mode())
+    }
+
     /// Unknown or missing tools are treated as non-read-only so the agent stays serial.
     pub fn is_read_only(&self, name: &str) -> bool {
         self.registry
@@ -158,20 +163,26 @@ fn is_question_only_text(text: &str) -> bool {
         "fix", "change", "update", "create", "build", "implement", "add", "remove", "delete",
         "write", "edit", "refactor", "complete", "finish", "install", "deploy", "run", "test",
         "merge", "commit", "rename", "move", "optimize", "migrate", "generate", "checkout",
-        "pull", "push", "rebase", "修复", "修改", "实现", "完成", "添加", "删除", "写入", "编辑",
-        "构建", "优化", "重构", "拆分", "合并", "更新", "创建", "生成", "运行", "执行", "测试",
-        "提交", "部署",
+        "pull", "push", "rebase", "patch", "adjust", "tweak", "improve", "rewrite",
+        "修复", "修改", "实现", "完成", "添加", "删除", "写入", "编辑", "构建", "优化", "重构",
+        "拆分", "合并", "更新", "创建", "生成", "运行", "执行", "测试", "提交", "部署", "改成",
+        "改一下", "改下", "帮我改", "帮我做", "调整", "换成", "加上", "去掉", "弄成", "做成",
+        "实现一下", "继续改", "接着改",
     ];
     if CHANGE_MARKERS.iter().any(|marker| text.contains(marker)) {
         return false;
     }
     const QUESTION_MARKERS: &[&str] = &[
         "explain", "review", "analyze", "summarize", "describe", "compare", "diagnose",
-        "inspect", "what", "why", "how", "which", "who", "when", "where", "check", "show",
-        "list", "read", "解释", "分析", "总结", "描述", "比较", "诊断", "排查", "检查", "查看",
-        "介绍", "什么", "为什么", "如何", "哪些", "怎么", "原因",
+        "inspect", "what", "why", "how", "which", "who", "when", "where",
+        "解释", "分析", "总结", "描述", "比较", "诊断", "排查", "介绍", "什么", "为什么",
+        "如何", "哪些", "怎么", "原因", "是否", "吗？", "吗?",
     ];
-    QUESTION_MARKERS.iter().any(|marker| text.contains(marker)) || text.chars().count() <= 40
+    // Require an explicit question shape. Do not treat short imperative
+    // messages as question-only — that stripped ask_user / update_tasks from
+    // Agent turns and made the model fall back to plain text questions.
+    let has_question_mark = text.contains('?') || text.contains('？');
+    QUESTION_MARKERS.iter().any(|marker| text.contains(marker)) || has_question_mark
 }
 
 #[cfg(test)]
@@ -242,5 +253,18 @@ mod tests {
         );
         drop(context);
         let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn short_imperative_is_not_question_only() {
+        assert!(!is_question_only_text("帮我改一下样式"));
+        assert!(!is_question_only_text("继续"));
+        assert!(!is_question_only_text("fix the bug"));
+    }
+
+    #[test]
+    fn explicit_questions_are_question_only() {
+        assert!(is_question_only_text("这段代码是怎么工作的？"));
+        assert!(is_question_only_text("What does this function do?"));
     }
 }

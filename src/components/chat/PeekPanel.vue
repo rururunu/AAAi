@@ -1528,6 +1528,9 @@ onUnmounted(() => {
   background: var(--peek-surface);
   position: relative;
   z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   overflow: hidden;
   isolation: isolate;
   will-change: transform, opacity;

@@ -20,14 +20,19 @@ pub const MEMORIES_MAX_CHARS: usize = 8_000;
 pub const CONTEXT_BLOCKS_TOTAL_MAX_CHARS: usize = 16_000;
 
 /// Max agent tool-loop iterations per turn. `0` = unlimited.
-pub const DEFAULT_MAX_STEPS: u32 = 20;
+///
+/// Prefer consecutive-failure circuit breaker; a hard step cap often aborts
+/// real multi-file work mid-task. Context pressure is handled Codex-style:
+/// auto-compact near the window and continue (no hard token stop).
+pub const DEFAULT_MAX_STEPS: u32 = 0;
 /// Consecutive tool failures that trip the circuit breaker and stop the turn.
 pub const MAX_CONSECUTIVE_TOOL_FAILURES: u32 = 3;
-/// Per-turn token budget when large context is off.
-pub const DEFAULT_MAX_TURN_TOKENS: usize = 200_000;
-/// Per-turn token budget when large context (1M) is on.
+/// Mid-turn auto-compact window when large context is off (keep in sync with `compact::DEFAULT_CONTEXT_WINDOW`).
+pub const DEFAULT_MAX_TURN_TOKENS: usize = 64_000;
+/// Mid-turn auto-compact window when large context is on (keep in sync with `compact::LARGE_CONTEXT_WINDOW`).
 pub const LARGE_MAX_TURN_TOKENS: usize = 1_000_000;
 
+/// Context window used as the mid-turn auto-compact basis (not a hard stop).
 pub fn max_turn_tokens_for(large_context_enabled: bool) -> usize {
     if large_context_enabled {
         LARGE_MAX_TURN_TOKENS

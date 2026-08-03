@@ -949,7 +949,7 @@ impl AIProvider for RecordingProvider {
 }
 
 #[tokio::test]
-async fn stops_when_token_budget_exhausted() {
+async fn continues_when_token_budget_exceeded_without_hard_stop() {
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(CountingTool {
         name: "read_a",
@@ -967,13 +967,14 @@ async fn stops_when_token_budget_exhausted() {
                 tool_calls: vec![tool_call("1", "read_a")],
             },
             ProviderTurn {
-                content: "should not happen".into(),
+                content: "continued after compact threshold".into(),
                 tool_calls: vec![],
             },
         ]),
     });
     let (ctx, db) = make_ctx(tools.registry());
-    // Very small budget forces stop after first tool-bearing turn.
+    // Tiny window trips mid-turn compact path; without prior history to fold,
+    // Codex-style behavior is to keep going instead of hard-stopping.
     let runner = AgentRunner::with_limits(provider, tools, 30, 50, TOOL_OUTPUT_MAX_CHARS);
     let (tx, mut rx) = mpsc::channel(16);
     runner
@@ -993,8 +994,8 @@ async fn stops_when_token_budget_exhausted() {
             finish_reason,
             ..
         } => {
-            assert_eq!(finish_reason.as_deref(), Some("max_turn_tokens"));
-            assert!(content.contains("token"));
+            assert_ne!(finish_reason.as_deref(), Some("max_turn_tokens"));
+            assert!(content.contains("continued after compact threshold"));
         }
         _ => panic!("unexpected"),
     }

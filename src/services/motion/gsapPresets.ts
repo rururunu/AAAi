@@ -310,3 +310,78 @@ export function gsapSettingsNavMount(root: Element) {
     },
   );
 }
+
+/**
+ * First-run welcome: move the floating logo onto the empty-conversation brand,
+ * then circular-reveal the workspace by shrinking the overlay mask.
+ */
+export function gsapOnboardingReveal(opts: {
+  overlay: HTMLElement;
+  logo: HTMLElement;
+  from: DOMRect;
+  target: DOMRect;
+  onComplete: () => void;
+}) {
+  const { overlay, logo, from, target, onComplete } = opts;
+  const originX = target.left + target.width / 2;
+  const originY = target.top + target.height / 2;
+
+  gsap.killTweensOf([overlay, logo]);
+
+  // Freeze the logo in viewport space so CSS layout changes cannot skew the path.
+  gsap.set(logo, {
+    position: "fixed",
+    left: from.left,
+    top: from.top,
+    width: from.width,
+    height: from.height,
+    margin: 0,
+    x: 0,
+    y: 0,
+    scale: 1,
+    transformOrigin: "50% 50%",
+    zIndex: 3,
+  });
+
+  if (prefersReducedMotion()) {
+    onComplete();
+    return;
+  }
+
+  const maxRadius = Math.hypot(
+    Math.max(originX, window.innerWidth - originX),
+    Math.max(originY, window.innerHeight - originY),
+  );
+
+  const state = { radius: maxRadius * 1.2 };
+  overlay.style.clipPath = `circle(${state.radius}px at ${originX}px ${originY}px)`;
+
+  const tl = gsap.timeline({
+    onComplete: () => {
+      overlay.style.clipPath = "";
+      onComplete();
+    },
+  });
+
+  tl.to(logo, {
+    left: target.left,
+    top: target.top,
+    width: target.width,
+    height: target.height,
+    duration: 1.05,
+    ease: "power3.inOut",
+  });
+
+  tl.to(
+    state,
+    {
+      radius: 0,
+      duration: 0.95,
+      ease: "power2.inOut",
+      onUpdate: () => {
+        overlay.style.clipPath = `circle(${state.radius}px at ${originX}px ${originY}px)`;
+      },
+    },
+    "-=0.28",
+  );
+}

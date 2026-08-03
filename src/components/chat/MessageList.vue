@@ -110,6 +110,7 @@
             :message="item.message"
             :language="settingStore.language"
             :show-reasoning="settingStore.showReasoning"
+            :display-mode="settingStore.agentWorkDisplay"
             @inspect-subagent="emit('inspectSubagent', $event)"
           />
           <AskUserAnswerCard v-if="item.message.askUserAnswer?.length" :items="item.message.askUserAnswer" />
@@ -123,6 +124,21 @@
             v-if="item.message.environmentContext"
             :context="item.message.environmentContext"
           />
+          <div
+            v-else-if="needsProviderSetup(item.message)"
+            class="provider-setup-card"
+          >
+            <p class="provider-setup-text">
+              {{ providerSetupText(item.message) }}
+            </p>
+            <button
+              type="button"
+              class="provider-setup-btn"
+              @click="openProviderSettings"
+            >
+              {{ tr(settingStore.language, "configureProviderAction") }}
+            </button>
+          </div>
           <Markdown
             v-else-if="item.message.content"
             :content="item.message.content"
@@ -206,6 +222,11 @@ import { tr } from "@/services/i18n";
 import { gsapScrollContainerTo } from "@/services/motion/gsapPresets";
 import { copyText } from "@/services/clipboard";
 import { estimateMessageTokens, formatTokenCount } from "@/services/chat/tokenEstimate";
+import {
+  isConfigureProviderError,
+} from "@/services/chat/ensureDefaultModel";
+import { useAppStore } from "@/stores/app";
+import { openSettings as ipcOpenSettings } from "@/services/ipc";
 
 type DisplayItem =
   | { kind: "user"; key: string; message: ChatMessage }
@@ -236,7 +257,23 @@ const emit = defineEmits<{
   previewImage: [source: string];
 }>();
 const settingStore = useSettingStore();
+const appStore = useAppStore();
 const confirmDialogRef = ref<InstanceType<typeof AppConfirmDialog> | null>(null);
+
+function needsProviderSetup(message: ChatMessage): boolean {
+  return message.status === "error" && isConfigureProviderError(message.content);
+}
+
+function providerSetupText(_message: ChatMessage): string {
+  return tr(settingStore.language, "configureProviderHint");
+}
+
+function openProviderSettings() {
+  appStore.openSettings("provider");
+  void ipcOpenSettings().catch(() => {
+    // Workbench may already be focused; app-store signal still opens settings.
+  });
+}
 const visibleMessages = computed(() =>
   props.messages.filter((message) => {
     const role = String(message.role).toLowerCase();
@@ -812,6 +849,43 @@ onUnmounted(() => {
   min-width: 0;
   padding: 0;
   color: var(--peek-text);
+}
+
+.provider-setup-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.provider-setup-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--peek-text);
+  white-space: pre-wrap;
+}
+
+.provider-setup-btn {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--peek-text) 14%, transparent);
+  background: var(--peek-text);
+  color: var(--peek-bg, #fff);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 560;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.provider-setup-btn:hover {
+  opacity: 0.92;
+}
+
+.provider-setup-btn:active {
+  transform: translateY(0.5px);
 }
 .assistant-bubble :deep(.markdown-body) {
   font-size: 13px;

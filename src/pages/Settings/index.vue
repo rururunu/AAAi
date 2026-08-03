@@ -126,6 +126,7 @@
                   @reasoning-effort-change="onReasoningEffortChange"
                   @reasoning-language-change="onReasoningLanguageChange"
                   @tool-approval-mode-change="onToolApprovalModeChange"
+                  @agent-work-display-change="onAgentWorkDisplayChange"
                   @web-search-provider-change="onWebSearchProviderChange"
                   @default-model-change="onDefaultModelChange"
                   @multimodal-model-change="onMultimodalModelChange"
@@ -207,14 +208,22 @@ import type {
   ModelSelection,
   WebSearchProvider,
   ToolApprovalMode,
+  AgentWorkDisplay,
 } from "@/types/setting";
 
 const settingStore = useSettingStore();
 const chatModelStore = useChatModelStore();
 const appWindow = getCurrentWebviewWindow();
-const props = withDefaults(defineProps<{ embedded?: boolean }>(), {
-  embedded: false,
-});
+const props = withDefaults(
+  defineProps<{
+    embedded?: boolean;
+    /** When set (e.g. deep-link from chat CTA), open this category. */
+    category?: CategoryId;
+  }>(),
+  {
+    embedded: false,
+  },
+);
 const emit = defineEmits<{ back: [] }>();
 
 const SETTINGS_BASE_WIDTH = 880;
@@ -227,7 +236,14 @@ async function resizeSettingsWindow() {
   await appWindow.setSize(new LogicalSize(scaledWidth, scaledHeight));
 }
 
-const activeCategory = ref<CategoryId>("ai");
+const activeCategory = ref<CategoryId>(props.category ?? "ai");
+
+watch(
+  () => props.category,
+  (category) => {
+    if (category) activeCategory.value = category;
+  },
+);
 
 const appName = ref("-");
 const appVersion = ref("-");
@@ -500,6 +516,11 @@ function onToolApprovalModeChange(value: unknown) {
   void settingStore.update({ toolApprovalMode: value as ToolApprovalMode });
 }
 
+function onAgentWorkDisplayChange(value: unknown) {
+  if (value !== "detailed" && value !== "compact") return;
+  void settingStore.update({ agentWorkDisplay: value as AgentWorkDisplay });
+}
+
 function saveMemorySettings() {
   void settingStore.update({
     mem0ApiKey: mem0ApiKeyDraft.value.trim(),
@@ -566,12 +587,16 @@ watch(
   );
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--settings-chrome-bg);
   color: var(--peek-text);
   font-family: var(--font-sans);
+  container-type: inline-size;
+  container-name: settings;
 }
 
 .settings-workbench.embedded {
@@ -624,8 +649,21 @@ watch(
   background: var(--settings-chrome-bg);
 }
 
+.settings-nav {
+  width: clamp(8.5rem, 22cqw, 13rem);
+  min-width: 0;
+  max-width: 14rem;
+  flex: none;
+  background: var(--settings-chrome-bg);
+  transition:
+    width 160ms ease,
+    min-width 160ms ease;
+}
+
 .settings-content-pane {
+  min-width: 0;
   min-height: 0;
+  flex: 1;
   overflow: hidden;
   border-radius: 12px 12px 0 0;
   background: var(--peek-list-bg);
@@ -636,15 +674,6 @@ watch(
   min-height: 0;
   overflow-y: auto;
   padding-right: 1px;
-}
-
-.settings-nav {
-  width: 11rem;
-  min-width: 11rem;
-  background: var(--settings-chrome-bg);
-  transition:
-    width 160ms ease,
-    min-width 160ms ease;
 }
 
 .settings-nav-content {
@@ -756,6 +785,7 @@ watch(
   .settings-nav {
     width: 3.5rem;
     min-width: 3.5rem;
+    max-width: 3.5rem;
   }
 
   .settings-nav-group {

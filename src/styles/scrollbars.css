@@ -1,7 +1,8 @@
-/* Peek 统一滚动条：细轨道、无箭头、与主题 accent 协调 */
+/* Peek 统一滚动条：细轨道、无箭头、与主题 accent 协调。
+   仅在内容溢出时出现滚动条，不预留空 gutter。 */
 
 .peek-scrollbar {
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--peek-scrollbar, color-mix(in srgb, var(--peek-text) 14%, transparent)) transparent;
 }
@@ -82,5 +83,23 @@
 
 [data-sidebar="content"].peek-scrollbar::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--sidebar-foreground) 26%, transparent);
+  background-clip: padding-box;
+}
+
+/* 欢迎引导：固定浅色底上的同款细滚动条 */
+.onboarding.peek-scrollbar,
+.onboarding .peek-scrollbar {
+  scrollbar-color: rgba(28, 25, 21, 0.18) transparent;
+}
+
+.onboarding.peek-scrollbar::-webkit-scrollbar-thumb,
+.onboarding .peek-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(28, 25, 21, 0.18);
+  background-clip: padding-box;
+}
+
+.onboarding.peek-scrollbar::-webkit-scrollbar-thumb:hover,
+.onboarding .peek-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(28, 25, 21, 0.3);
   background-clip: padding-box;
 }

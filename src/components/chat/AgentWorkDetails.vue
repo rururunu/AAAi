@@ -1,83 +1,83 @@
 <template>
-  <div v-if="hasWork" class="agent-work" :class="{ 'has-running-subagent': hasRunningSubagent }">
-    <button
-      type="button"
-      class="agent-work-toggle"
-      :aria-expanded="panelExpanded"
-      @click="togglePanel"
-    >
-      <ChevronRight class="agent-work-chevron" :class="{ open: panelExpanded }" :size="12" />
-      <span>{{ panelLabel }}</span>
-      <span v-if="!panelExpanded" class="agent-work-meta">{{ panelMeta }}</span>
-    </button>
+  <div v-if="segments.length" class="agent-work" :class="{ 'has-running-subagent': hasRunningSubagent }">
+    <template v-for="segment in segments" :key="segment.id">
+      <ReasoningBlock
+        v-if="segment.type === 'reasoning'"
+        :reasoning="segment.content"
+        :streaming="streaming && segment.id === lastSegmentId"
+        :language="language"
+        embedded
+      />
 
-    <div v-if="panelExpanded" class="agent-work-body">
-      <template v-if="timelineGroups.length">
-        <template v-for="group in timelineGroups" :key="group.id">
-          <ReasoningBlock
-            v-if="group.type === 'reasoning'"
-            :reasoning="group.content"
-            :streaming="streaming && group.id === lastTimelineId"
-            :language="language"
-            embedded
+      <ToolActivityList
+        v-else-if="segment.type === 'inline'"
+        :activities="segment.activities"
+        :all-activities="visibleActivities"
+        :operations="segment.operations"
+        :cards-collapsed="false"
+        @inspect-subagent="emit('inspectSubagent', $event)"
+      />
+
+      <!-- Process details follow the timeline (Cursor-style), not dumped at the end. -->
+      <section v-else class="agent-work-details">
+        <button
+          type="button"
+          class="agent-work-toggle"
+          :aria-expanded="isProcessOpen(segment.id)"
+          @click="toggleProcess(segment.id)"
+        >
+          <ChevronRight
+            class="agent-work-chevron"
+            :class="{ open: isProcessOpen(segment.id) }"
+            :size="12"
           />
+          <span class="agent-work-label">{{ processHeadline(segment) }}</span>
+        </button>
+        <div v-if="isProcessOpen(segment.id)" class="agent-work-body">
           <ToolActivityList
-            v-else
-            :activities="group.activities"
+            :activities="segment.activities"
             :all-activities="visibleActivities"
-            :operations="group.type === 'operations'"
+            :operations="segment.operations"
+            :cards-collapsed="displayMode === 'compact'"
             @inspect-subagent="emit('inspectSubagent', $event)"
           />
-        </template>
-      </template>
-
-      <template v-else>
-        <ReasoningBlock
-          v-if="hasReasoning"
-          :reasoning="message.reasoning ?? ''"
-          :streaming="streaming"
-          :language="language"
-          embedded
-        />
-        <ToolActivityList
-          v-if="executionActivities.length"
-          :activities="executionActivities"
-          :all-activities="visibleActivities"
-          @inspect-subagent="emit('inspectSubagent', $event)"
-        />
-        <ToolActivityList
-          v-if="operationActivities.length"
-          :activities="operationActivities"
-          :all-activities="visibleActivities"
-          operations
-          @inspect-subagent="emit('inspectSubagent', $event)"
-        />
-      </template>
-    </div>
+        </div>
+      </section>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ChevronRight } from "@lucide/vue";
-import { computed, ref, watch } from "vue";
+import { computed, reactive, watch } from "vue";
 import ReasoningBlock from "@/components/chat/ReasoningBlock.vue";
 import ToolActivityList from "@/components/chat/ToolActivityList.vue";
 import type { ChatMessage, ToolActivity } from "@/types/chat";
-import type { AppLanguage } from "@/types/setting";
+import type { AgentWorkDisplay, AppLanguage } from "@/types/setting";
 import { tr } from "@/services/i18n";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   message: ChatMessage;
   language?: AppLanguage;
   showReasoning?: boolean;
-}>();
+  /** detailed = shell/diff inline; compact = fold into process details. */
+  displayMode?: AgentWorkDisplay;
+}>(), {
+  displayMode: "detailed",
+});
 const emit = defineEmits<{ inspectSubagent: [activityId: string] }>();
 
-type TimelineGroup =
+type TimelineSegment =
   | { type: "reasoning"; id: string; content: string }
-  | { type: "execution" | "operations"; id: string; activities: ToolActivity[] };
+  | {
+      type: "inline" | "process";
+      id: string;
+      activities: ToolActivity[];
+      operations: boolean;
+    };
 
-const FILE_OPERATION_KINDS = new Set(["create", "edit", "delete", "move"]);
+const SHOWCASE_KINDS = new Set(["shell", "create", "edit", "delete", "move"]);
+const TASK_LIST_TOOLS = new Set(["update_tasks", "todo_write"]);
 const SUBAGENT_TOOLS = new Set([
   "run_subagent",
   "run_parallel_subagents",
@@ -88,8 +88,9 @@ const SUBAGENT_TOOLS = new Set([
   "review_security",
   "generate_word",
 ]);
-const userToggled = ref(false);
-const panelExpanded = ref(true);
+
+const processOpen = reactive(new Map<string, boolean>());
+const userToggledProcess = reactive(new Set<string>());
 
 const streaming = computed(
   () => props.message.status === "pending" || props.message.status === "streaming",
@@ -102,9 +103,7 @@ const waitingForAskUser = computed(
 );
 const visibleActivities = computed(() =>
   (props.message.toolActivities ?? []).filter(
-    (activity) =>
-      (activity.kind !== "read" || Boolean(activity.parentActivityId)) &&
-      !(activity.toolName === "ask_user" && activity.status !== "running"),
+    (activity) => !(activity.toolName === "ask_user" && activity.status !== "running"),
   ),
 );
 const activityById = computed(
@@ -118,117 +117,142 @@ const activityById = computed(
 const topLevelActivities = computed(() =>
   visibleActivities.value.filter((activity) => !activity.parentActivityId),
 );
-const operationActivities = computed(() =>
-  topLevelActivities.value.filter((activity) => FILE_OPERATION_KINDS.has(activity.kind)),
-);
-const executionActivities = computed(() =>
-  topLevelActivities.value.filter((activity) => !FILE_OPERATION_KINDS.has(activity.kind)),
-);
+
 const hasRunningSubagent = computed(() =>
   topLevelActivities.value.some(
     (activity) =>
-      activity.status === "running" &&
-      SUBAGENT_TOOLS.has(activity.toolName),
+      activity.status === "running" && SUBAGENT_TOOLS.has(activity.toolName),
   ),
 );
-const hasReasoning = computed(
-  () => props.showReasoning !== false && Boolean(props.message.reasoning?.trim()),
-);
-const hasExecutionWork = computed(
-  () => hasReasoning.value || executionActivities.value.length > 0,
-);
 
-const timelineGroups = computed<TimelineGroup[]>(() => {
-  const groups: TimelineGroup[] = [];
-  for (const item of props.message.workTimeline ?? []) {
-    if (item.type === "reasoning") {
-      if (props.showReasoning !== false && item.content.trim()) groups.push(item);
-      continue;
+/** Task lists + (in detailed mode) shell/file edits stay in the open stream. */
+function isInlineActivity(activity: ToolActivity): boolean {
+  if (TASK_LIST_TOOLS.has(activity.toolName)) return true;
+  if (props.displayMode === "compact") return false;
+  return SHOWCASE_KINDS.has(activity.kind);
+}
+
+function isOperationsActivity(activity: ToolActivity): boolean {
+  return SHOWCASE_KINDS.has(activity.kind) && activity.kind !== "shell";
+}
+
+function segmentKind(activity: ToolActivity): "inline" | "process" {
+  return isInlineActivity(activity) ? "inline" : "process";
+}
+
+function pushActivity(segments: TimelineSegment[], activity: ToolActivity) {
+  const kind = segmentKind(activity);
+  const operations = isOperationsActivity(activity);
+  const last = segments[segments.length - 1];
+  if (
+    last &&
+    last.type === kind &&
+    last.operations === operations
+  ) {
+    last.activities.push(activity);
+    return;
+  }
+  segments.push({
+    type: kind,
+    id: `${kind}-${activity.id}`,
+    activities: [activity],
+    operations,
+  });
+}
+
+/** Single chronological stream — process-detail chunks interleaved like Cursor. */
+const segments = computed<TimelineSegment[]>(() => {
+  const out: TimelineSegment[] = [];
+  const timeline = props.message.workTimeline ?? [];
+  const seen = new Set<string>();
+
+  if (timeline.length) {
+    for (const item of timeline) {
+      if (item.type === "reasoning") {
+        if (props.showReasoning !== false && item.content.trim()) {
+          out.push(item);
+        }
+        continue;
+      }
+      const activity = activityById.value.get(item.toolActivityId);
+      if (!activity) continue;
+      seen.add(activity.id);
+      pushActivity(out, activity);
     }
-    const activity = activityById.value.get(item.toolActivityId);
-    if (!activity) continue;
-    const type = FILE_OPERATION_KINDS.has(activity.kind) ? "operations" : "execution";
-    const last = groups[groups.length - 1];
-    if (last?.type === type) {
-      last.activities.push(activity);
-    } else {
-      groups.push({ type, id: `group-${item.id}`, activities: [activity] });
+  } else {
+    if (props.showReasoning !== false && props.message.reasoning?.trim()) {
+      out.push({
+        type: "reasoning",
+        id: "stream-reasoning",
+        content: props.message.reasoning ?? "",
+      });
     }
   }
-  return groups;
-});
 
-const lastTimelineId = computed(() => timelineGroups.value[timelineGroups.value.length - 1]?.id);
-const hasWork = computed(
-  () =>
-    timelineGroups.value.length > 0 ||
-    hasExecutionWork.value ||
-    operationActivities.value.length > 0,
-);
-
-const reasoningCount = computed(() => {
-  if (timelineGroups.value.length) {
-    return timelineGroups.value.filter((group) => group.type === "reasoning").length;
+  for (const activity of topLevelActivities.value) {
+    if (seen.has(activity.id)) continue;
+    pushActivity(out, activity);
   }
-  return hasReasoning.value ? 1 : 0;
+  return out;
 });
 
-const toolCount = computed(() => topLevelActivities.value.length);
-
+const lastSegmentId = computed(() => segments.value[segments.value.length - 1]?.id);
 const panelLabel = computed(() => tr(props.language, "processSummary"));
 
-const panelMeta = computed(() => {
-  const parts: string[] = [];
-  if (reasoningCount.value) {
-    parts.push(
-      tr(props.language, "thinkingCount", { count: reasoningCount.value }),
-    );
+function processHeadline(segment: Extract<TimelineSegment, { type: "process" }>) {
+  const titles = segment.activities
+    .map((activity) => activity.title?.trim())
+    .filter((title): title is string => Boolean(title));
+  if (titles.length === 1) return titles[0]!;
+  if (titles.length > 1 && titles.length <= 3) return titles.join(" · ");
+  if (titles.length > 3) {
+    return `${titles[0]} · ${tr(props.language, "toolCount", { count: titles.length })}`;
   }
-  if (toolCount.value) {
-    parts.push(tr(props.language, "toolCount", { count: toolCount.value }));
-  }
-  if (!parts.length && hasReasoning.value) {
-    parts.push(tr(props.language, "thinking"));
-  }
-  return parts.length ? `(${parts.join(" · ")})` : "";
-});
+  return `${panelLabel.value} · ${tr(props.language, "toolCount", { count: segment.activities.length })}`;
+}
 
-function shouldAutoCollapse(message: ChatMessage) {
-  if (!hasWork.value) return false;
-  if (
-    message.askUserAnswer?.length &&
-    (message.status === "pending" || message.status === "streaming")
-  ) {
-    return false;
-  }
-  if (message.askUserAnswer?.length) return true;
-  return message.status === "done" || message.status === "error" || message.status === "cancelled";
+function isProcessOpen(id: string) {
+  return processOpen.get(id) ?? false;
+}
+
+function toggleProcess(id: string) {
+  userToggledProcess.add(id);
+  processOpen.set(id, !isProcessOpen(id));
+}
+
+/** Expand process only when it has active showcase work (or ask_user). Reads stay one-line. */
+function shouldAutoExpandProcess(segment: Extract<TimelineSegment, { type: "process" }>) {
+  if (waitingForAskUser.value) return true;
+  return segment.activities.some(
+    (activity) =>
+      activity.status === "running" &&
+      (SHOWCASE_KINDS.has(activity.kind) || TASK_LIST_TOOLS.has(activity.toolName)),
+  );
 }
 
 watch(
-  () => [
-    props.message.status,
-    props.message.askUserAnswer?.length ?? 0,
-    hasWork.value,
-    streaming.value,
-  ],
+  () =>
+    [
+      props.message.status,
+      props.message.askUserAnswer?.length ?? 0,
+      streaming.value,
+      segments.value
+        .map((segment) =>
+          segment.type === "process"
+            ? `${segment.id}:${segment.activities.map((a) => a.status).join(",")}`
+            : segment.id,
+        )
+        .join("|"),
+    ] as const,
   () => {
-    if (userToggled.value) return;
-    if (streaming.value && !waitingForAskUser.value) {
-      panelExpanded.value = true;
-      return;
-    }
-    if (shouldAutoCollapse(props.message) || !streaming.value) {
-      panelExpanded.value = false;
+    for (const segment of segments.value) {
+      if (segment.type !== "process") continue;
+      if (userToggledProcess.has(segment.id)) continue;
+      processOpen.set(segment.id, shouldAutoExpandProcess(segment));
     }
   },
   { immediate: true },
 );
-
-function togglePanel() {
-  userToggled.value = true;
-  panelExpanded.value = !panelExpanded.value;
-}
 </script>
 
 <style scoped>
@@ -237,8 +261,22 @@ function togglePanel() {
   flex-direction: column;
   gap: 4px;
   width: 100%;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   box-sizing: border-box;
+}
+
+.agent-work :deep(.shell-terminal-card),
+.agent-work :deep(.file-diff-card),
+.agent-work :deep(.task-list-card.embedded) {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.agent-work-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
 }
 
 .agent-work-toggle {
@@ -246,7 +284,7 @@ function togglePanel() {
   align-items: center;
   gap: 5px;
   width: 100%;
-  padding: 4px 2px;
+  padding: 3px 2px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -264,7 +302,9 @@ function togglePanel() {
   background: color-mix(in srgb, var(--peek-text) 4%, transparent);
 }
 
-.agent-work.has-running-subagent > .agent-work-toggle { color: var(--peek-text); }
+.agent-work.has-running-subagent .agent-work-toggle {
+  color: var(--peek-text);
+}
 
 .agent-work-chevron {
   flex: none;
@@ -276,11 +316,12 @@ function togglePanel() {
   transform: rotate(90deg);
 }
 
-.agent-work-meta {
-  margin-left: auto;
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--peek-faint);
+.agent-work-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-work-body {
@@ -294,7 +335,8 @@ function togglePanel() {
 }
 
 .agent-work-body :deep(.tool-activity-list),
-.agent-work-body :deep(.reasoning-block) {
+.agent-work :deep(.tool-activity-list),
+.agent-work :deep(.reasoning-block) {
   margin-bottom: 0;
 }
 </style>

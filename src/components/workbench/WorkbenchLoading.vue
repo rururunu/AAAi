@@ -1,19 +1,26 @@
 <template>
   <div class="workbench-loading" role="status" :aria-label="label">
-    <div class="loading-mark" aria-hidden="true">
-      <span class="mark-letter">A</span>
-      <span class="orbit orbit-one" />
-      <span class="orbit orbit-two" />
+    <div class="loading-brand" aria-hidden="true">
+      <img class="loading-logo" :src="appIconAsset" alt="" draggable="false" />
+      <span class="loading-halo" />
     </div>
-    <strong>AAAi</strong>
-    <span class="loading-label">{{ label }}</span>
+    <p class="loading-label">{{ label }}</p>
     <span class="loading-progress" aria-hidden="true"><i /></span>
   </div>
 </template>
 
 <script setup lang="ts">
-const language = navigator.language.toLowerCase();
-const label = language.startsWith("zh") ? "\u6b63\u5728\u51c6\u5907\u5de5\u4f5c\u53f0" : "Preparing workbench";
+import { computed } from "vue";
+import { useSettingStore } from "@/stores/setting";
+import appIconAsset from "../../../src-tauri/icons/AAAi-transparent.svg";
+
+const settingStore = useSettingStore();
+
+const label = computed(() =>
+  settingStore.language === "zh-CN" || navigator.language.toLowerCase().startsWith("zh")
+    ? "请稍等，正在为您准备……"
+    : "Please wait, preparing for you…",
+);
 </script>
 
 <style scoped>
@@ -25,71 +32,143 @@ const label = language.startsWith("zh") ? "\u6b63\u5728\u51c6\u5907\u5de5\u4f5c\
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: var(--peek-bg, #1f1f1f);
-  color: var(--peek-text, #d4d4d4);
-  font-family: var(--peek-font-sans, "Segoe UI", sans-serif);
+  gap: 18px;
+  background:
+    radial-gradient(120% 80% at 50% -10%, #ffffff 0%, transparent 55%),
+    linear-gradient(180deg, #f7f5f1 0%, #efeae2 52%, #e8e2d8 100%);
+  color: #1c1915;
+  font-family: var(--peek-font-sans, "Noto Sans SC", "Segoe UI", sans-serif);
   user-select: none;
 }
 
-.loading-mark {
+.workbench[data-theme="dark"] .workbench-loading,
+:global(html.dark) .workbench-loading {
+  background:
+    radial-gradient(120% 80% at 50% -10%, #2a2a2a 0%, transparent 55%),
+    linear-gradient(180deg, #1f1f1f 0%, #181818 100%);
+  color: #f3f4f6;
+}
+
+.loading-brand {
   position: relative;
-  width: 52px;
-  height: 52px;
+  width: 112px;
+  height: 112px;
   display: grid;
   place-items: center;
-  margin-bottom: 16px;
 }
-.mark-letter {
+
+.loading-logo {
   position: relative;
-  z-index: 2;
-  font-size: 17px;
-  font-weight: 680;
-  line-height: 1;
-  color: var(--peek-text, #d4d4d4);
+  z-index: 1;
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+  animation: logo-breathe 2.2s ease-in-out infinite;
 }
-.orbit {
+
+:global(html.dark) .loading-logo,
+.workbench[data-theme="dark"] .loading-logo {
+  filter: invert(1);
+}
+
+.loading-halo {
   position: absolute;
-  inset: 5px;
-  border: 1px solid color-mix(in srgb, var(--peek-text, #d4d4d4) 14%, transparent);
+  inset: 0;
   border-radius: 50%;
+  border: 1px solid rgba(28, 25, 21, 0.1);
+  animation: halo-pulse 2.2s ease-in-out infinite;
 }
-.orbit-one {
-  border-top-color: var(--peek-accent, #3b8eea);
-  animation: orbit-clockwise 1.4s linear infinite;
+
+:global(html.dark) .loading-halo,
+.workbench[data-theme="dark"] .loading-halo {
+  border-color: rgba(255, 255, 255, 0.12);
 }
-.orbit-two {
-  inset: 11px;
-  border-right-color: color-mix(in srgb, var(--peek-accent, #3b8eea) 65%, var(--peek-text, #d4d4d4));
-  animation: orbit-counter 1.9s linear infinite;
+
+.loading-label {
+  margin: 0;
+  max-width: min(80vw, 360px);
+  color: rgba(28, 25, 21, 0.62);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-align: center;
 }
-.workbench-loading > strong { font-size: 14px; font-weight: 650; }
-.loading-label { margin-top: 7px; color: var(--peek-muted, #a0a0a0); font-size: 11px; }
+
+:global(html.dark) .loading-label,
+.workbench[data-theme="dark"] .loading-label {
+  color: rgba(243, 244, 246, 0.62);
+}
+
 .loading-progress {
-  width: 86px;
+  width: 120px;
   height: 2px;
-  margin-top: 17px;
   overflow: hidden;
-  border-radius: 1px;
-  background: color-mix(in srgb, var(--peek-text, #d4d4d4) 9%, transparent);
+  border-radius: 999px;
+  background: rgba(28, 25, 21, 0.08);
 }
+
+:global(html.dark) .loading-progress,
+.workbench[data-theme="dark"] .loading-progress {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .loading-progress i {
   display: block;
-  width: 30%;
+  width: 36%;
   height: 100%;
   border-radius: inherit;
-  background: var(--peek-accent, #3b8eea);
+  background: #171411;
   animation: progress-travel 1.45s ease-in-out infinite;
 }
 
-@keyframes orbit-clockwise { to { transform: rotate(360deg); } }
-@keyframes orbit-counter { to { transform: rotate(-360deg); } }
+:global(html.dark) .loading-progress i,
+.workbench[data-theme="dark"] .loading-progress i {
+  background: #f3f4f6;
+}
+
+@keyframes logo-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.92;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+@keyframes halo-pulse {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
 @keyframes progress-travel {
-  0% { transform: translateX(-110%); opacity: 0.45; }
-  45% { opacity: 1; }
-  100% { transform: translateX(340%); opacity: 0.45; }
+  0% {
+    transform: translateX(-120%);
+    opacity: 0.45;
+  }
+  45% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(320%);
+    opacity: 0.45;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit-one, .orbit-two, .loading-progress i { animation-duration: 3.5s; }
+  .loading-logo,
+  .loading-halo,
+  .loading-progress i {
+    animation: none;
+  }
 }
 </style>

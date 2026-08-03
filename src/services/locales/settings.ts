@@ -5,7 +5,7 @@ export const settingsFieldIds = [
   "defaultModel", "multimodalModel", "multimodalSplitAnalysis", "largeContextEnabled", "reasoningEffort", "reasoningLanguage", "showReasoning", "passToolReasoning",
   "memoryEnabled", "mem0ApiKey", "mem0UserId", "mem0BaseUrl",
   "webSearchEnabled", "webSearchProvider", "serperApiKey", "tavilyApiKey",
-  "toolApprovalMode", "lspEnabled", "multiModelCollaboration",
+  "toolApprovalMode", "agentWorkDisplay", "lspEnabled", "multiModelCollaboration",
   "pixpinPinAiEnabled", "snipastePinAiEnabled",
   "appName", "appVersion", "appIdentifier",
 ] as const;
@@ -30,6 +30,7 @@ export type SettingsI18nKey =
   | "settings.provider.geminiLogin"
   | "settings.provider.geminiLogout"
   | "settings.provider.geminiLoggingIn"
+  | "settings.provider.geminiCancelLogin"
   | "settings.provider.geminiSignedIn"
   | "settings.provider.geminiSignedOut"
   | "settings.provider.geminiImportCredentials"
@@ -77,6 +78,7 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.provider.geminiLogin": "Sign in with Google",
   "settings.provider.geminiLogout": "Sign out",
   "settings.provider.geminiLoggingIn": "Waiting for browser…",
+  "settings.provider.geminiCancelLogin": "Cancel",
   "settings.provider.geminiSignedIn": "Signed in",
   "settings.provider.geminiSignedOut": "Not signed in",
   "settings.provider.geminiImportCredentials": "Import client_secret JSON",
@@ -167,6 +169,8 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.fields.tavilyApiKey.description": "Used for Tavily search. Stored locally only.",
   "settings.fields.toolApprovalMode.title": "Tool approval mode",
   "settings.fields.toolApprovalMode.description": "Ask / Auto / Always allow. Always allow still blocks dangerous shell via rules.",
+  "settings.fields.agentWorkDisplay.title": "Agent work display",
+  "settings.fields.agentWorkDisplay.description": "Detailed shows shell and code diffs inline in the chat timeline. Compact folds them into process details (collapsed by default). Read tools always stay in process details.",
   "settings.fields.lspEnabled.title": "Enable LSP",
   "settings.fields.lspEnabled.description": "Expose the lsp tool (hover / definition / diagnostics) when language servers are available.",
   "settings.fields.multiModelCollaboration.title": "Multi-model collaboration",
@@ -242,6 +246,7 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.geminiLogin": "使用 Google 登录",
     "settings.provider.geminiLogout": "退出登录",
     "settings.provider.geminiLoggingIn": "等待浏览器授权…",
+    "settings.provider.geminiCancelLogin": "取消",
     "settings.provider.geminiSignedIn": "已登录",
     "settings.provider.geminiSignedOut": "未登录",
     "settings.provider.geminiImportCredentials": "导入 client_secret JSON",
@@ -319,6 +324,8 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.tavilyApiKey.description": "用于 Tavily 搜索，密钥仅保存在本机设置中。",
     "settings.fields.toolApprovalMode.title": "工具审批模式",
     "settings.fields.toolApprovalMode.description": "询问 / 自动 / 一律允许。一律允许仍会拦截危险 shell。",
+    "settings.fields.agentWorkDisplay.title": "工作过程显示",
+    "settings.fields.agentWorkDisplay.description": "详细显示：命令与代码 diff 直接穿插在对话时间线中。轻量显示：收入过程详情并默认折叠；读取类工具始终在过程详情中。",
     "settings.fields.lspEnabled.title": "启用 LSP",
     "settings.fields.lspEnabled.description": "启用后可使用 lsp 工具（hover / definition / diagnostics）。",
     "settings.fields.multiModelCollaboration.title": "多模型协同",
@@ -954,6 +961,7 @@ const settingsFieldPaths: Record<"zh-CN" | "en-US", Partial<Record<SettingFieldI
     serperApiKey: "Web Search / Serper API Key",
     tavilyApiKey: "Web Search / Tavily API Key",
     toolApprovalMode: "Agent / Tool Approval",
+    agentWorkDisplay: "Agent / Work Display",
     lspEnabled: "Agent / Language Server",
     multiModelCollaboration: "Agent / Multi-model collaboration",
     pixpinPinAiEnabled: "Plugins / PixPin pin AI",
@@ -988,6 +996,7 @@ const settingsFieldPaths: Record<"zh-CN" | "en-US", Partial<Record<SettingFieldI
     serperApiKey: "联网搜索 / Serper API Key",
     tavilyApiKey: "联网搜索 / Tavily API Key",
     toolApprovalMode: "Agent / 工具审批",
+    agentWorkDisplay: "Agent / 工作过程显示",
     lspEnabled: "Agent / 语言服务",
     pixpinPinAiEnabled: "插件 / PixPin 贴图 AI",
     snipastePinAiEnabled: "插件 / Snipaste 贴图 AI",
@@ -1024,6 +1033,7 @@ const settingsFieldKeywords: Record<"zh-CN" | "en-US", Partial<Record<SettingFie
     serperApiKey: ["web", "search", "serper", "api", "key"],
     tavilyApiKey: ["web", "search", "tavily", "api", "key"],
     toolApprovalMode: ["approval", "ask", "auto", "alwaysAllow"],
+    agentWorkDisplay: ["display", "detailed", "compact", "timeline", "process", "agent", "work"],
     lspEnabled: ["lsp", "diagnostics", "definition"],
     multiModelCollaboration: ["agent", "model", "collaboration", "subagent"],
     pixpinPinAiEnabled: ["pixpin", "pin", "screenshot", "image", "ai", "button", "plugin"],
@@ -1058,6 +1068,7 @@ const settingsFieldKeywords: Record<"zh-CN" | "en-US", Partial<Record<SettingFie
     serperApiKey: ["联网", "搜索", "serper", "api", "key", "密钥"],
     tavilyApiKey: ["联网", "搜索", "tavily", "api", "key", "密钥"],
     toolApprovalMode: ["审批", "ask", "auto", "一律允许", "approval"],
+    agentWorkDisplay: ["详细", "轻量", "显示", "过程详情", "时间线", "detailed", "compact", "display"],
     lspEnabled: ["lsp", "语言服务", "diagnostics"],
     pixpinPinAiEnabled: ["pixpin", "贴图", "截图", "图片", "ai", "按钮", "插件"],
     snipastePinAiEnabled: ["snipaste", "贴图", "截图", "图片", "ai", "按钮", "插件"],

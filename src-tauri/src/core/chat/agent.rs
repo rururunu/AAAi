@@ -28,16 +28,15 @@ const MAX_COMPLETION_RETRIES: u32 = 1;
 /// successful modifying tool. The model must either actually execute the work
 /// or explicitly admit nothing was changed — claiming done is not accepted.
 const COMPLETION_CHALLENGE: &str = concat!(
-    "[System] 你声称任务已完成，但本轮没有任何修改类工具成功执行。",
-    "请立即实际执行所需的修改/操作（调用相应工具），",
-    "或者明确说明你没有进行任何改动、哪些部分尚未完成。",
-    "不得在未执行任何修改工具的情况下再次声称“已完成”。",
+    "[System] Completion claim rejected: no modifying tool succeeded this turn. ",
+    "Do not restate prior reasoning. Either call the required tools now, ",
+    "or clearly say what was not changed and what is blocking.",
 );
 
 const VERIFICATION_CHALLENGE: &str = concat!(
-    "[System] 你已经执行了修改，但还没有验证修改后的实际结果。",
-    "请使用读取、检查、测试、构建或其他合适的工具确认结果确实满足用户要求。",
-    "只有验证成功后才能声称任务完成；如果验证失败，请继续修复或明确说明失败。",
+    "[System] Changes ran but were not verified. ",
+    "Do not restate prior reasoning. Call a read/test/build check now, ",
+    "then report the verified result or the failure.",
 );
 
 pub struct AgentRunner {
@@ -112,7 +111,7 @@ impl AgentRunner {
                 let _ = tx
                     .send(StreamEvent::TurnComplete {
                         content: format!(
-                            "已停止：本轮达到最大工具步数上限（{}）。",
+                            "已停止：本轮达到最大工具步数上限（{}）。可发送「继续」让我接着做未完成的部分。",
                             self.max_steps
                         ),
                         reasoning: None,
@@ -122,8 +121,10 @@ impl AgentRunner {
                     .await;
                 break;
             }
-            if self.max_turn_tokens > 0 && used_tokens >= self.max_turn_tokens {
-                let mut compacted = false;
+            // Codex-style: near the context window, auto-compact and continue.
+            // Never hard-stop the turn solely because tokens crossed a budget.
+            let compact_at = mid_turn_compact_threshold(self.max_turn_tokens);
+            if compact_at > 0 && used_tokens >= compact_at {
                 if let Some(user_idx) = user_msg_index {
                     if user_idx > 0 {
                         let prior = &request.messages[..user_idx];
@@ -144,24 +145,13 @@ impl AgentRunner {
                             request.messages = new_messages;
                             user_msg_index = Some(new_user_idx);
                             used_tokens = estimate_request_tokens(&request);
-                            compacted = true;
+                            let _ = tx
+                                .send(StreamEvent::Status {
+                                    kind: "context_compacted".to_string(),
+                                })
+                                .await;
                         }
                     }
-                }
-
-                if !compacted {
-                    let _ = tx
-                        .send(StreamEvent::TurnComplete {
-                            content: format!(
-                                "已停止：本轮估算 token 用量达到上限（{}）。",
-                                self.max_turn_tokens
-                            ),
-                            reasoning: None,
-                            tool_calls: vec![],
-                            finish_reason: Some("max_turn_tokens".to_string()),
-                        })
-                        .await;
-                    break;
                 }
             }
 
@@ -795,6 +785,14 @@ struct ToolOutcome {
     user_denied: bool,
 }
 
+/// Token count at which mid-turn auto-compact is attempted (Codex-style ~80–90%).
+fn mid_turn_compact_threshold(context_window: usize) -> usize {
+    if context_window == 0 {
+        return 0;
+    }
+    ((context_window as f32) * crate::core::chat::compact::COMPACT_TRIGGER_RATIO).ceil() as usize
+}
+
 fn estimate_request_tokens(request: &ChatRequest) -> usize {
     let message_tokens: usize = request
         .messages
@@ -943,9 +941,10 @@ fn reject_unverified_completion(
 }
 
 fn has_completion_claim(content: &str) -> bool {
+    // Keep this strict: weak phrases like "搞定/修改了/done" used to false-trigger
+    // an extra model round (and another full DeepSeek think cycle).
     const CLAIMS: &[&str] = &[
         "已完成",
-        "完成了",
         "全部完成",
         "完成修改",
         "修改完成",
@@ -953,65 +952,22 @@ fn has_completion_claim(content: &str) -> bool {
         "更新完成",
         "创建完成",
         "写入完成",
+        "任务完成",
         "全部搞定",
-        "搞定",
-        "修好",
-        "改好",
-        "写好",
-        "做好",
-        "办妥",
-        "成功修改",
-        "成功创建",
-        "成功删除",
-        "成功写入",
-        "成功修复",
-        "成功更新",
-        "成功应用",
-        "已修改",
-        "已创建",
-        "已删除",
-        "已更新",
-        "processed",
-        "已写入",
-        "已修复",
-        "已解决",
-        "已应用",
-        "修改了",
-        "修复了",
-        "更新了",
-        "创建了",
-        "删除了",
-        "写入了",
-        "应用了",
-        "解决了",
-        "生效",
         "大功告成",
-        "done",
-        "finished",
-        "completed",
+        "successfully completed",
+        "task completed",
         "all done",
         "all set",
-        "fixed",
-        "updated",
-        "created",
-        "deleted",
-        "resolved",
-        "implemented",
-        "applied",
-        "saved",
-        "has been modified",
-        "have modified",
-        "has been updated",
-        "have updated",
         "has been fixed",
         "have fixed",
-        "has been created",
-        "have created",
-        "has been written",
-        "have written",
+        "has been completed",
+        "have completed",
+        "implementation is complete",
+        "changes are complete",
     ];
     let lower = content.to_ascii_lowercase();
-    CLAIMS.iter().any(|claim| lower.contains(claim))
+    CLAIMS.iter().any(|claim| lower.contains(&claim.to_ascii_lowercase()))
 }
 
 fn now_millis() -> u64 {

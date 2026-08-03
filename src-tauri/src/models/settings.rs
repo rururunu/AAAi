@@ -47,8 +47,8 @@ pub enum AppLanguage {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
-    Disabled,
     #[default]
+    Disabled,
     High,
     Max,
 }
@@ -77,6 +77,15 @@ pub enum ToolApprovalMode {
     Ask,
     Auto,
     AlwaysAllow,
+}
+
+/// How agent tool cards (shell / diffs) are shown in the chat timeline.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentWorkDisplay {
+    #[default]
+    Detailed,
+    Compact,
 }
 
 /// Chat interaction mode: Agent can mutate; Ask is read-only tools only.
@@ -237,6 +246,9 @@ pub struct AppSettings {
     /// Controls whether reasoning supplied by the model is rendered in chat.
     #[serde(default = "default_true")]
     pub show_reasoning: bool,
+    /// detailed = shell/diff inline in chat; compact = fold into process details.
+    #[serde(default)]
+    pub agent_work_display: AgentWorkDisplay,
     /// Allow the main agent to delegate work to user-selected models.
     #[serde(default)]
     pub multi_model_collaboration: bool,
@@ -266,6 +278,14 @@ pub struct AppSettings {
     /// Show an AI button on Snipaste pin windows (bottom-right).
     #[serde(default = "default_true")]
     pub snipaste_pin_ai_enabled: bool,
+    /// First-run welcome wizard. Missing from older settings files → treat as done.
+    #[serde(default = "default_onboarding_completed_existing")]
+    pub onboarding_completed: bool,
+}
+
+fn default_onboarding_completed_existing() -> bool {
+    // Existing installs that predate this field should skip the welcome flow.
+    true
 }
 
 fn default_chat_model() -> String {
@@ -331,6 +351,7 @@ pub struct AppSettingsPatch {
     pub reasoning_language: Option<ReasoningLanguage>,
     pub pass_tool_reasoning: Option<bool>,
     pub show_reasoning: Option<bool>,
+    pub agent_work_display: Option<AgentWorkDisplay>,
     pub multi_model_collaboration: Option<bool>,
     pub collaboration_models: Option<Vec<String>>,
     pub multimodal_split_analysis: Option<bool>,
@@ -342,12 +363,13 @@ pub struct AppSettingsPatch {
     pub custom_providers: Option<Vec<CustomProviderConfig>>,
     pub pixpin_pin_ai_enabled: Option<bool>,
     pub snipaste_pin_ai_enabled: Option<bool>,
+    pub onboarding_completed: Option<bool>,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            color_scheme: ColorScheme::Dark,
+            color_scheme: ColorScheme::Light,
             language: AppLanguage::ZhCn,
             deepseek_api_key: String::new(),
             gemini_oauth: GeminiOAuthSettings::default(),
@@ -373,6 +395,7 @@ impl Default for AppSettings {
             reasoning_language: ReasoningLanguage::default(),
             pass_tool_reasoning: true,
             show_reasoning: true,
+            agent_work_display: AgentWorkDisplay::default(),
             multi_model_collaboration: false,
             collaboration_models: Vec::new(),
             multimodal_split_analysis: true,
@@ -384,6 +407,7 @@ impl Default for AppSettings {
             custom_providers: Vec::new(),
             pixpin_pin_ai_enabled: true,
             snipaste_pin_ai_enabled: true,
+            onboarding_completed: false,
         }
     }
 }
@@ -469,6 +493,9 @@ impl AppSettings {
                 .pass_tool_reasoning
                 .unwrap_or(self.pass_tool_reasoning),
             show_reasoning: patch.show_reasoning.unwrap_or(self.show_reasoning),
+            agent_work_display: patch
+                .agent_work_display
+                .unwrap_or(self.agent_work_display),
             multi_model_collaboration: patch
                 .multi_model_collaboration
                 .unwrap_or(self.multi_model_collaboration),
@@ -502,6 +529,9 @@ impl AppSettings {
             snipaste_pin_ai_enabled: patch
                 .snipaste_pin_ai_enabled
                 .unwrap_or(self.snipaste_pin_ai_enabled),
+            onboarding_completed: patch
+                .onboarding_completed
+                .unwrap_or(self.onboarding_completed),
         }
     }
 }
@@ -525,6 +555,7 @@ mod tests {
         assert!(settings.chat_model_provider.is_empty());
         assert!(settings.multimodal_model_provider.is_empty());
         assert!(settings.hardware_acceleration_enabled);
+        assert!(settings.onboarding_completed);
     }
 
     #[test]

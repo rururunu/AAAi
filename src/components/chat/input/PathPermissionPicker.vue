@@ -5,11 +5,13 @@
     role="listbox"
     :aria-label="ariaLabel"
   >
-    <li class="picker-meta">
-      <span class="picker-meta-label">{{ header }}</span>
+    <li class="picker-sticky-head">
+      <div class="picker-meta">
+        <span class="picker-meta-label">{{ header }}</span>
+      </div>
+      <div class="picker-meta question">{{ question }}</div>
+      <div class="picker-meta path">{{ path }}</div>
     </li>
-    <li class="picker-meta question">{{ question }}</li>
-    <li class="picker-meta path">{{ path }}</li>
     <li
       v-for="(option, index) in options"
       :key="option.slug"
@@ -64,30 +66,26 @@ defineEmits<{
   overscroll-behavior: contain;
 }
 
-.ask-user-list {
-  max-height: min(
-    calc(
-      var(--picker-meta-row-height) * 2 +
-        var(--command-row-height) * var(--command-list-visible-rows) +
-        var(--command-list-padding)
-    ),
-    72vh
-  );
-}
-
+.ask-user-list,
 .path-permission-list {
   max-height: min(
+    var(--interaction-picker-max-height, 48vh),
     calc(
       var(--picker-meta-row-height) * 3 +
         var(--command-row-height) * var(--command-list-visible-rows) +
-        var(--command-list-padding)
-    ),
-    72vh
+        var(--command-list-padding) +
+        48px
+    )
   );
-  border: 0;
+}
+
+.picker-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0;
+  padding: 0 0 4px;
   background: var(--peek-list-bg);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: geometricPrecision;
 }
 
 .ask-user-list .picker-meta {
@@ -100,6 +98,7 @@ defineEmits<{
   font-size: 11px;
   color: var(--peek-muted);
   pointer-events: none;
+  background: inherit;
 }
 
 .ask-user-list .picker-meta.question {
@@ -110,22 +109,17 @@ defineEmits<{
   line-height: 1.45;
   color: var(--peek-text);
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .path-permission-list .picker-meta.path {
-  font-family: var(--peek-font-mono, ui-monospace, monospace);
-  margin: 2px 0 5px;
-  min-height: 0;
-  padding: 4px 12px 7px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  min-height: 24px;
+  padding-bottom: 6px;
+  font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 400;
-  line-height: 1.5;
-  color: var(--peek-text);
-  word-break: break-all;
+  color: var(--peek-accent);
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .picker-meta-label {
@@ -142,31 +136,24 @@ defineEmits<{
   cursor: default;
 }
 
+.path-permission-list .command-item {
+  height: auto;
+  min-height: 36px;
+  padding: 8px 12px;
+}
+
+.permission-option-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--peek-text);
+}
+
 .command-item.active {
   background: var(--peek-list-active);
 }
 
-.path-permission-list .picker-meta.question {
-  min-height: 30px;
-  padding: 4px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.45;
-}
-
-.path-permission-list .command-item {
-  min-height: 32px;
-  height: 32px;
-  padding: 0 12px;
-}
-
-.permission-option-label {
-  color: var(--peek-text);
-  font-size: 12px;
-  font-weight: 500;
-}
-
 .path-permission-list .command-item.active {
-  background: color-mix(in srgb, var(--peek-text) 7%, transparent);
+  background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
 }
 </style>

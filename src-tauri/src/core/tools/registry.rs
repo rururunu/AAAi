@@ -9,9 +9,22 @@ use super::Tool;
 
 fn normalize_tool_name(name: &str) -> &str {
     match name {
-        "write_to_file" | "create_file" => "write_file",
-        "run_command" | "execute_command" | "execute_shell" | "exec_command" => "run_shell",
-        "replace_content" | "replace_file_content" | "edit_file" => "replace_in_file",
+        // File edits
+        "write_to_file" | "create_file" | "Write" | "write" => "write_file",
+        "replace_content" | "replace_file_content" | "edit_file" | "StrReplace" | "str_replace" => {
+            "replace_in_file"
+        }
+        "Read" | "read" => "read_file",
+        // Shell
+        "run_command" | "execute_command" | "execute_shell" | "exec_command" | "Shell" | "shell" => {
+            "run_shell"
+        }
+        // Search
+        "Grep" | "grep" | "rg" => "search_files",
+        "Glob" | "glob" => "find_files",
+        // Task / ask (Cursor-style aliases)
+        "todo_write" | "TodoWrite" | "todoWrite" | "update_task_list" => "update_tasks",
+        "AskQuestion" | "ask_question" | "AskUser" => "ask_user",
         _ => name,
     }
 }
@@ -166,6 +179,23 @@ impl ToolRegistry {
         filtered
     }
 
+    /// Ask / question-only mode: read-only tools plus interaction/orchestration
+    /// tools (`ask_user`, `update_tasks`) so the model can still clarify and
+    /// maintain a task list without writing files.
+    pub fn filter_for_ask_mode(&self) -> ToolRegistry {
+        let mut filtered = ToolRegistry::new();
+        for name in self.names() {
+            if let Some(tool) = self.get(&name) {
+                if tool.read_only()
+                    || matches!(name.as_str(), "update_tasks" | "ask_user" | "todo_write")
+                {
+                    filtered.register(tool);
+                }
+            }
+        }
+        filtered
+    }
+
     /// Child agents receive execution tools but never delegation tools.
     pub fn filter_for_subagent(&self, read_only: bool) -> ToolRegistry {
         let mut filtered = ToolRegistry::new();
@@ -268,5 +298,33 @@ mod tests {
 
         let read_only = registry.filter_for_subagent(true).names();
         assert_eq!(read_only, vec!["read_file"]);
+    }
+
+    #[test]
+    fn filter_for_ask_mode_keeps_interaction_tools() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(StubTool {
+            name: "read_file",
+            read_only: true,
+        }));
+        registry.register(Arc::new(StubTool {
+            name: "write_file",
+            read_only: false,
+        }));
+        registry.register(Arc::new(StubTool {
+            name: "ask_user",
+            read_only: false,
+        }));
+        registry.register(Arc::new(StubTool {
+            name: "update_tasks",
+            read_only: false,
+        }));
+
+        let filtered = registry.filter_for_ask_mode();
+        let names = filtered.names();
+        assert!(names.contains(&"read_file".to_string()));
+        assert!(names.contains(&"ask_user".to_string()));
+        assert!(names.contains(&"update_tasks".to_string()));
+        assert!(!names.contains(&"write_file".to_string()));
     }
 }

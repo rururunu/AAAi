@@ -16,9 +16,9 @@ use crate::core::runtime::{
 };
 
 /// 标准上下文窗口（token 粗算基准）。
-pub const DEFAULT_CONTEXT_WINDOW: usize = 64_000;
+pub const DEFAULT_CONTEXT_WINDOW: usize = crate::core::chat::limits::DEFAULT_MAX_TURN_TOKENS;
 /// 1M 大上下文窗口（设置开启时使用）。
-pub const LARGE_CONTEXT_WINDOW: usize = 1_000_000;
+pub const LARGE_CONTEXT_WINDOW: usize = crate::core::chat::limits::LARGE_MAX_TURN_TOKENS;
 
 /// Resolve the active context window from the large-context toggle.
 pub fn context_window_tokens(large_context_enabled: bool) -> usize {

@@ -9,6 +9,7 @@
       'overlay-composer': props.appearance === 'overlay',
       'picker-open': interactivePickerOpen && !chipPickerOpen,
       'chip-picker-open': chipPickerOpen,
+      'interaction-request-open': interactionRequestOpen,
     }"
   >
     <Transition :css="false" mode="out-in" @enter="gsapPickerEnter" @leave="gsapPickerLeave">
@@ -762,12 +763,21 @@ const selectedIndex = ref(0);
 
 watch(selectedIndex, async () => {
   await nextTick();
-  const activeEl = document.querySelector(".command-item.active");
-  if (activeEl) {
-    activeEl.scrollIntoView({
-      behavior: "auto",
-      block: "nearest",
-    });
+  const activeEl = document.querySelector<HTMLElement>(".command-item.active");
+  const list = activeEl?.closest<HTMLElement>(".command-list");
+  if (!activeEl || !list) return;
+  // Keep scrolling inside the picker only — never scrollIntoView on the
+  // document / message list (that hides the picker header / question).
+  const sticky = list.querySelector<HTMLElement>(".picker-sticky-head");
+  const stickyHeight = sticky?.offsetHeight ?? 0;
+  const itemTop = activeEl.offsetTop;
+  const itemBottom = itemTop + activeEl.offsetHeight;
+  const viewTop = list.scrollTop + stickyHeight;
+  const viewBottom = list.scrollTop + list.clientHeight;
+  if (itemTop < viewTop) {
+    list.scrollTop = Math.max(0, itemTop - stickyHeight);
+  } else if (itemBottom > viewBottom) {
+    list.scrollTop = itemBottom - list.clientHeight;
   }
 });
 
@@ -1344,6 +1354,14 @@ const interactivePickerOpen = computed(
     workspacePickerOpen.value,
 );
 
+/** Ask / path / tool-approval requests — these need reserved vertical room. */
+const interactionRequestOpen = computed(
+  () =>
+    showAskUserPicker.value ||
+    showPathPermissionPicker.value ||
+    showToolApprovalPicker.value,
+);
+
 /** Pickers that must keep the input read-only (model picker allows typing to filter). */
 const inputLockedForTyping = computed(
   () =>
@@ -1564,6 +1582,7 @@ function schedulePickerHeightMeasure() {
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
+    updateInteractionPickerMaxHeight();
     if (activePickerRowCount() <= 0) {
       measuredPickerHeight = 0;
       return;
@@ -1571,6 +1590,9 @@ function schedulePickerHeightMeasure() {
     const list = document.querySelector(
       ".chat-input-shell .command-list",
     ) as HTMLElement | null;
+    if (list && interactionRequestOpen.value) {
+      list.scrollTop = 0;
+    }
     const height = list?.offsetHeight ?? 0;
     if (height <= 0) {
       return;
@@ -1581,6 +1603,35 @@ function schedulePickerHeightMeasure() {
     measuredPickerHeight = height;
     flushLayoutChange();
   });
+}
+
+/** Cap ask/approval panels so they never grow past the conversation pane
+ *  (absolute overlays would otherwise clip the sticky question header). */
+function updateInteractionPickerMaxHeight() {
+  const shell = chatInputShellRef.value;
+  if (!shell) return;
+  if (!interactionRequestOpen.value) {
+    shell.style.removeProperty("--interaction-picker-max-height");
+    return;
+  }
+
+  const pane =
+    shell.closest<HTMLElement>(".conversation-pane") ||
+    shell.closest<HTMLElement>(".peek-panel") ||
+    shell.closest<HTMLElement>(".composer-dock");
+  const inputBar = shell.querySelector<HTMLElement>(".input-bar");
+  const inputHeight = inputBar?.getBoundingClientRect().height ?? 96;
+  const topReserve = 20;
+  const bottomReserve = 12;
+
+  let available = Math.floor(window.innerHeight * 0.48);
+  if (pane) {
+    const paneHeight = pane.getBoundingClientRect().height;
+    available = Math.floor(paneHeight - inputHeight - topReserve - bottomReserve);
+  }
+
+  const capped = Math.max(180, Math.min(available, Math.floor(window.innerHeight * 0.62)));
+  shell.style.setProperty("--interaction-picker-max-height", `${capped}px`);
 }
 
 function flushLayoutChange() {
@@ -1852,6 +1903,35 @@ function selectModel(entry: ChatModelInfo) {
   emit("modelChange", nextId);
 }
 
+function applyFallbackModelIfNeeded() {
+  if (chatModelStore.models.length === 0) return;
+  if (
+    chatModel.value.trim() &&
+    isKnownModelSelection(
+      chatModelStore.models,
+      chatModel.value,
+      chatModelProvider.value,
+    )
+  ) {
+    return;
+  }
+  const fallback = chatModelStore.models[0]!;
+  selectModel(fallback);
+  if (
+    !settingStore.chatModel.trim() ||
+    !isKnownModelSelection(
+      chatModelStore.models,
+      settingStore.chatModel,
+      settingStore.chatModelProvider,
+    )
+  ) {
+    void settingStore.update({
+      chatModel: fallback.id,
+      chatModelProvider: fallback.provider,
+    });
+  }
+}
+
 async function refreshModelList() {
   await chatModelStore.reload();
   if (modelPickerOpen.value) {
@@ -1911,23 +1991,8 @@ onMounted(async () => {
     if (composeFallback.trim() === "deepseek-chat") {
       updateCompose({ chatModel: "", chatModelProvider: "" });
     }
-  } else if (
-    chatModelStore.models.length > 0 &&
-    (!chatModel.value.trim() ||
-      !isKnownModelSelection(
-        chatModelStore.models,
-        chatModel.value,
-        chatModelProvider.value,
-      ))
-  ) {
-    const fallbackId = chatModelStore.models[0].id;
-    const fallbackProvider = chatModelStore.models[0].provider;
-    chatModel.value = fallbackId;
-    chatModelProvider.value = fallbackProvider;
-    updateCompose({
-      chatModel: fallbackId,
-      chatModelProvider: fallbackProvider,
-    });
+  } else {
+    applyFallbackModelIfNeeded();
   }
   void refreshContextUsage();
   await loadWorkspaceState();
@@ -1951,6 +2016,13 @@ onMounted(async () => {
   }
 });
 
+watch(
+  () => chatModelStore.models.map((model) => `${model.provider}:${model.id}`).join("|"),
+  () => {
+    applyFallbackModelIfNeeded();
+  },
+);
+
 onUnmounted(() => {
   persistDraft();
   unlistenWorkspaces?.();
@@ -1962,11 +2034,30 @@ onUnmounted(() => {
 
 useEventListener(window, "keydown", handleGlobalKeydown);
 useEventListener(window, "focus", restorePickerFocus);
+useEventListener(window, "resize", () => {
+  updateInteractionPickerMaxHeight();
+});
 useEventListener(document, "visibilitychange", () => {
   if (document.visibilityState === "visible") {
     restorePickerFocus();
   }
 });
+
+watch(
+  interactionRequestOpen,
+  (open) => {
+    if (open) {
+      void nextTick(() => {
+        updateInteractionPickerMaxHeight();
+        const list = chatInputShellRef.value?.querySelector<HTMLElement>(".command-list");
+        if (list) list.scrollTop = 0;
+      });
+    } else {
+      chatInputShellRef.value?.style.removeProperty("--interaction-picker-max-height");
+    }
+  },
+  { immediate: true },
+);
 
 const isCommandMode = computed(
   () =>
@@ -3053,18 +3144,24 @@ watch(showSuggestions, () => {
   emitLayoutChange();
 }, { immediate: true });
 
-watch(showAskUserPicker, () => {
-  if (showAskUserPicker.value && modelPickerOpen.value) {
+watch(showAskUserPicker, async (open) => {
+  if (open && modelPickerOpen.value) {
     closeModelPicker();
   }
-  if (showAskUserPicker.value && approvalPickerOpen.value) {
+  if (open && approvalPickerOpen.value) {
     closeApprovalMenu();
   }
-  if (showAskUserPicker.value && chatModePickerOpen.value) {
+  if (open && chatModePickerOpen.value) {
     closeChatModeMenu();
   }
-  if (showAskUserPicker.value && thinkingTierPickerOpen.value) {
+  if (open && thinkingTierPickerOpen.value) {
     closeThinkingTierMenu();
+  }
+  if (open) {
+    await nextTick();
+    document.querySelectorAll<HTMLElement>(".ask-user-list").forEach((list) => {
+      list.scrollTop = 0;
+    });
   }
   emitLayoutChange();
 });
@@ -3087,6 +3184,10 @@ watch(
         closeThinkingTierMenu();
       }
       await syncPopupState(true);
+      await nextTick();
+      document.querySelectorAll<HTMLElement>(".path-permission-list").forEach((list) => {
+        list.scrollTop = 0;
+      });
       void focusInput();
     }
     emitLayoutChange();
@@ -3111,6 +3212,10 @@ watch(
         closeThinkingTierMenu();
       }
       await syncPopupState(true);
+      await nextTick();
+      document.querySelectorAll<HTMLElement>(".tool-approval-list").forEach((list) => {
+        list.scrollTop = 0;
+      });
       void focusInput();
     }
     emitLayoutChange();
@@ -3161,6 +3266,26 @@ defineExpose({ focusInput, reset, setMessage });
   border-bottom: 0;
   border-radius: 8px 8px 0 0;
   box-shadow: 0 -10px 28px color-mix(in srgb, #000 24%, transparent);
+}
+
+/* Ask / permission / approval: in-flow so the question header cannot be clipped
+   by the conversation pane, and the panel stays attached to the input bar. */
+.chat-input-shell.overlay-pickers.interaction-request-open :deep(.ask-user-list),
+.chat-input-shell.overlay-pickers.interaction-request-open :deep(.path-permission-list),
+.chat-input-shell.overlay-pickers.interaction-request-open :deep(.tool-approval-list) {
+  position: relative;
+  z-index: 1;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: 100%;
+  max-height: var(--interaction-picker-max-height, min(420px, 48vh));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  box-shadow: none;
 }
 
 .input-bar {
@@ -3254,7 +3379,7 @@ defineExpose({ focusInput, reset, setMessage });
 
 .workbench-composer .input-bar {
   min-height: 116px;
-  max-height: min(280px, calc(100vh - 96px));
+  max-height: min(280px, 100%);
   padding: 13px 13px 10px;
   gap: 9px;
   overflow: hidden;
@@ -3321,7 +3446,7 @@ defineExpose({ focusInput, reset, setMessage });
 
 .workbench-composer.overlay-pickers :deep(.command-list) {
   bottom: calc(100% - 1px);
-  max-height: min(280px, calc(100vh - 180px));
+  max-height: min(420px, 52vh);
   overflow-y: auto;
   padding: 6px;
   border: 1px solid color-mix(in srgb, var(--peek-text) 7%, transparent);
@@ -3331,22 +3456,29 @@ defineExpose({ focusInput, reset, setMessage });
   box-shadow: 0 -14px 32px color-mix(in srgb, #000 14%, transparent);
 }
 
-/* Interaction requests use the same inset, attached panel language as the
-   staged-message queue instead of spanning the full composer width. */
-.workbench-composer.overlay-pickers :deep(.ask-user-list) {
-  right: max(16px, calc((100% - 720px) / 2));
-  left: max(16px, calc((100% - 720px) / 2));
-  width: auto;
+/* Interaction requests: full-width panel stacked above the composer (in-flow). */
+.workbench-composer.overlay-pickers.interaction-request-open :deep(.ask-user-list),
+.workbench-composer.overlay-pickers.interaction-request-open :deep(.path-permission-list),
+.workbench-composer.overlay-pickers.interaction-request-open :deep(.tool-approval-list) {
+  right: 0;
+  left: 0;
+  width: 100%;
+  max-height: var(--interaction-picker-max-height, min(420px, 48vh));
   padding: 6px 8px 0;
   border-color: color-mix(in srgb, var(--peek-accent) 20%, transparent);
   background: color-mix(in srgb, var(--peek-surface) 97%, transparent);
   box-shadow: 0 -10px 24px color-mix(in srgb, #000 16%, transparent);
 }
 
+.workbench-composer.overlay-pickers :deep(.ask-user-list .picker-sticky-head),
+.workbench-composer.overlay-pickers :deep(.ask-user-list .picker-meta) {
+  background: color-mix(in srgb, var(--peek-surface) 97%, transparent);
+}
+
 .workbench-composer.overlay-pickers :deep(.ask-user-list .command-item) {
+  height: auto;
   min-height: 36px;
-  height: 36px;
-  padding: 0 10px;
+  padding: 6px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--peek-border) 42%, transparent);
   border-radius: 0;
   background: transparent;
@@ -3365,6 +3497,10 @@ defineExpose({ focusInput, reset, setMessage });
   border-top-color: transparent;
   border-radius: 0 0 10px 10px;
   box-shadow: 0 16px 40px color-mix(in srgb, #000 20%, transparent);
+}
+
+.workbench-composer.interaction-request-open.picker-open .input-bar {
+  border-top-color: color-mix(in srgb, var(--peek-border) 70%, transparent);
 }
 
 .workbench-composer.overlay-pickers :deep(.command-item) {

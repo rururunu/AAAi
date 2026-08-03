@@ -5,8 +5,10 @@
     role="listbox"
     :aria-label="ariaLabel"
   >
-    <li class="picker-meta">
-      <span class="picker-meta-label">{{ header }}</span>
+    <li class="picker-sticky-head">
+      <div class="picker-meta">
+        <span class="picker-meta-label">{{ header }}</span>
+      </div>
     </li>
     <li
       v-for="(option, index) in options"
@@ -60,30 +62,27 @@ defineEmits<{
   overscroll-behavior: contain;
 }
 
-.ask-user-list {
+.ask-user-list,
+.path-permission-list,
+.tool-approval-list {
   max-height: min(
+    var(--interaction-picker-max-height, 48vh),
     calc(
-      var(--picker-meta-row-height) * 2 +
+      var(--picker-meta-row-height) * 1 +
         var(--command-row-height) * var(--command-list-visible-rows) +
-        var(--command-list-padding)
-    ),
-    72vh
+        var(--command-list-padding) +
+        48px
+    )
   );
 }
 
-.path-permission-list {
-  max-height: min(
-    calc(
-      var(--picker-meta-row-height) * 3 +
-        var(--command-row-height) * var(--command-list-visible-rows) +
-        var(--command-list-padding)
-    ),
-    72vh
-  );
-  border: 0;
+.picker-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0;
+  padding: 0 0 4px;
   background: var(--peek-list-bg);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: geometricPrecision;
 }
 
 .ask-user-list .picker-meta {
@@ -96,17 +95,7 @@ defineEmits<{
   font-size: 11px;
   color: var(--peek-muted);
   pointer-events: none;
-}
-
-.tool-approval-list {
-  max-height: min(
-    calc(
-      var(--picker-meta-row-height) * 1 +
-        var(--command-row-height) * var(--command-list-visible-rows) +
-        var(--command-list-padding)
-    ),
-    72vh
-  );
+  background: inherit;
 }
 
 .picker-meta-label {
@@ -123,23 +112,26 @@ defineEmits<{
   cursor: default;
 }
 
+.path-permission-list .command-item {
+  height: auto;
+  min-height: 36px;
+  padding: 8px 12px;
+}
+
+.permission-option-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--peek-text);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .command-item.active {
   background: var(--peek-list-active);
 }
 
-.path-permission-list .command-item {
-  min-height: 32px;
-  height: 32px;
-  padding: 0 12px;
-}
-
-.permission-option-label {
-  color: var(--peek-text);
-  font-size: 12px;
-  font-weight: 500;
-}
-
 .path-permission-list .command-item.active {
-  background: color-mix(in srgb, var(--peek-text) 7%, transparent);
+  background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
 }
 </style>

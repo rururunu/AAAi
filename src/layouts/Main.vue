@@ -58,7 +58,7 @@
     </header>
 
     <div v-if="settingsOpen" class="embedded-settings">
-      <SettingsPage embedded @back="closeSettings" />
+      <SettingsPage embedded :category="settingsCategory" @back="closeSettings" />
     </div>
 
     <div v-else class="workspace-grid" :class="{ 'navigation-closed': !navigationOpen, 'review-open': reviewOpen }">
@@ -212,12 +212,23 @@
           <CircleAlert :size="14" :stroke-width="1.8" aria-hidden="true" />
           <span>{{ contextNotice }}</span>
         </div>
-        <div v-if="!hasConversationMessages" class="empty-conversation-brand" aria-hidden="true">
-          <img :src="appIconAsset" alt="" draggable="false" />
-        </div>
-        <p v-if="!hasConversationMessages" class="empty-conversation-prompt">
-          {{ emptyConversationPrompt }}
-        </p>
+        <Transition name="empty-hero">
+          <div
+            v-if="!hasConversationMessages"
+            class="empty-conversation-hero"
+          >
+            <div
+              class="empty-conversation-brand"
+              data-onboarding-logo-target
+              aria-hidden="true"
+            >
+              <img :src="appIconAsset" alt="" draggable="false" />
+            </div>
+            <p class="empty-conversation-prompt">
+              {{ emptyConversationPrompt }}
+            </p>
+          </div>
+        </Transition>
         <MessageList
           class="workbench-messages"
           :messages="messages"
@@ -229,8 +240,8 @@
           @preview-image="previewImage"
         />
 
-        <div class="composer-wrap">
-          <div v-if="stagedMessages.length" class="staged-wrap" data-tauri-drag-region="false">
+        <div class="composer-wrap" :class="{ 'has-interaction-picker': Boolean(activePendingInteraction) }">
+          <div v-if="stagedMessages.length" class="staged-wrap peek-scrollbar" data-tauri-drag-region="false">
             <div class="staged-list">
               <div
                 v-for="(message, index) in stagedMessages"
@@ -325,6 +336,22 @@
         />
       </aside>
     </div>
+
+    <WelcomeOnboarding
+      v-if="showOnboarding"
+      @completed="showOnboarding = false"
+    />
+
+    <button
+      v-if="isDevBuild"
+      type="button"
+      class="debug-tutorial-button"
+      :title="tutorialButtonLabel"
+      @click="openTutorial"
+    >
+      <BookOpen :size="14" />
+      <span>{{ tutorialButtonLabel }}</span>
+    </button>
   </main>
 </template>
 
@@ -334,6 +361,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   Bug,
+  BookOpen,
   CircleAlert,
   ChevronRight,
   CornerDownLeft,
@@ -367,6 +395,7 @@ import MessageList from "@/components/chat/MessageList.vue";
 import SubagentSidebar from "@/components/chat/SubagentSidebar.vue";
 import WorkbenchSessionList from "@/components/workbench/WorkbenchSessionList.vue";
 import WorkbenchLoading from "@/components/workbench/WorkbenchLoading.vue";
+import WelcomeOnboarding from "@/components/onboarding/WelcomeOnboarding.vue";
 import { AppConfirmDialog } from "@/components/ui/confirm-dialog";
 import appIconAsset from "../../src-tauri/icons/AAAi-transparent.svg";
 import {
@@ -389,7 +418,9 @@ import {
 import { tr } from "@/services/i18n";
 import { estimateMessageTokens } from "@/services/chat/tokenEstimate";
 import { useChatStore } from "@/stores/chat";
-import { useSettingStore } from "@/stores/setting";
+import { useSettingStore, applyZoom } from "@/stores/setting";
+import { useAppStore } from "@/stores/app";
+import type { CategoryId } from "@/pages/Settings/settingsDefinitions";
 import {
   clearCurrentWorkspace,
   createWorkspace,
@@ -441,13 +472,25 @@ const SettingsPage = defineAsyncComponent(() => import("@/pages/Settings/index.v
 
 const chatStore = useChatStore();
 const settingStore = useSettingStore();
+const appStore = useAppStore();
 const appDisplayName = import.meta.env.DEV ? "AAAi Debug" : "AAAi";
+const isDevBuild = import.meta.env.DEV;
 const appWindow = getCurrentWebviewWindow();
 const inputRef = ref<InstanceType<typeof ChatInputBar> | null>(null);
 const confirmDialogRef = ref<InstanceType<typeof AppConfirmDialog> | null>(null);
 const navigationOpen = ref(true);
 const isMaximized = ref(false);
 const settingsOpen = ref(false);
+const settingsCategory = ref<CategoryId>("ai");
+const showOnboarding = ref(!settingStore.onboardingCompleted);
+const tutorialButtonLabel = computed(() =>
+  settingStore.language === "zh-CN" ? "查看教程" : "Tutorial",
+);
+
+function openTutorial() {
+  settingsOpen.value = false;
+  showOnboarding.value = true;
+}
 const builtInTheme = computed(() => settingStore.colorScheme);
 const reviewOpen = ref(false);
 const reviewView = ref<ReviewView>("diff");
@@ -1202,8 +1245,12 @@ function hideWindow() {
   void appWindow.hide();
 }
 
-function openSettings() {
-  if (settingsOpen.value) return;
+function openSettings(category?: CategoryId) {
+  if (category) {
+    settingsCategory.value = category;
+  } else if (!settingsOpen.value) {
+    settingsCategory.value = "ai";
+  }
   settingsOpen.value = true;
 }
 
@@ -1240,6 +1287,21 @@ watch(
   () => void refreshCheckpoints(),
 );
 
+watch(
+  () => appStore.settingsOpenSignal,
+  () => {
+    openSettings(appStore.settingsCategory);
+  },
+);
+
+watch(
+  () => settingStore.zoom,
+  (zoom) => {
+    applyZoom(zoom);
+  },
+  { immediate: true },
+);
+
 onMounted(async () => {
   await syncMaximizedState();
   unlisteners.push(await appWindow.onResized(() => void syncMaximizedState()));
@@ -1247,7 +1309,7 @@ onMounted(async () => {
     if (focused && !settingsOpen.value) clearSessionUnread(activeSessionId.value);
   }));
   unlisteners.push(await listen("open-workbench-settings", () => {
-    openSettings();
+    openSettings(appStore.settingsCategory || "ai");
   }));
   unlisteners.push(await listen<string>("workbench-open-session", async (event) => {
     pendingWorkbenchSessionId = event.payload;
@@ -1359,23 +1421,58 @@ onUnmounted(() => {
 <style scoped>
 .workbench {
   --workbench-chrome-bg: color-mix(in srgb, var(--peek-sidebar) 92%, var(--peek-bg));
-  width: 100vw;
-  height: 100vh;
+  /*
+   * Scale via transform (not CSS zoom): WebView2/Chromium zoom on a subtree
+   * shrinks layout without reliably expanding paint into the leftover space,
+   * which left empty chrome at 120%+. Inverse size + scale fills the window.
+   */
+  position: relative;
+  box-sizing: border-box;
+  width: calc(100% / var(--ui-zoom, 1));
+  height: calc(100% / var(--ui-zoom, 1));
+  transform: scale(var(--ui-zoom, 1));
+  transform-origin: 0 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--workbench-chrome-bg);
   color: var(--peek-text);
   font-family: var(--font-sans);
+  container-type: size;
+  container-name: workbench;
 }
 .workbench-ready-leave-active { transition: opacity 180ms ease; }
 .workbench-ready-leave-to { opacity: 0; }
+
+.debug-tutorial-button {
+  position: absolute;
+  z-index: 40;
+  left: 12px;
+  bottom: 12px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid var(--peek-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--peek-surface) 92%, transparent);
+  color: var(--peek-muted);
+  box-shadow: 0 6px 18px var(--peek-shadow);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 550;
+}
+.debug-tutorial-button:hover {
+  color: var(--peek-text);
+  background: var(--peek-surface);
+}
 
 .titlebar {
   flex: none;
   height: 42px;
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(140px, 250px) minmax(0, 1fr) auto auto;
   align-items: center;
   background: var(--workbench-chrome-bg);
   user-select: none;
@@ -1427,17 +1524,22 @@ button { font: inherit; }
 
 .workspace-grid {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: 250px minmax(480px, 1fr);
+  grid-template-columns: minmax(140px, 250px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   background: var(--workbench-chrome-bg);
 }
-.embedded-settings { flex: 1; min-height: 0; }
-.workspace-grid.navigation-closed { grid-template-columns: minmax(480px, 1fr); }
-.workspace-grid.review-open { grid-template-columns: 250px minmax(480px, 1fr) minmax(420px, 46%); }
-.workspace-grid.navigation-closed.review-open { grid-template-columns: minmax(480px, 1fr) minmax(420px, 46%); }
+.embedded-settings { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.workspace-grid.navigation-closed { grid-template-columns: minmax(0, 1fr); }
+.workspace-grid.review-open {
+  grid-template-columns: minmax(140px, 250px) minmax(0, 1fr) minmax(240px, min(46%, 520px));
+}
+.workspace-grid.navigation-closed.review-open {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, min(46%, 520px));
+}
 
 .navigation-pane {
   min-width: 0;
@@ -1507,14 +1609,81 @@ button { font: inherit; }
 .workspace-menu button:hover { background: var(--peek-hover-bg); }
 .workspace-menu button.danger { color: var(--peek-danger); }
 
-.conversation-pane { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px 12px 0 0; background: var(--peek-list-bg); }
-.workbench-messages { box-sizing: border-box; flex: 1 1 0; width: min(100%, 900px); min-height: 0; margin: 0 auto; overflow: hidden; padding-top: 18px; }
+.conversation-pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px 12px 0 0;
+  background: var(--peek-list-bg);
+  container-type: size;
+  container-name: conversation;
+}
+.workbench-messages {
+  box-sizing: border-box;
+  flex: 1 1 0;
+  width: min(100%, 900px);
+  min-height: 0;
+  margin: 0 auto;
+  overflow: hidden;
+  padding-top: 18px;
+  padding-bottom: 148px;
+  transition: padding-bottom 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+}
 .workbench-messages :deep(.message-list) { padding: 18px 40px 28px; gap: 20px; }
 .workbench-messages :deep(.assistant-bubble) { max-width: 100%; }
 .workbench-messages :deep(.user-turn) { max-width: min(76%, 680px); }
-.composer-wrap { position: relative; z-index: 8; flex: 0 0 auto; width: min(calc(100% - 48px), 820px); min-height: 0; max-height: min(280px, calc(100% - 24px)); margin: 0 auto clamp(10px, 2.5vh, 24px); }
+.composer-wrap {
+  position: absolute;
+  z-index: 8;
+  left: 50%;
+  top: calc(100% - clamp(10px, 2.5vh, 24px));
+  bottom: auto;
+  width: min(calc(100% - 48px), 820px);
+  min-height: 0;
+  max-height: min(280px, calc(100% - 24px));
+  margin: 0;
+  transform: translate(-50%, -100%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  overflow: visible;
+  transition:
+    top 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    width 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    max-height 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    transform 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+}
+.composer-wrap.has-interaction-picker {
+  /* Grow with ask / approval panels, but stay inside the conversation pane. */
+  max-height: calc(100% - 16px);
+}
 .composer-wrap :deep(.chat-input-shell) { position: relative; z-index: 2; width: 100%; min-height: 0; max-height: 100%; }
-.composer-wrap :deep(.input-bar) { width: 100%; max-height: 100%; }
+.composer-wrap :deep(.input-bar) {
+  width: 100%;
+  max-height: 100%;
+  transition:
+    min-height 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    padding 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    border-radius 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    border-color 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    background 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    box-shadow 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+}
+.composer-wrap :deep(.input-content),
+.composer-wrap :deep(.workbench-textarea),
+.composer-wrap :deep(.footer-chip) {
+  transition:
+    min-height 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    height 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    font-size 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    line-height 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    border-radius 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    letter-spacing 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+}
 .staged-wrap {
   position: absolute;
   left: 0;
@@ -1599,14 +1768,119 @@ button { font: inherit; }
   background: color-mix(in srgb, var(--peek-danger) 13%, transparent);
   color: var(--peek-danger);
 }
-.conversation-pane.empty-conversation .workbench-messages { visibility: hidden; pointer-events: none; }
-.empty-conversation-brand { position: absolute; top: calc(50% - 318px); left: 50%; width: 128px; height: 128px; transform: translateX(-50%); pointer-events: none; }
-.empty-conversation-brand img { display: block; width: 100%; height: 100%; object-fit: contain; opacity: 0.9; }
+.conversation-pane.empty-conversation .workbench-messages {
+  visibility: hidden;
+  pointer-events: none;
+  padding-bottom: 18px;
+}
+.empty-conversation-hero {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  bottom: calc(50% + 84px);
+  width: min(calc(100% - 48px), 680px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  user-select: none;
+}
+.empty-hero-enter-active,
+.empty-hero-leave-active {
+  transition:
+    opacity 320ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+    transform 420ms var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+}
+.empty-hero-enter-from,
+.empty-hero-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(12px) scale(0.98);
+}
+.empty-conversation-brand {
+  width: 104px;
+  height: 104px;
+  flex: none;
+}
+.empty-conversation-brand img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.94;
+}
 .workbench[data-theme="dark"] .empty-conversation-brand img { filter: invert(1); }
-.empty-conversation-prompt { position: absolute; top: calc(50% - 190px); left: 50%; width: min(calc(100% - 48px), 820px); margin: 0; color: var(--peek-muted); font-size: 15px; line-height: 1.6; text-align: center; transform: translateX(-50%); user-select: none; }
-.conversation-pane.empty-conversation .composer-wrap { position: absolute; top: 50%; left: 50%; margin: 0; transform: translate(-50%, -50%); }
+.empty-conversation-prompt {
+  margin: 0;
+  max-width: 28em;
+  color: var(--peek-text);
+  font-size: clamp(20px, 2.4vw, 26px);
+  font-weight: 560;
+  letter-spacing: -0.025em;
+  line-height: 1.35;
+  text-align: center;
+  text-wrap: balance;
+}
+.conversation-pane.empty-conversation .composer-wrap {
+  top: 50%;
+  width: min(calc(100% - 48px), 680px);
+  transform: translate(-50%, -50%);
+}
+.conversation-pane.empty-conversation .composer-wrap :deep(.input-bar) {
+  min-height: 128px;
+  padding: 16px 16px 12px;
+  border-radius: 18px;
+  border-color: color-mix(in srgb, var(--peek-border) 88%, var(--peek-accent));
+  background: color-mix(in srgb, var(--peek-surface) 98%, transparent);
+  box-shadow:
+    0 18px 48px color-mix(in srgb, #000 10%, transparent),
+    0 1px 0 color-mix(in srgb, #fff 55%, transparent) inset;
+}
+.workbench[data-theme="dark"] .conversation-pane.empty-conversation .composer-wrap :deep(.input-bar) {
+  box-shadow:
+    0 18px 48px color-mix(in srgb, #000 28%, transparent),
+    0 1px 0 color-mix(in srgb, #fff 5%, transparent) inset;
+}
+.conversation-pane.empty-conversation .composer-wrap :deep(.input-bar:focus-within) {
+  border-color: color-mix(in srgb, var(--peek-accent) 34%, var(--peek-border));
+  box-shadow:
+    0 20px 52px color-mix(in srgb, #000 12%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--peek-accent) 10%, transparent);
+}
+.conversation-pane.empty-conversation .composer-wrap :deep(.input-content) {
+  min-height: 56px;
+}
+.conversation-pane.empty-conversation .composer-wrap :deep(.workbench-textarea) {
+  min-height: 52px;
+  font-size: 15px;
+  line-height: 24px;
+  letter-spacing: -0.01em;
+}
+.conversation-pane.empty-conversation .composer-wrap :deep(.workbench-textarea::placeholder) {
+  color: var(--peek-placeholder);
+  letter-spacing: 0;
+}
+.conversation-pane.empty-conversation .composer-wrap :deep(.footer-chip) {
+  height: 30px;
+  border-radius: 8px;
+  font-size: 12px;
+}
 .conversation-pane.empty-conversation .composer-wrap :deep(.model-picker-list) {
   max-height: max(96px, calc(50vh - 96px));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-wrap,
+  .composer-wrap :deep(.input-bar),
+  .composer-wrap :deep(.input-content),
+  .composer-wrap :deep(.workbench-textarea),
+  .composer-wrap :deep(.footer-chip),
+  .workbench-messages,
+  .empty-hero-enter-active,
+  .empty-hero-leave-active {
+    transition: none !important;
+  }
 }
 .context-notice {
   position: absolute;
@@ -1643,14 +1917,50 @@ button { font: inherit; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 1120px) {
-  .titlebar { grid-template-columns: 210px minmax(0, 1fr) auto auto; }
-  .workspace-grid { grid-template-columns: 210px minmax(480px, 1fr); }
-  .workspace-grid.review-open { grid-template-columns: minmax(460px, 1fr) minmax(420px, 48%); }
+  .titlebar { grid-template-columns: minmax(120px, 210px) minmax(0, 1fr) auto auto; }
+  .workspace-grid { grid-template-columns: minmax(120px, 210px) minmax(0, 1fr); }
+  .workspace-grid.review-open { grid-template-columns: minmax(0, 1fr) minmax(240px, min(48%, 480px)); }
   .workspace-grid.review-open .navigation-pane { display: none; }
 }
 
 @media (max-height: 700px) {
   .workbench-messages :deep(.message-list) { padding-bottom: 14px; }
-  .composer-wrap { width: min(calc(100% - 28px), 820px); max-height: calc(100% - 12px); margin-bottom: 8px; }
+  .composer-wrap {
+    top: calc(100% - 8px);
+    width: min(calc(100% - 28px), 820px);
+    max-height: calc(100% - 12px);
+  }
+}
+
+/* Prefer container queries so compact layout tracks zoom-compensated design size. */
+@container workbench (max-width: 900px) {
+  .titlebar { grid-template-columns: minmax(120px, 210px) minmax(0, 1fr) auto auto; }
+  .workspace-grid { grid-template-columns: minmax(120px, 210px) minmax(0, 1fr); }
+  .workspace-grid.review-open { grid-template-columns: minmax(0, 1fr) minmax(220px, min(48%, 420px)); }
+  .workspace-grid.review-open .navigation-pane { display: none; }
+}
+
+@container workbench (max-height: 560px) {
+  .workbench-messages :deep(.message-list) { padding-bottom: 12px; }
+  .composer-wrap {
+    top: calc(100% - 8px);
+    width: min(calc(100% - 28px), 820px);
+    max-height: min(46cqh, calc(100% - 12px));
+  }
+}
+
+@container conversation (max-height: 640px) {
+  .composer-wrap {
+    max-height: min(42cqh, calc(100% - 24px));
+  }
+}
+
+@container conversation (max-height: 480px) {
+  .composer-wrap {
+    max-height: min(48cqh, calc(100% - 8px));
+  }
+  .workbench-messages {
+    padding-bottom: max(96px, 22cqh);
+  }
 }
 </style>

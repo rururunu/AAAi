@@ -19,6 +19,9 @@ export type ReasoningEffort = "disabled" | "high" | "max";
 
 export type ReasoningLanguage = "auto" | "zh" | "en";
 
+/** How agent tool/work cards are shown in chat. */
+export type AgentWorkDisplay = "detailed" | "compact";
+
 export type WebSearchProvider = "serper" | "tavily";
 
 export type ToolApprovalMode = "ask" | "auto" | "alwaysAllow";
@@ -119,6 +122,8 @@ export interface AppSettings {
     passToolReasoning: boolean;
     /** Display reasoning content supplied by the model in chat. */
     showReasoning: boolean;
+    /** detailed = shell/diff inline; compact = fold into process details. */
+    agentWorkDisplay: AgentWorkDisplay;
     multiModelCollaboration: boolean;
     collaborationModels: string[];
     zoom: number;
@@ -131,6 +136,8 @@ export interface AppSettings {
     pixpinPinAiEnabled: boolean;
     /** Show AI button on Snipaste pin windows. */
     snipastePinAiEnabled: boolean;
+    /** First-run welcome wizard completed. */
+    onboardingCompleted: boolean;
 }
 
 export interface AppSettingsPatch {
@@ -162,6 +169,7 @@ export interface AppSettingsPatch {
     reasoningLanguage?: ReasoningLanguage;
     passToolReasoning?: boolean;
     showReasoning?: boolean;
+    agentWorkDisplay?: AgentWorkDisplay;
     multiModelCollaboration?: boolean;
     collaborationModels?: string[];
     zoom?: number;
@@ -171,6 +179,7 @@ export interface AppSettingsPatch {
     customProviders?: CustomProviderConfig[];
     pixpinPinAiEnabled?: boolean;
     snipastePinAiEnabled?: boolean;
+    onboardingCompleted?: boolean;
 }
 
 export interface ModelSelection {
@@ -267,6 +276,17 @@ export const toolApprovalModeOptions: SelectOption<ToolApprovalMode>[] = [
     {
         value: "alwaysAllow",
         label: { "zh-CN": "一律允许", "en-US": "Always allow" },
+    },
+];
+
+export const agentWorkDisplayOptions: SelectOption<AgentWorkDisplay>[] = [
+    {
+        value: "detailed",
+        label: { "zh-CN": "详细显示", "en-US": "Detailed" },
+    },
+    {
+        value: "compact",
+        label: { "zh-CN": "轻量显示", "en-US": "Compact" },
     },
 ];
 

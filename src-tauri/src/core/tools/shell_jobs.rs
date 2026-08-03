@@ -158,10 +158,6 @@ impl ShellJobStore {
         }
     }
 
-    pub fn read_output(&self, job_id: &str) -> Result<String, ToolError> {
-        self.read_output_limited(job_id, None, None)
-    }
-
     pub fn read_output_limited(
         &self,
         job_id: &str,
@@ -503,7 +499,7 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(3);
         let running = loop {
-            let status = store.read_output(&id).expect("read");
+            let status = store.read_output_limited(&id, None, None).expect("read");
             if status.contains("first") {
                 break status;
             }
@@ -514,7 +510,7 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
-            let status = store.read_output(&id).expect("read");
+            let status = store.read_output_limited(&id, None, None).expect("read");
             if status.contains("status: done") {
                 assert!(status.contains("first"));
                 assert!(status.contains("second"));

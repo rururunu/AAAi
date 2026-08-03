@@ -1,141 +1,123 @@
 <template>
   <div v-if="enrichedActivities.length" class="tool-activity-list" :class="{ operations, nested }">
-    <section
-      v-for="item in enrichedActivities"
-      :key="item.activity.id"
-      class="tool-activity-card"
-      :class="[
-        item.activity.kind,
-        item.activity.status,
-        { subagent: isSubagentTool(item.activity), 'subagent-running': isRunningSubagent(item.activity) },
-      ]"
-    >
-      <div class="tool-activity-header">
-        <button
-          type="button"
-          class="tool-activity-main"
-          :aria-expanded="isExpanded(item.activity)"
-          @click="toggleActivity(item.activity)"
-        >
-        <ChevronRight class="activity-chevron" :class="{ open: isExpanded(item.activity) }" :size="12" />
-        <span class="tool-activity-icon" aria-hidden="true">
-          <component :is="icon(item.activity)" :size="12" />
-        </span>
-        <span class="tool-activity-title">{{ item.activity.title }}</span>
-        <span v-if="isFuzzy(item.activity)" class="fuzzy-badge">{{ tr(settingStore.language, "fuzzyMatch") }}</span>
-        <span v-if="(operations || item.activity.preview) && item.edits.length" class="change-stats">
-          <span class="added">+{{ item.stats.added }}</span>
-          <span class="removed">-{{ item.stats.removed }}</span>
-        </span>
-        <span v-if="item.activity.status === 'running'" class="tool-activity-status">
-          {{
-            tr(
-              settingStore.language,
-              item.activity.toolName === "ask_user"
-                ? "waitingAnswer"
-                : item.activity.preview
-                  ? "waitingApproval"
-                  : "running",
-            )
-          }}
-        </span>
-        <span v-else-if="item.activity.status === 'error'" class="tool-activity-status error">{{ tr(settingStore.language, "failed") }}</span>
-        </button>
-        <button
-          v-if="showInspectAction && isSubagentTool(item.activity) && !childAgentRows(item.activity).length"
-          type="button"
-          class="inspect-subagent-button"
-          :aria-label="inspectLabel"
-          :title="inspectLabel"
-          @click.stop="emit('inspectSubagent', item.activity.id)"
-        >
-          <PanelRightOpen :size="13" />
-        </button>
-      </div>
+    <template v-for="item in enrichedActivities" :key="item.activity.id">
+      <ShellTerminalCard
+        v-if="item.activity.kind === 'shell'"
+        :activity="item.activity"
+        :start-collapsed="cardsCollapsed"
+      />
 
-      <div v-if="isSubagentTool(item.activity) && childAgentRows(item.activity).length" class="child-agent-rows">
-        <button
-          v-for="agent in childAgentRows(item.activity)"
-          :key="agent.id"
-          type="button"
-          class="child-agent-row"
-          :title="agent.prompt"
-          @click.stop="emit('inspectSubagent', agent.id)"
-        >
-          <span class="tool-activity-icon" aria-hidden="true">
-            <SubagentIcon :status="agent.status" :size="12" />
-          </span>
-          <span class="child-agent-title">{{ agent.title }}</span>
-          <span v-if="agent.status === 'running'" class="tool-activity-status">{{ tr(settingStore.language, "running") }}</span>
-          <span v-else-if="agent.status === 'error'" class="tool-activity-status error">{{ tr(settingStore.language, "failed") }}</span>
-          <PanelRightOpen :size="13" class="child-agent-inspect" />
-        </button>
-      </div>
+      <TaskListCard
+        v-else-if="item.tasks.length"
+        embedded
+        :tasks="item.tasks"
+      />
 
-      <div v-if="isExpanded(item.activity) && (!isSubagentTool(item.activity) || showSubagentDetails)" class="tool-activity-body">
-        <div v-if="(operations || item.activity.preview) && item.edits.length" class="operation-edits" :class="{ flat: item.edits.length === 1 }">
-          <pre
-            v-if="item.edits.length === 1"
-            class="structured-diff flat"
-          ><code><span
-            v-for="(html, lineIndex) in item.edits[0].oldHtml"
-            :key="`old-${lineIndex}`"
-            class="diff-line deletion"
-          ><span class="diff-marker">-</span><span v-html="html" /></span><span
-            v-for="(html, lineIndex) in item.edits[0].newHtml"
-            :key="`new-${lineIndex}`"
-            class="diff-line addition"
-          ><span class="diff-marker">+</span><span v-html="html" /></span></code></pre>
-          <details
-            v-for="(edit, index) in item.edits.length > 1 ? item.edits : []"
-            :key="index"
-            class="operation-edit"
-          >
-            <summary>
-              <ChevronRight class="edit-chevron" :size="12" />
-              <span>{{ edit.label }}</span>
-              <span class="change-stats edit-stats">
-                <span class="added">+{{ edit.newLines.length }}</span>
-                <span class="removed">-{{ edit.oldLines.length }}</span>
-              </span>
-            </summary>
-            <pre class="structured-diff"><code><span
-              v-for="(html, lineIndex) in edit.oldHtml"
-              :key="`old-${lineIndex}`"
-              class="diff-line deletion"
-            ><span class="diff-marker">-</span><span v-html="html" /></span><span
-              v-for="(html, lineIndex) in edit.newHtml"
-              :key="`new-${lineIndex}`"
-              class="diff-line addition"
-            ><span class="diff-marker">+</span><span v-html="html" /></span></code></pre>
-          </details>
-        </div>
-        <div v-else-if="item.activity.detail" class="tool-activity-detail">
-          <Markdown :content="item.activity.detail" />
-        </div>
-        <div v-else-if="shouldShowResult(item.activity)" class="tool-activity-detail">
-          <Markdown :content="formatResult(item.activity.result!)" />
-        </div>
-
-        <ToolActivityList
-          v-if="childActivities(item.activity).length"
-          class="subagent-activity-list"
-          :activities="childActivities(item.activity)"
-          :all-activities="activityPool"
-          :show-inspect-action="showInspectAction"
-          :show-subagent-details="showSubagentDetails"
-          nested
-          @inspect-subagent="emit('inspectSubagent', $event)"
+      <div v-else-if="item.hunks.length" class="file-diff-stack">
+        <FileDiffCard
+          v-for="(hunk, index) in item.hunks"
+          :key="`${item.activity.id}-${index}`"
+          :path="item.filePath"
+          :hunk="hunk"
+          :kind="item.activity.kind"
+          :status="item.activity.status"
+          :start-collapsed="cardsCollapsed"
         />
       </div>
-    </section>
+
+      <section
+        v-else
+        class="tool-activity-card"
+        :class="[
+          item.activity.kind,
+          item.activity.status,
+          { subagent: isSubagentTool(item.activity), 'subagent-running': isRunningSubagent(item.activity) },
+        ]"
+      >
+        <div class="tool-activity-header">
+          <button
+            type="button"
+            class="tool-activity-main"
+            :aria-expanded="isExpanded(item.activity)"
+            @click="toggleActivity(item.activity)"
+          >
+            <ChevronRight class="activity-chevron" :class="{ open: isExpanded(item.activity) }" :size="12" />
+            <span class="tool-activity-icon" aria-hidden="true">
+              <component :is="icon(item.activity)" :size="12" />
+            </span>
+            <span class="tool-activity-title">{{ item.activity.title }}</span>
+            <span v-if="isFuzzy(item.activity)" class="fuzzy-badge">{{ tr(settingStore.language, "fuzzyMatch") }}</span>
+            <span v-if="item.activity.status === 'running'" class="tool-activity-status">
+              {{
+                tr(
+                  settingStore.language,
+                  item.activity.toolName === "ask_user"
+                    ? "waitingAnswer"
+                    : item.activity.preview
+                      ? "waitingApproval"
+                      : "running",
+                )
+              }}
+            </span>
+            <span v-else-if="item.activity.status === 'error'" class="tool-activity-status error">{{ tr(settingStore.language, "failed") }}</span>
+          </button>
+          <button
+            v-if="showInspectAction && isSubagentTool(item.activity) && !childAgentRows(item.activity).length"
+            type="button"
+            class="inspect-subagent-button"
+            :aria-label="inspectLabel"
+            :title="inspectLabel"
+            @click.stop="emit('inspectSubagent', item.activity.id)"
+          >
+            <PanelRightOpen :size="13" />
+          </button>
+        </div>
+
+        <div v-if="isSubagentTool(item.activity) && childAgentRows(item.activity).length" class="child-agent-rows">
+          <button
+            v-for="agent in childAgentRows(item.activity)"
+            :key="agent.id"
+            type="button"
+            class="child-agent-row"
+            :title="agent.prompt"
+            @click.stop="emit('inspectSubagent', agent.id)"
+          >
+            <span class="tool-activity-icon" aria-hidden="true">
+              <SubagentIcon :status="agent.status" :size="12" />
+            </span>
+            <span class="child-agent-title">{{ agent.title }}</span>
+            <span v-if="agent.status === 'running'" class="tool-activity-status">{{ tr(settingStore.language, "running") }}</span>
+            <span v-else-if="agent.status === 'error'" class="tool-activity-status error">{{ tr(settingStore.language, "failed") }}</span>
+            <PanelRightOpen :size="13" class="child-agent-inspect" />
+          </button>
+        </div>
+
+        <div v-if="isExpanded(item.activity) && (!isSubagentTool(item.activity) || showSubagentDetails)" class="tool-activity-body">
+          <div v-if="item.activity.detail" class="tool-activity-detail">
+            <Markdown :content="item.activity.detail" />
+          </div>
+          <div v-else-if="shouldShowResult(item.activity)" class="tool-activity-detail">
+            <Markdown :content="formatResult(item.activity.result!)" />
+          </div>
+
+          <ToolActivityList
+            v-if="childActivities(item.activity).length"
+            class="subagent-activity-list"
+            :activities="childActivities(item.activity)"
+            :all-activities="activityPool"
+            :show-inspect-action="showInspectAction"
+            :show-subagent-details="showSubagentDetails"
+            nested
+            @inspect-subagent="emit('inspectSubagent', $event)"
+          />
+        </div>
+      </section>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch, type Component } from "vue";
-import DOMPurify from "dompurify";
-import hljs from "highlight.js/lib/common";
 import {
   ChevronRight,
   FilePenLine,
@@ -151,10 +133,17 @@ import {
 } from "@lucide/vue";
 import Markdown from "@/components/chat/Markdown.vue";
 import SubagentIcon from "@/components/chat/SubagentIcon.vue";
-import type { ToolActivity } from "@/types/chat";
+import ShellTerminalCard from "@/components/chat/ShellTerminalCard.vue";
+import FileDiffCard from "@/components/chat/FileDiffCard.vue";
+import TaskListCard from "@/components/chat/TaskListCard.vue";
+import type { TaskItem, ToolActivity } from "@/types/chat";
 import { useSettingStore } from "@/stores/setting";
 import { tr } from "@/services/i18n";
-import { codeLanguageForPath } from "@/services/chat/codeLanguage";
+import {
+  hunkFromPlainEdit,
+  parseUnifiedDiffHunks,
+  type DiffHunk,
+} from "@/services/chat/toolDiff";
 
 const props = withDefaults(defineProps<{
   activities: ToolActivity[];
@@ -163,11 +152,14 @@ const props = withDefaults(defineProps<{
   nested?: boolean;
   showInspectAction?: boolean;
   showSubagentDetails?: boolean;
+  /** When true, shell/diff cards start collapsed (compact display mode). */
+  cardsCollapsed?: boolean;
 }>(), {
   operations: false,
   nested: false,
   showInspectAction: true,
   showSubagentDetails: false,
+  cardsCollapsed: false,
 });
 const emit = defineEmits<{ inspectSubagent: [activityId: string] }>();
 const settingStore = useSettingStore();
@@ -176,14 +168,6 @@ const expandedIds = ref(new Set<string>());
 const previousStatuses = new Map<string, ToolActivity["status"]>();
 
 const activityPool = computed(() => props.allActivities ?? props.activities);
-
-type StructuredEdit = {
-  label: string;
-  oldLines: string[];
-  newLines: string[];
-  oldHtml: string[];
-  newHtml: string[];
-};
 
 type ChildAgentRow = {
   id: string;
@@ -196,6 +180,9 @@ const HIDE_RESULT_TOOLS = new Set([
   "read_file", "list_folder", "find_files", "search_files", "list_symbols", "fetch_url",
 ]);
 
+const FILE_OPERATION_KINDS = new Set(["create", "edit", "delete", "move"]);
+const TASK_LIST_TOOLS = new Set(["update_tasks", "todo_write"]);
+
 const enrichedActivities = computed(() =>
   props.activities
     .filter((activity) => {
@@ -203,175 +190,71 @@ const enrichedActivities = computed(() =>
       return !(activity.toolName === "ask_user" && activity.status !== "running");
     })
     .map((activity) => {
-      const edits = operationEdits(activity);
+      const hunks = collectHunks(activity);
+      const filePath = String(activity.preview?.path ?? activity.arguments?.path ?? "");
       return {
         activity,
-        edits,
-        stats: edits.reduce(
-          (total, edit) => ({
-            added: total.added + edit.newLines.length,
-            removed: total.removed + edit.oldLines.length,
-          }),
-          { added: 0, removed: 0 },
-        ),
+        hunks,
+        tasks: tasksFromActivity(activity),
+        filePath: filePath || "file",
       };
     }),
 );
 
-function operationEdits(activity: ToolActivity): StructuredEdit[] {
-  const edits = collectEdits(activity);
-  // apply_patch and other preview-based tools carry the file path on the
-  // preview, not in the arguments; fall back to arguments for plain tools.
-  const path = String(activity.preview?.path ?? activity.arguments?.path ?? "");
-  return edits.map((edit) => ({
-    ...edit,
-    oldHtml: highlightLines(edit.oldLines, path),
-    newHtml: highlightLines(edit.newLines, path),
-  }));
+function tasksFromActivity(activity: ToolActivity): TaskItem[] {
+  if (!TASK_LIST_TOOLS.has(activity.toolName)) return [];
+  const raw = activity.arguments?.tasks;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((value) => {
+    if (!value || typeof value !== "object") return [];
+    const item = value as Record<string, unknown>;
+    const content = String(item.content ?? "").trim();
+    if (!content) return [];
+    const activeForm =
+      typeof item.activeForm === "string"
+        ? item.activeForm
+        : typeof item.active_form === "string"
+          ? item.active_form
+          : undefined;
+    const level = typeof item.level === "number" ? item.level : undefined;
+    return [{
+      content,
+      status: String(item.status ?? "pending"),
+      activeForm,
+      level,
+    }];
+  });
 }
 
-function collectEdits(activity: ToolActivity): Omit<StructuredEdit, "oldHtml" | "newHtml">[] {
+function collectHunks(activity: ToolActivity): DiffHunk[] {
+  if (activity.kind === "shell") return [];
   const args = activity.arguments ?? {};
+  const preview = activity.preview;
+  if (preview?.unifiedDiff?.trim()) {
+    return parseUnifiedDiffHunks(preview.unifiedDiff);
+  }
   if (activity.toolName === "replace_many_in_file" && Array.isArray(args.edits)) {
-    return args.edits.map((value, index) => {
+    return args.edits.map((value) => {
       const edit = value as Record<string, unknown>;
-      return makeEdit(tr(settingStore.language, "edit", { count: index + 1 }), edit.old_string, edit.new_string);
+      return hunkFromPlainEdit(String(edit.old_string ?? ""), String(edit.new_string ?? ""));
     });
   }
-
-  const preview = activity.preview;
-  if (preview) {
-    const unified = preview.unifiedDiff?.trim();
-    if (unified) {
-      // The preview's oldText/newText are complete file contents; only the
-      // unified diff reflects the actual changed lines, so render that instead.
-      return editsFromUnifiedDiff(unified);
-    }
-    if (preview.oldText != null || preview.newText != null) {
-      const label =
-        preview.kind === "create"
-          ? tr(settingStore.language, "addContent")
-          : preview.kind === "delete"
-            ? tr(settingStore.language, "deleteContent")
-            : tr(settingStore.language, "editContent");
-      return [makeEdit(label, preview.oldText ?? "", preview.newText ?? "")];
-    }
+  if (preview && (preview.oldText != null || preview.newText != null)) {
+    return [hunkFromPlainEdit(preview.oldText ?? "", preview.newText ?? "")];
   }
-
   if (activity.toolName === "replace_in_file") {
-    return [makeEdit(tr(settingStore.language, "editContent"), args.old_string, args.new_string)];
+    return [hunkFromPlainEdit(String(args.old_string ?? ""), String(args.new_string ?? ""))];
   }
   if (activity.toolName === "write_file") {
-    return [makeEdit(tr(settingStore.language, "addContent"), "", args.content)];
+    return [hunkFromPlainEdit("", String(args.content ?? ""))];
   }
   if (activity.kind === "delete") {
     const deleted = args.old_string ?? args.symbol ?? args.start_anchor ?? activity.detail ?? "";
-    return [makeEdit(tr(settingStore.language, "deleteContent"), deleted, "")];
+    return [hunkFromPlainEdit(String(deleted), "")];
   }
+  // File ops without structured edits should still fall through to markdown card.
+  if (!FILE_OPERATION_KINDS.has(activity.kind) && !preview) return [];
   return [];
-}
-
-function editsFromUnifiedDiff(diff: string): Omit<StructuredEdit, "oldHtml" | "newHtml">[] {
-  const edits: Omit<StructuredEdit, "oldHtml" | "newHtml">[] = [];
-  let oldLines: string[] = [];
-  let newLines: string[] = [];
-  let count = 0;
-  const flush = () => {
-    if (oldLines.length || newLines.length) {
-      edits.push({
-        label: tr(settingStore.language, "edit", { count: ++count }),
-        oldLines,
-        newLines,
-      });
-      oldLines = [];
-      newLines = [];
-    }
-  };
-  for (const raw of diff.replace(/\r\n/g, "\n").split("\n")) {
-    if (/^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/.test(raw)) {
-      flush();
-      continue;
-    }
-    if (
-      raw.startsWith("--- ") ||
-      raw.startsWith("+++ ") ||
-      raw.startsWith("diff ") ||
-      raw.startsWith("index ") ||
-      raw.startsWith("\\")
-    ) {
-      continue;
-    }
-    if (raw.startsWith("-")) {
-      oldLines.push(raw.slice(1));
-      continue;
-    }
-    if (raw.startsWith("+")) {
-      newLines.push(raw.slice(1));
-      continue;
-    }
-    if (raw.startsWith(" ")) flush();
-  }
-  flush();
-  return edits;
-}
-
-function makeEdit(label: string, oldValue: unknown, newValue: unknown): Omit<StructuredEdit, "oldHtml" | "newHtml"> {
-  return {
-    label,
-    oldLines: toLines(oldValue),
-    newLines: toLines(newValue),
-  };
-}
-
-function toLines(value: unknown) {
-  if (typeof value !== "string" || !value.length) return [];
-  const lines = value.split(/\r?\n/);
-  if (lines[lines.length - 1] === "") lines.pop();
-  return lines;
-}
-
-function highlightLines(lines: string[], path: string): string[] {
-  if (!lines.length) return [];
-  const text = lines.join("\n");
-  const language = codeLanguageForPath(path).id;
-  const highlighted = language && hljs.getLanguage(language)
-    ? hljs.highlight(text, { language }).value
-    : hljs.highlightAuto(text).value;
-  return splitHighlightedLines(DOMPurify.sanitize(highlighted));
-}
-
-// highlight.js tokenizes a whole document, so we highlight each contiguous
-// old/new block as one document and split the resulting HTML back into lines.
-// Spans that stay open across a newline are re-opened on the following line so
-// every fragment stays independently parseable by the browser.
-function splitHighlightedLines(html: string): string[] {
-  const stack: string[] = [];
-  return html.split("\n").map((raw) => {
-    const prefix = stack.join("");
-    let out = "";
-    let index = 0;
-    while (index < raw.length) {
-      if (raw.startsWith('<span class="', index)) {
-        const end = raw.indexOf(">", index);
-        if (end === -1) {
-          out += raw.slice(index);
-          break;
-        }
-        const tag = raw.slice(index, end + 1);
-        stack.push(tag);
-        out += tag;
-        index = end + 1;
-      } else if (raw.startsWith("</span>", index)) {
-        stack.pop();
-        out += "</span>";
-        index += 7;
-      } else {
-        out += raw[index];
-        index += 1;
-      }
-    }
-    return prefix + out;
-  });
 }
 
 function shouldShowResult(activity: ToolActivity) {
@@ -493,6 +376,15 @@ function formatResult(result: string) {
   return result.startsWith("```") ? result : `\`\`\`\n${result}\n\`\`\``;
 }
 
+function keepExpandedWhenDone(activity: ToolActivity) {
+  return (
+    activity.kind === "shell" ||
+    FILE_OPERATION_KINDS.has(activity.kind) ||
+    activity.toolName === "update_tasks" ||
+    activity.toolName === "todo_write"
+  );
+}
+
 watch(
   () => activityPool.value.map((activity) => `${activity.id}:${activity.status}`).join("|"),
   () => {
@@ -505,7 +397,9 @@ watch(
       ) {
         setExpanded(activity.id, true);
       } else if (previous === "running" && activity.status === "done") {
-        setExpanded(activity.id, false);
+        if (!keepExpandedWhenDone(activity)) {
+          setExpanded(activity.id, false);
+        }
       } else if (activity.status === "error" && previous !== "error") {
         setExpanded(activity.id, true);
       }
@@ -519,6 +413,7 @@ watch(
 <style scoped>
 .tool-activity-list { display: flex; flex-direction: column; gap: 3px; width: 100%; margin-bottom: 0; box-sizing: border-box; }
 .tool-activity-list.operations { gap: 3px; }
+.file-diff-stack { display: flex; flex-direction: column; gap: 0; width: 100%; }
 .tool-activity-list.nested {
   gap: 2px;
   margin: 2px 8px 8px 28px;
@@ -598,9 +493,8 @@ watch(
   background: color-mix(in srgb, var(--peek-text) 5%, transparent);
   color: var(--peek-text);
 }
-.operation-edit > summary::-webkit-details-marker { display: none; }
-.activity-chevron, .edit-chevron { flex: none; color: var(--peek-faint); transition: transform 150ms ease; }
-.activity-chevron.open, .operation-edit[open] > summary .edit-chevron { transform: rotate(90deg); }
+.activity-chevron { flex: none; color: var(--peek-faint); transition: transform 150ms ease; }
+.activity-chevron.open { transform: rotate(90deg); }
 .tool-activity-main[aria-expanded="true"] {
   color: var(--peek-text);
   border-bottom: 0;
@@ -618,9 +512,6 @@ watch(
 }
 .tool-activity-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fuzzy-badge { flex: none; font-size: 9px; padding: 0 5px; border-radius: 999px; background: color-mix(in srgb, #eab308 22%, transparent); color: #eab308; font-weight: 650; }
-.change-stats { display: inline-flex; align-items: center; gap: 4px; flex: none; font-family: var(--font-mono); font-size: 10px; font-weight: 650; }
-.change-stats .added { color: #22c55e; }
-.change-stats .removed { color: var(--destructive); }
 .tool-activity-status { flex: none; color: var(--peek-muted); font-size: 10px; }
 .tool-activity-status.error { color: var(--destructive); }
 .inspect-subagent-button { flex: none; width: 23px; height: 23px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 4px; color: var(--peek-muted); background: transparent; cursor: pointer; }
@@ -636,46 +527,7 @@ watch(
   font-size: 11px;
   color: var(--peek-muted);
 }
-.tool-activity-detail :deep(pre) { margin: 0; max-height: 180px; overflow: auto; border-radius: 6px; }
-.operation-edits { display: flex; flex-direction: column; gap: 0; padding: 0 0 4px; }
-.operation-edits.flat { padding: 0 0 4px; }
-.operation-edit { overflow: hidden; border-top: 0; background: transparent; margin: 0 6px 0 28px; border-radius: 6px; }
-.operation-edit > summary { display: flex; align-items: center; gap: 5px; padding: 4px 6px; color: var(--peek-muted); font-size: 10px; font-weight: 600; cursor: pointer; list-style: none; border-radius: 5px; }
-.operation-edit > summary:hover { background: color-mix(in srgb, var(--peek-text) 4%, transparent); }
-.edit-stats { margin-left: auto; }
-.structured-diff { max-height: 200px; margin: 0; overflow: auto; border: 0; border-radius: 6px; background: color-mix(in srgb, var(--peek-input-bg) 82%, transparent); font-family: var(--font-mono); font-size: 11px; line-height: 1.55; }
-.structured-diff.flat { margin: 0 6px 6px 28px; border-radius: 6px; }
-.structured-diff code { display: block; min-width: max-content; }
-.diff-line { display: flex; min-width: 100%; padding: 0 9px 0 0; white-space: pre; }
-.diff-marker { display: inline-block; flex: none; width: 22px; padding-left: 7px; user-select: none; }
-.structured-diff :deep(.hljs-comment), .structured-diff :deep(.hljs-quote) { color: #7f8c98; font-style: italic; }
-.structured-diff :deep(.hljs-keyword), .structured-diff :deep(.hljs-selector-tag), .structured-diff :deep(.hljs-type), .structured-diff :deep(.hljs-literal) { color: #c792ea; }
-.structured-diff :deep(.hljs-string), .structured-diff :deep(.hljs-regexp), .structured-diff :deep(.hljs-attribute) { color: #addb67; }
-.structured-diff :deep(.hljs-number), .structured-diff :deep(.hljs-symbol) { color: #f78c6c; }
-.structured-diff :deep(.hljs-title), .structured-diff :deep(.hljs-section), .structured-diff :deep(.hljs-built_in) { color: #82aaff; }
-.structured-diff :deep(.hljs-variable), .structured-diff :deep(.hljs-params) { color: #f07178; }
-/* Global fallback so syntax colors apply to the v-html diff lines even if the
-   scoped :deep() compilation differs across build tooling. */
-:global(.structured-diff .hljs-comment),
-:global(.structured-diff .hljs-quote) { color: #7f8c98; font-style: italic; }
-:global(.structured-diff .hljs-keyword),
-:global(.structured-diff .hljs-selector-tag),
-:global(.structured-diff .hljs-type),
-:global(.structured-diff .hljs-literal) { color: #c792ea; }
-:global(.structured-diff .hljs-string),
-:global(.structured-diff .hljs-regexp),
-:global(.structured-diff .hljs-attribute) { color: #addb67; }
-:global(.structured-diff .hljs-number),
-:global(.structured-diff .hljs-symbol) { color: #f78c6c; }
-:global(.structured-diff .hljs-title),
-:global(.structured-diff .hljs-section),
-:global(.structured-diff .hljs-built_in) { color: #82aaff; }
-:global(.structured-diff .hljs-variable),
-:global(.structured-diff .hljs-params) { color: #f07178; }
-.diff-line.deletion { background: color-mix(in srgb, var(--destructive) 19%, transparent); color: color-mix(in srgb, #fecaca 88%, var(--peek-text)); }
-.diff-line.addition { background: color-mix(in srgb, #22c55e 19%, transparent); color: color-mix(in srgb, #bbf7d0 88%, var(--peek-text)); }
-:global([data-theme="light"]) .diff-line.deletion, :global([data-theme="cream"]) .diff-line.deletion { color: #991b1b; }
-:global([data-theme="light"]) .diff-line.addition, :global([data-theme="cream"]) .diff-line.addition { color: #166534; }
+.tool-activity-detail :deep(pre) { margin: 0; max-height: var(--agent-card-max-height, 240px); overflow: auto; border-radius: 6px; }
 .tool-activity-card.create .tool-activity-icon { background: color-mix(in srgb, #22c55e 15%, transparent); color: #22c55e; }
 .tool-activity-card.edit .tool-activity-icon { background: color-mix(in srgb, #eab308 15%, transparent); color: #eab308; }
 .tool-activity-card.delete .tool-activity-icon { background: color-mix(in srgb, var(--destructive) 15%, transparent); color: var(--destructive); }

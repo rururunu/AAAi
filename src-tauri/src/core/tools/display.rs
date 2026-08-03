@@ -56,6 +56,11 @@ fn should_hide_result_detail(tool_name: &str, result: &str) -> bool {
     if result.starts_with("tool error:") {
         return false;
     }
+    if matches!(tool_name, "update_tasks" | "todo_write")
+        && matches!(result.trim(), "updated" | "ok" | "success")
+    {
+        return true;
+    }
     if matches!(
         tool_name,
         "read_file"
@@ -107,10 +112,17 @@ fn activity_kind(tool_name: &str) -> String {
 
 fn build_title(tool_name: &str, args: &Value) -> String {
     match tool_name {
-        "run_shell" => format!(
-            "执行命令：{}",
-            truncate(args["command"].as_str().unwrap_or(""), 120)
-        ),
+        "run_shell" => {
+            let description = args["description"].as_str().unwrap_or("").trim();
+            if !description.is_empty() {
+                truncate(description, 120).to_string()
+            } else {
+                format!(
+                    "执行命令：{}",
+                    truncate(args["command"].as_str().unwrap_or(""), 120)
+                )
+            }
+        }
         "wait_for_shell" => format!("等待命令：{}", args["job_id"].as_str().unwrap_or("job")),
         "read_shell_output" => format!("读取输出：{}", args["job_id"].as_str().unwrap_or("job")),
         "stop_shell" => format!("停止命令：{}", args["job_id"].as_str().unwrap_or("job")),
@@ -157,7 +169,7 @@ fn build_title(tool_name: &str, args: &Value) -> String {
         "search_files" => format!("搜索：{}", args["pattern"].as_str().unwrap_or("")),
         "run_subagent" => "运行子 Agent".into(),
         "ask_user" => "询问用户".into(),
-        "update_tasks" => "更新任务列表".into(),
+        "update_tasks" => "更新任务".into(),
         "web_search" => format!("Web search: {}", args["query"].as_str().unwrap_or("")),
         "browser_read" => format!("Read web page: {}", args["url"].as_str().unwrap_or("")),
         "get_context" => "Read current context".into(),
@@ -221,6 +233,28 @@ fn build_detail_from_args(tool_name: &str, args: &Value) -> Option<String> {
                 .collect::<Vec<_>>();
             descriptions.join("\n\n")
         }),
+        "update_tasks" | "todo_write" => args["tasks"].as_array().map(|tasks| {
+            tasks
+                .iter()
+                .filter_map(|task| {
+                    let content = task["content"].as_str()?.trim();
+                    if content.is_empty() {
+                        return None;
+                    }
+                    let status = task["status"].as_str().unwrap_or("pending").to_ascii_lowercase();
+                    let marker = match status.as_str() {
+                        "completed" | "done" | "complete" => "[x]",
+                        "in_progress" | "in-progress" | "active" | "running" => "[~]",
+                        "cancelled" | "canceled" => "[-]",
+                        _ => "[ ]",
+                    };
+                    let level = task["level"].as_u64().unwrap_or(0) as usize;
+                    let indent = "  ".repeat(level.min(6));
+                    Some(format!("{indent}- {marker} {content}"))
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        }),
         _ => None,
     }
 }
@@ -269,6 +303,17 @@ mod tests {
     }
 
     #[test]
+    fn run_shell_prefers_description_title() {
+        let args = json!({
+            "command": "cargo test --lib continues_when_token_budget",
+            "description": "Run token budget continuation test"
+        });
+        let view = build_activity_view("run_shell", &args, Some("ok\n"));
+        assert_eq!(view.title, "Run token budget continuation test");
+        assert!(view.detail.unwrap().contains("cargo test"));
+    }
+
+    #[test]
     fn run_shell_shows_command_and_output() {
         let args = json!({ "command": "echo hello" });
         let view = build_activity_view("run_shell", &args, Some("hello\n"));
@@ -293,5 +338,22 @@ mod tests {
         let args = json!({ "path": "missing.rs" });
         let view = build_activity_view("read_file", &args, Some("tool error: file not found"));
         assert_eq!(view.detail.as_deref(), Some("tool error: file not found"));
+    }
+
+    #[test]
+    fn update_tasks_shows_checklist() {
+        let args = json!({
+            "tasks": [
+                { "content": "Explore codebase", "status": "completed" },
+                { "content": "Fix the bug", "status": "in_progress" },
+                { "content": "Write tests", "status": "pending" }
+            ]
+        });
+        let view = build_activity_view("update_tasks", &args, Some("updated"));
+        assert_eq!(view.title, "更新任务列表");
+        let detail = view.detail.expect("detail");
+        assert!(detail.contains("[x] Explore codebase"));
+        assert!(detail.contains("[~] Fix the bug"));
+        assert!(detail.contains("[ ] Write tests"));
     }
 }
