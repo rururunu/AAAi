@@ -8,3 +8,4 @@ pub mod registry;
 
 pub use provider::ProviderError;
 pub use registry::resolve_provider;
+pub(crate) use registry::resolve_provider_for_selection;

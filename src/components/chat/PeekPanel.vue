@@ -90,13 +90,15 @@
         </div>
       </header>
 
-      <p
+      <div
         v-if="contextNotice"
         class="context-notice"
+        role="status"
         data-tauri-drag-region="false"
       >
-        {{ contextNotice }}
-      </p>
+        <CircleAlert :size="14" :stroke-width="1.8" aria-hidden="true" />
+        <span>{{ contextNotice }}</span>
+      </div>
 
       <div class="thread-content">
         <MessageList
@@ -144,7 +146,7 @@
                 <ImageIcon :size="13" />
                 <span>{{ imageTabLabel }}</span>
               </button>
-              <button type="button" class="workspace-view-tab peek-card-tab" :class="{ active: sidebarTab === 'runtime' }" :title="runtimeTabLabel" @click="selectSidebarTab('runtime')">
+              <button v-if="runtimeDebugEnabled" type="button" class="workspace-view-tab peek-card-tab" :class="{ active: sidebarTab === 'runtime' }" :title="runtimeTabLabel" @click="selectSidebarTab('runtime')">
                 <Bug :size="13" />
                 <span>{{ runtimeTabLabel }}</span>
               </button>
@@ -169,6 +171,7 @@
                 @close-entry="closeSubagentTab"
               />
               <AgentDebugPanel
+                v-if="runtimeDebugEnabled"
                 v-show="sidebarTab === 'runtime'"
                 embedded
               />
@@ -236,7 +239,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { AppWindow, Bug, FileDiff, Image as ImageIcon, Minus, PanelRight, Pin, PinOff, X } from "@lucide/vue";
+import { AppWindow, Bug, CircleAlert, FileDiff, Image as ImageIcon, Minus, PanelRight, Pin, PinOff, X } from "@lucide/vue";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import ChatInputBar, {
@@ -329,6 +332,8 @@ const emit = defineEmits<{
 const chatStore = useChatStore();
 const settingStore = useSettingStore();
 const { sessions, overlayDraftSessionId, overlayContextNotice } = storeToRefs(chatStore);
+// The runtime/debug sidebar tab is a development aid; hide it in packaged builds.
+const runtimeDebugEnabled = import.meta.env.DEV;
 
 const inputRef = ref<InstanceType<typeof ChatInputBar> | null>(null);
 const dockRef = ref<HTMLElement | null>(null);
@@ -399,8 +404,8 @@ watch(activeSessionId, () => {
   if (sidebarTab.value === "subagents" || sidebarTab.value === "image") closeSidebar();
 });
 const SUBAGENT_TOOLS = new Set([
-  "run_subagent", "run_readonly_subagent", "run_parallel_subagents",
-  "run_skill", "run_readonly_skill", "explore_codebase", "research_topic",
+  "run_subagent", "run_parallel_subagents",
+  "run_skill", "explore_codebase", "research_topic",
   "review_code", "review_security", "generate_word",
 ]);
 const allToolActivities = computed(() =>
@@ -583,6 +588,7 @@ function closeSubagentTab(entryId: string) {
 }
 
 function selectSidebarTab(tab: SidebarTab) {
+  if (tab === "runtime" && !runtimeDebugEnabled) return;
   if (!sidebarOpen.value && props.mode === "chat") {
     const currentWidth = document.documentElement.clientWidth;
     const halfWidth = currentWidth / 2;
@@ -1604,15 +1610,28 @@ onUnmounted(() => {
 }
 
 .context-notice {
-  flex: none;
-  margin: 0;
-  padding: 6px 12px;
+  position: absolute;
+  z-index: 6;
+  top: 40px;
+  left: 50%;
+  box-sizing: border-box;
+  width: min(calc(100% - 48px), 720px);
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border: 1px solid color-mix(in srgb, var(--peek-warning) 24%, var(--peek-border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--peek-warning) 8%, var(--peek-surface));
+  color: var(--peek-text);
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 13%, transparent);
   font-size: 11px;
-  line-height: 1.4;
-  color: var(--peek-muted);
-  background: color-mix(in srgb, var(--peek-accent) 8%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--peek-accent) 16%, var(--peek-border));
+  line-height: 1.45;
+  transform: translateX(-50%);
 }
+.context-notice > svg { flex: none; color: var(--peek-warning); }
+.context-notice > span { min-width: 0; overflow-wrap: anywhere; }
 
 .captured-context-preview {
   flex: none;

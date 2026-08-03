@@ -37,6 +37,7 @@ pub fn default_registry(
     registry.register(Arc::new(crate::runtime::context::ContextTool));
     registry.register(Arc::new(crate::runtime::workspace::WorkspaceTool));
     registry.register(Arc::new(crate::runtime::git::GitTool));
+    registry.register(Arc::new(crate::runtime::git::GitCommitTool));
     registry.register(Arc::new(crate::runtime::search::SearchTool::new(
         crate::runtime::search::shared_search_runtime(),
     )));

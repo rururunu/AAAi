@@ -80,10 +80,8 @@ type TimelineGroup =
 const FILE_OPERATION_KINDS = new Set(["create", "edit", "delete", "move"]);
 const SUBAGENT_TOOLS = new Set([
   "run_subagent",
-  "run_readonly_subagent",
   "run_parallel_subagents",
   "run_skill",
-  "run_readonly_skill",
   "explore_codebase",
   "research_topic",
   "review_code",

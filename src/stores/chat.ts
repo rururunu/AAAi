@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 
 import { chat, chatHistory } from "@/services/ipc";
+import { useSettingStore } from "./setting";
 import {
   normalizeChatStarted,
   normalizeMessage,
@@ -17,6 +18,66 @@ import type {
   ToolPreviewPayload,
   WorkTimelineItem,
 } from "@/types/chat";
+
+/** Per-conversation compose settings. Each conversation remembers its own
+ * model / mode / approval choice and input draft; unopened sessions inherit
+ * the previous session's values on first open, then stay independent. */
+export interface SessionCompose {
+  chatModel: string;
+  chatModelProvider: string;
+  chatMode: "ask" | "agent";
+  toolApprovalMode: "ask" | "auto" | "alwaysAllow";
+  draft: string;
+}
+
+export function defaultCompose(): SessionCompose {
+  return {
+    chatModel: "",
+    chatModelProvider: "",
+    chatMode: "agent",
+    toolApprovalMode: "ask",
+    draft: "",
+  };
+}
+
+const COMPOSE_STORAGE_KEY = "aaa.sessionCompose.v1";
+
+interface ComposeCache {
+  entries: Record<string, SessionCompose>;
+  last: string;
+}
+
+let composeCacheLoaded = false;
+let composeCache: ComposeCache = { entries: {}, last: "" };
+
+function loadComposeCache(): void {
+  if (composeCacheLoaded) {
+    return;
+  }
+  composeCacheLoaded = true;
+  try {
+    const raw = localStorage.getItem(COMPOSE_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+    const parsed = JSON.parse(raw) as Partial<ComposeCache>;
+    if (parsed && typeof parsed === "object") {
+      composeCache.entries =
+        (parsed.entries ?? {}) as Record<string, SessionCompose>;
+      composeCache.last = typeof parsed.last === "string" ? parsed.last : "";
+    }
+  } catch {
+    // Corrupted cache — start fresh.
+  }
+}
+
+function persistComposeCache(): void {
+  try {
+    localStorage.setItem(COMPOSE_STORAGE_KEY, JSON.stringify(composeCache));
+  } catch {
+    // Storage unavailable — keep in-memory state only.
+  }
+}
 
 /** Mark crash-orphaned in-flight rows so the UI is not stuck "executing". */
 export function settleInterruptedMessages(messages: ChatMessage[]): ChatMessage[] {
@@ -47,6 +108,42 @@ export function settleInterruptedMessages(messages: ChatMessage[]): ChatMessage[
       ),
     };
   });
+}
+
+/** Merge a persisted history snapshot into an actively streaming session.
+ * The database can lag behind realtime events, so it must never replace newer
+ * optimistic/streaming messages that only exist in memory yet. */
+export function mergeActiveHistory(
+  persisted: ChatMessage[],
+  live: ChatMessage[],
+): ChatMessage[] {
+  const liveById = new Map(live.map((message) => [message.id, message]));
+  const persistedIds = new Set(persisted.map((message) => message.id));
+  const merged = persisted.map((stored) => {
+    const current = liveById.get(stored.id);
+    if (!current) {
+      return stored;
+    }
+
+    const currentIsActive =
+      current.status === "pending" || current.status === "streaming";
+    const currentHasNewerContent =
+      current.content.length > stored.content.length ||
+      (current.reasoning?.length ?? 0) > (stored.reasoning?.length ?? 0) ||
+      (current.toolActivities?.length ?? 0) > (stored.toolActivities?.length ?? 0) ||
+      (current.workTimeline?.length ?? 0) > (stored.workTimeline?.length ?? 0);
+
+    return currentIsActive || currentHasNewerContent ? current : stored;
+  });
+
+  // Realtime events may have created messages that the history query has not
+  // persisted yet. Keep them in their existing order at the end of the turn.
+  for (const message of live) {
+    if (!persistedIds.has(message.id)) {
+      merged.push(message);
+    }
+  }
+  return merged;
 }
 
 function appendReasoningTimeline(
@@ -84,6 +181,15 @@ export const useChatStore = defineStore("chat", {
   state: () => ({
     sessions: {} as Record<string, ChatMessage[]>,
     sending: {} as Record<string, boolean>,
+    startedSessionIds: {} as Record<string, boolean>,
+    /** Per-conversation compose settings (model / mode / approval / draft). */
+    sessionCompose: {} as Record<string, SessionCompose>,
+    /** User messages typed while a turn is executing — held until the guide
+     * button is clicked (inject into the running turn) or the turn finishes
+     * (auto-send as the next turn). */
+    stagedMessages: {} as Record<string, string[]>,
+    /** Prevent duplicate finish events from dispatching multiple queued turns. */
+    stagedDispatching: {} as Record<string, boolean>,
     overlayDraftSessionId: "" as string,
     contextNotices: {} as Record<string, string | undefined>,
     contextUsage: {} as Record<string, ContextUsageSnapshot | undefined>,
@@ -114,6 +220,118 @@ export const useChatStore = defineStore("chat", {
   actions: {
     setOverlayDraftSession(sessionId: string) {
       this.overlayDraftSessionId = sessionId;
+    },
+    setStartedSessionIds(ids: string[]) {
+      const record: Record<string, boolean> = {};
+      for (const id of ids) {
+        record[id] = true;
+      }
+      this.startedSessionIds = record;
+    },
+    markSessionStarted(sessionId: string) {
+      if (sessionId) {
+        this.startedSessionIds[sessionId] = true;
+      }
+    },
+    /** Return the conversation's own compose settings, creating them on first
+     * open by inheriting the last used conversation (or app defaults). */
+    ensureCompose(sessionId: string): SessionCompose {
+      loadComposeCache();
+      if (!sessionId) {
+        return defaultCompose();
+      }
+      const settingStore = useSettingStore();
+      const existing = this.sessionCompose[sessionId];
+      const cached = composeCache.entries[sessionId];
+
+      // A compose record is a per-conversation snapshot. Once created or
+      // restored, it must never be recomputed from another conversation.
+      if (existing) {
+        return existing;
+      }
+      if (cached) {
+        this.sessionCompose = { ...this.sessionCompose, [sessionId]: cached };
+        return cached;
+      }
+
+      const isStarted = Boolean(this.startedSessionIds[sessionId]);
+      if (isStarted) {
+        const next: SessionCompose = {
+          chatModel: settingStore.chatModel ?? "",
+          chatModelProvider: settingStore.chatModelProvider ?? "",
+          chatMode: settingStore.chatMode ?? "agent",
+          toolApprovalMode: settingStore.toolApprovalMode ?? "ask",
+          draft: "",
+        };
+        this.sessionCompose = { ...this.sessionCompose, [sessionId]: next };
+        composeCache.entries[sessionId] = next;
+        persistComposeCache();
+        return next;
+      }
+
+      const source =
+        composeCache.last && composeCache.entries[composeCache.last]
+          ? composeCache.entries[composeCache.last]
+          : undefined;
+      const next: SessionCompose = {
+        chatModel: source?.chatModel ?? settingStore.chatModel ?? "",
+        chatModelProvider: source?.chatModelProvider ?? settingStore.chatModelProvider ?? "",
+        chatMode: source?.chatMode ?? settingStore.chatMode ?? "agent",
+        toolApprovalMode: source?.toolApprovalMode ?? settingStore.toolApprovalMode ?? "ask",
+        draft: "",
+      };
+
+      this.sessionCompose = { ...this.sessionCompose, [sessionId]: next };
+      composeCache.entries[sessionId] = next;
+      composeCache.last = sessionId;
+      persistComposeCache();
+      return next;
+    },
+    /** Persist one conversation's option change without touching others. */
+    setCompose(
+      sessionId: string,
+      patch: Partial<Pick<SessionCompose, "chatModel" | "chatModelProvider" | "chatMode" | "toolApprovalMode">>,
+    ) {
+      if (!sessionId) {
+        return;
+      }
+      const current = this.ensureCompose(sessionId);
+      const next = { ...current, ...patch };
+      this.sessionCompose = { ...this.sessionCompose, [sessionId]: next };
+      composeCache.entries[sessionId] = next;
+      composeCache.last = sessionId;
+      persistComposeCache();
+    },
+    /** Persist the input draft for one conversation (debounced by callers). */
+    setComposeDraft(sessionId: string, draft: string) {
+      if (!sessionId) {
+        return;
+      }
+      const current = this.sessionCompose[sessionId];
+      if (!current) {
+        return;
+      }
+      if (current.draft === draft) {
+        return;
+      }
+      const next = { ...current, draft };
+      this.sessionCompose = { ...this.sessionCompose, [sessionId]: next };
+      composeCache.entries[sessionId] = next;
+      persistComposeCache();
+    },
+    /** Drop the compose record when a conversation is deleted. */
+    removeCompose(sessionId: string) {
+      if (!sessionId) {
+        return;
+      }
+      const next = { ...this.sessionCompose };
+      delete next[sessionId];
+      this.sessionCompose = next;
+      delete composeCache.entries[sessionId];
+      if (composeCache.last === sessionId) {
+        composeCache.last = "";
+      }
+      persistComposeCache();
     },
     setContextNotice(sessionId: string, message: string | undefined) {
       if (!sessionId) {
@@ -239,6 +457,101 @@ export const useChatStore = defineStore("chat", {
         status: "done",
         timestamp: Date.now(),
       });
+    },
+    pushStagedMessage(sessionId: string, content: string) {
+      const trimmed = content.trim();
+      if (!sessionId || !trimmed) {
+        return;
+      }
+      this.stagedMessages = {
+        ...this.stagedMessages,
+        [sessionId]: [...(this.stagedMessages[sessionId] ?? []), trimmed],
+      };
+    },
+    /** Insert a message back into the queue at (clamped) index, preserving the
+     * original order when re-editing a staged message from the input box. */
+    insertStagedMessage(sessionId: string, index: number, content: string) {
+      const trimmed = content.trim();
+      if (!sessionId || !trimmed) {
+        return;
+      }
+      const queue = [...(this.stagedMessages[sessionId] ?? [])];
+      const at = Math.max(0, Math.min(index, queue.length));
+      queue.splice(at, 0, trimmed);
+      this.stagedMessages = {
+        ...this.stagedMessages,
+        [sessionId]: queue,
+      };
+    },
+    removeStagedMessage(sessionId: string, index: number) {
+      const queue = this.stagedMessages[sessionId];
+      if (!queue || index < 0 || index >= queue.length) {
+        return;
+      }
+      const next = queue.filter((_, itemIndex) => itemIndex !== index);
+      if (next.length === 0) {
+        this.clearStaged(sessionId);
+      } else {
+        this.stagedMessages = {
+          ...this.stagedMessages,
+          [sessionId]: next,
+        };
+      }
+    },
+    clearStaged(sessionId: string) {
+      if (!this.stagedMessages[sessionId]) {
+        return;
+      }
+      const next = { ...this.stagedMessages };
+      delete next[sessionId];
+      this.stagedMessages = next;
+    },
+    /** Dispatch exactly one queued message. The next one is dispatched by the
+     * next chat-finished event, so queued turns never merge into one another. */
+    async flushStaged(sessionId: string) {
+      const queue = this.stagedMessages[sessionId];
+      if (
+        !queue?.length ||
+        this.stagedDispatching[sessionId] ||
+        this.sending[sessionId] ||
+        this.hasActiveAssistantResponse(sessionId)
+      ) {
+        return;
+      }
+      const content = queue[0];
+      this.stagedMessages = {
+        ...this.stagedMessages,
+        [sessionId]: queue.slice(1),
+      };
+      this.stagedDispatching = {
+        ...this.stagedDispatching,
+        [sessionId]: true,
+      };
+      try {
+        const sent = await this.send(content, sessionId, { fromQueue: true });
+        if (!sent) {
+          this.stagedMessages = {
+            ...this.stagedMessages,
+            [sessionId]: [content, ...(this.stagedMessages[sessionId] ?? [])],
+          };
+        }
+      } finally {
+        const next = { ...this.stagedDispatching };
+        delete next[sessionId];
+        this.stagedDispatching = next;
+      }
+    },
+    /** Guide a single staged message into the running turn immediately. The
+     * message is removed from the queue and soft-injected; the rest of the
+     * queue stays put. */
+    async guideStagedMessage(sessionId: string, index: number) {
+      const queue = this.stagedMessages[sessionId];
+      if (!queue || index < 0 || index >= queue.length) {
+        return;
+      }
+      const content = queue[index];
+      this.removeStagedMessage(sessionId, index);
+      await this.send(content, sessionId, { fromQueue: true });
     },
     stageSoftInject(sessionId: string, content: string) {
       const trimmed = content.trim();
@@ -897,18 +1210,26 @@ export const useChatStore = defineStore("chat", {
         const messages = response.messages
           .map((message) => normalizeMessage(message, sessionId))
           .filter((message): message is ChatMessage => message !== null);
+        if (messages.length > 0) {
+          this.markSessionStarted(sessionId);
+        }
         // If this session is not actively streaming in the current process,
         // treat leftover pending/running rows from a crash as interrupted.
         this.setSessionMessages(
           sessionId,
-          this.sending[sessionId] ? messages : settleInterruptedMessages(messages),
+          this.sending[sessionId]
+            ? mergeActiveHistory(messages, this.sessions[sessionId] ?? [])
+            : settleInterruptedMessages(messages),
         );
         if (!this.sending[sessionId]) {
           this.clearSending(sessionId);
         }
       } catch (error) {
         console.error("chat_history failed:", error);
-        this.setSessionMessages(sessionId, []);
+        // A transient history failure must not blank an already visible chat.
+        if (!this.sessions[sessionId]) {
+          this.setSessionMessages(sessionId, []);
+        }
       }
     },
     settleInterruptedSession(sessionId: string) {
@@ -923,24 +1244,36 @@ export const useChatStore = defineStore("chat", {
     async send(
       message: string,
       sessionId: string,
-      options?: { staged?: boolean; workspaceId?: string; quickAsk?: boolean },
+      options?: {
+        staged?: boolean;
+        workspaceId?: string;
+        quickAsk?: boolean;
+        /** Internal: this send comes from the staged queue (guide / auto-send
+         * after the turn finishes) and must never be re-staged. */
+        fromQueue?: boolean;
+      },
     ) {
       const trimmed = message.trim();
       if (!trimmed) {
         return false;
       }
 
-      // Soft-inject = user sent while a prior turn is still streaming.
-      // `staged: true` already created this turn's user+assistant pair — the
-      // pending assistant must NOT be treated as an in-flight prior turn, or the
-      // first overlay message gets markMessageInjected and disappears from the list.
-      const softInject =
-        !options?.staged
-        && (this.sending[sessionId] || this.hasActiveAssistantResponse(sessionId));
+      const busy = Boolean(
+        this.sending[sessionId] || this.hasActiveAssistantResponse(sessionId),
+      );
 
-      if (!softInject && !options?.staged && this.hasActiveAssistantResponse(sessionId)) {
-        return false;
+      // While a turn is executing, new user messages are staged instead of
+      // being injected immediately. They reach the AI either via the guide
+      // button (flushStaged → soft-inject) or automatically when the turn
+      // finishes (flushStaged → next turn).
+      if (!options?.staged && !options?.fromQueue && busy) {
+        this.pushStagedMessage(sessionId, trimmed);
+        return true;
       }
+
+      // Queue flushes may inject into the running turn; regular sends only
+      // happen when no turn is in flight.
+      const softInject = !options?.staged && busy;
 
       this.overlayDraftSessionId = sessionId;
 
@@ -954,11 +1287,17 @@ export const useChatStore = defineStore("chat", {
 
       this.sending[sessionId] = true;
       try {
+        const compose = this.ensureCompose(sessionId);
+        this.markSessionStarted(sessionId);
         const response = await chat({
           message: trimmed,
           sessionId,
           workspaceId: options?.workspaceId,
           quickAsk: options?.quickAsk,
+          modelId: compose.chatModel.trim() || undefined,
+          modelProvider: compose.chatModelProvider.trim() || undefined,
+          chatMode: compose.chatMode,
+          toolApprovalMode: compose.toolApprovalMode,
         });
         this.reconcileOptimisticIds(
           sessionId,

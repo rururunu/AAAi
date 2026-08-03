@@ -10,6 +10,7 @@ import type {
   ChatErrorEvent,
   ChatFinishedEvent,
   ChatReasoningEvent,
+  ChatSessionTitleUpdatedEvent,
   ChatStartedEvent,
   ChatStatusEvent,
   ChatUserContentEvent,
@@ -66,6 +67,15 @@ export function listenChatUserContent(handler: (payload: ChatUserContentEvent) =
 
 export function listenChatFinished(handler: (payload: ChatFinishedEvent) => void) {
   return listenIpcEvent<ChatFinishedEvent>(IPC_EVENTS.chatFinished, handler);
+}
+
+export function listenChatSessionTitleUpdated(
+  handler: (payload: ChatSessionTitleUpdatedEvent) => void,
+) {
+  return listenIpcEvent<ChatSessionTitleUpdatedEvent>(
+    IPC_EVENTS.chatSessionTitleUpdated,
+    handler,
+  );
 }
 
 export function listenChatError(handler: (payload: ChatErrorEvent) => void) {

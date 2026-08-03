@@ -98,7 +98,7 @@ fn activity_kind(tool_name: &str) -> String {
         "delete_text_range" | "delete_go_symbol" => "delete".into(),
         "move_path" => "move".into(),
         "read_file" | "list_folder" | "find_files" | "search_files" | "list_symbols"
-        | "fetch_url" | "web_search" | "browser_read" | "get_context" | "get_workspace" => {
+        | "lsp" | "fetch_url" | "web_search" | "browser_read" | "get_context" | "get_workspace" => {
             "read".into()
         }
         _ => "other".into(),
@@ -155,7 +155,7 @@ fn build_title(tool_name: &str, args: &Value) -> String {
         "list_folder" => format!("列出目录：{}", path_arg(args)),
         "find_files" => format!("查找文件：{}", args["pattern"].as_str().unwrap_or("")),
         "search_files" => format!("搜索：{}", args["pattern"].as_str().unwrap_or("")),
-        "run_subagent" | "run_readonly_subagent" => "运行子 Agent".into(),
+        "run_subagent" => "运行子 Agent".into(),
         "ask_user" => "询问用户".into(),
         "update_tasks" => "更新任务列表".into(),
         "web_search" => format!("Web search: {}", args["query"].as_str().unwrap_or("")),
@@ -163,6 +163,7 @@ fn build_title(tool_name: &str, args: &Value) -> String {
         "get_context" => "Read current context".into(),
         "get_workspace" => "Read workspace".into(),
         "git" => format!("Git: {}", args["action"].as_str().unwrap_or("")),
+        "git_commit" => "Git commit".into(),
         other => other.replace('_', " "),
     }
 }
@@ -205,7 +206,7 @@ fn build_detail_from_args(tool_name: &str, args: &Value) -> Option<String> {
             "删除符号：`{}`",
             args["symbol"].as_str().unwrap_or("")
         )),
-        "run_subagent" | "run_readonly_subagent" => args["prompt"]
+        "run_subagent" => args["prompt"]
             .as_str()
             .map(|prompt| truncate(prompt, 1_200)),
         "run_parallel_subagents" => args["tasks"].as_array().map(|tasks| {

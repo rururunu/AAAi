@@ -67,6 +67,10 @@ pub enum BusEvent {
         reasoning: Option<String>,
         finish_reason: Option<String>,
     },
+    ChatSessionTitleUpdated {
+        session_id: String,
+        title: String,
+    },
     ChatError {
         session_id: String,
         message_id: String,

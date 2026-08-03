@@ -186,6 +186,11 @@ export interface ChatSendRequest {
   sessionId?: string;
   workspaceId?: string;
   quickAsk?: boolean;
+  /** Per-conversation overrides; absent values fall back to global settings. */
+  modelId?: string;
+  modelProvider?: string;
+  chatMode?: "ask" | "agent";
+  toolApprovalMode?: "ask" | "auto" | "alwaysAllow";
 }
 
 /** 与 Rust `RequestContext` 对齐 — overlay 唤起时采集的上下文 */
@@ -263,6 +268,11 @@ export interface ChatFinishedEvent {
   content: string;
   reasoning?: string;
   finishReason?: string;
+}
+
+export interface ChatSessionTitleUpdatedEvent {
+  sessionId: string;
+  title: string;
 }
 
 export interface ChatErrorEvent {

@@ -4,7 +4,7 @@ use crate::core::chat::limits::{
     LAST_SHELL_EXECUTION_MAX_CHARS, MEMORIES_MAX_CHARS, RULES_MAX_CHARS, SELECTED_FILES_MAX_CHARS,
 };
 use crate::core::runtime::{ChatMessage, ChatRequest, MessageStatus, RequestContext, Role};
-use crate::models::settings::{AppLanguage, ReasoningLanguage, ResponseTone};
+use crate::models::settings::{AppLanguage, ReasoningLanguage};
 
 use super::prompts::{MULTI_MODEL_COLLABORATION_PROMPT, SYSTEM_PROMPT};
 
@@ -13,7 +13,6 @@ use super::prompts::{MULTI_MODEL_COLLABORATION_PROMPT, SYSTEM_PROMPT};
 pub struct PromptPreferences {
     pub app_language: AppLanguage,
     pub reasoning_language: ReasoningLanguage,
-    pub response_tone: ResponseTone,
     pub collaboration_models: Vec<String>,
 }
 
@@ -307,23 +306,12 @@ fn inject_language_blocks(content: &str, preferences: &PromptPreferences) -> Str
     if let Some(block) = response_language_block(preferences) {
         blocks.push(block);
     }
-    blocks.push(response_tone_block(preferences));
 
     if blocks.is_empty() {
         return content.to_string();
     }
 
     format!("{}\n\n{}", blocks.join("\n\n"), content)
-}
-
-fn response_tone_block(preferences: &PromptPreferences) -> String {
-    let instruction = match preferences.response_tone {
-        ResponseTone::Rigorous => "Be precise, structured, evidence-oriented, and explicit about assumptions or uncertainty. Prefer concrete reasoning over rhetorical flourish.",
-        ResponseTone::Friendly => "Be warm, patient, approachable, and encouraging while remaining technically accurate. Explain unfamiliar ideas without sounding patronizing.",
-        ResponseTone::Abstract => "Use conceptual, metaphor-aware, and creatively associative language. Surface deeper patterns and alternative framings, while keeping actionable conclusions understandable.",
-        ResponseTone::Irritable => "Be blunt, impatient, terse, and sharply direct. You may show mild frustration with avoidable mistakes, but never insult, threaten, harass, or demean the user or any person.",
-    };
-    format!("<response-tone>\nDefault response style: {instruction} An explicit style request in the current conversation overrides this preference.\n</response-tone>")
 }
 
 fn reasoning_language_block(preferences: &PromptPreferences, user_content: &str) -> Option<String> {
@@ -396,27 +384,6 @@ fn non_empty(value: &Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn injects_each_configured_response_tone() {
-        let cases = [
-            (ResponseTone::Rigorous, "evidence-oriented"),
-            (ResponseTone::Friendly, "warm, patient"),
-            (ResponseTone::Abstract, "creatively associative"),
-            (ResponseTone::Irritable, "blunt, impatient"),
-        ];
-
-        for (response_tone, expected) in cases {
-            let preferences = PromptPreferences {
-                response_tone,
-                ..PromptPreferences::default()
-            };
-            let content = inject_language_blocks("Explain this", &preferences);
-            assert!(content.contains("<response-tone>"));
-            assert!(content.contains(expected));
-            assert!(content.ends_with("Explain this"));
-        }
-    }
 
     #[test]
     fn collaboration_models_are_injected_only_when_configured() {
@@ -631,6 +598,7 @@ mod tests {
 
         assert_eq!(request.messages.len(), 2);
         assert_eq!(request.messages[1].role, Role::System);
+        assert!(request.messages[1].content.contains("<relevant-memories>"));
         assert!(request.messages[1].id.starts_with("memories-"));
         assert!(request.messages[1].content.contains("Uses pnpm"));
     }

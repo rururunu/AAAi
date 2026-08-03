@@ -78,14 +78,14 @@
             v-if="item.edits.length === 1"
             class="structured-diff flat"
           ><code><span
-            v-for="(line, lineIndex) in item.edits[0].oldLines"
+            v-for="(html, lineIndex) in item.edits[0].oldHtml"
             :key="`old-${lineIndex}`"
             class="diff-line deletion"
-          ><span class="diff-marker">-</span><span v-html="highlightLine(line, item.activity)" /></span><span
-            v-for="(line, lineIndex) in item.edits[0].newLines"
+          ><span class="diff-marker">-</span><span v-html="html" /></span><span
+            v-for="(html, lineIndex) in item.edits[0].newHtml"
             :key="`new-${lineIndex}`"
             class="diff-line addition"
-          ><span class="diff-marker">+</span><span v-html="highlightLine(line, item.activity)" /></span></code></pre>
+          ><span class="diff-marker">+</span><span v-html="html" /></span></code></pre>
           <details
             v-for="(edit, index) in item.edits.length > 1 ? item.edits : []"
             :key="index"
@@ -100,14 +100,14 @@
               </span>
             </summary>
             <pre class="structured-diff"><code><span
-              v-for="(line, lineIndex) in edit.oldLines"
+              v-for="(html, lineIndex) in edit.oldHtml"
               :key="`old-${lineIndex}`"
               class="diff-line deletion"
-            ><span class="diff-marker">-</span><span v-html="highlightLine(line, item.activity)" /></span><span
-              v-for="(line, lineIndex) in edit.newLines"
+            ><span class="diff-marker">-</span><span v-html="html" /></span><span
+              v-for="(html, lineIndex) in edit.newHtml"
               :key="`new-${lineIndex}`"
               class="diff-line addition"
-            ><span class="diff-marker">+</span><span v-html="highlightLine(line, item.activity)" /></span></code></pre>
+            ><span class="diff-marker">+</span><span v-html="html" /></span></code></pre>
           </details>
         </div>
         <div v-else-if="item.activity.detail" class="tool-activity-detail">
@@ -181,6 +181,8 @@ type StructuredEdit = {
   label: string;
   oldLines: string[];
   newLines: string[];
+  oldHtml: string[];
+  newHtml: string[];
 };
 
 type ChildAgentRow = {
@@ -217,6 +219,18 @@ const enrichedActivities = computed(() =>
 );
 
 function operationEdits(activity: ToolActivity): StructuredEdit[] {
+  const edits = collectEdits(activity);
+  // apply_patch and other preview-based tools carry the file path on the
+  // preview, not in the arguments; fall back to arguments for plain tools.
+  const path = String(activity.preview?.path ?? activity.arguments?.path ?? "");
+  return edits.map((edit) => ({
+    ...edit,
+    oldHtml: highlightLines(edit.oldLines, path),
+    newHtml: highlightLines(edit.newLines, path),
+  }));
+}
+
+function collectEdits(activity: ToolActivity): Omit<StructuredEdit, "oldHtml" | "newHtml">[] {
   const args = activity.arguments ?? {};
   if (activity.toolName === "replace_many_in_file" && Array.isArray(args.edits)) {
     return args.edits.map((value, index) => {
@@ -226,14 +240,22 @@ function operationEdits(activity: ToolActivity): StructuredEdit[] {
   }
 
   const preview = activity.preview;
-  if (preview && (preview.oldText != null || preview.newText != null)) {
-    const label =
-      preview.kind === "create"
-        ? tr(settingStore.language, "addContent")
-        : preview.kind === "delete"
-          ? tr(settingStore.language, "deleteContent")
-          : tr(settingStore.language, "editContent");
-    return [makeEdit(label, preview.oldText ?? "", preview.newText ?? "")];
+  if (preview) {
+    const unified = preview.unifiedDiff?.trim();
+    if (unified) {
+      // The preview's oldText/newText are complete file contents; only the
+      // unified diff reflects the actual changed lines, so render that instead.
+      return editsFromUnifiedDiff(unified);
+    }
+    if (preview.oldText != null || preview.newText != null) {
+      const label =
+        preview.kind === "create"
+          ? tr(settingStore.language, "addContent")
+          : preview.kind === "delete"
+            ? tr(settingStore.language, "deleteContent")
+            : tr(settingStore.language, "editContent");
+      return [makeEdit(label, preview.oldText ?? "", preview.newText ?? "")];
+    }
   }
 
   if (activity.toolName === "replace_in_file") {
@@ -249,7 +271,51 @@ function operationEdits(activity: ToolActivity): StructuredEdit[] {
   return [];
 }
 
-function makeEdit(label: string, oldValue: unknown, newValue: unknown): StructuredEdit {
+function editsFromUnifiedDiff(diff: string): Omit<StructuredEdit, "oldHtml" | "newHtml">[] {
+  const edits: Omit<StructuredEdit, "oldHtml" | "newHtml">[] = [];
+  let oldLines: string[] = [];
+  let newLines: string[] = [];
+  let count = 0;
+  const flush = () => {
+    if (oldLines.length || newLines.length) {
+      edits.push({
+        label: tr(settingStore.language, "edit", { count: ++count }),
+        oldLines,
+        newLines,
+      });
+      oldLines = [];
+      newLines = [];
+    }
+  };
+  for (const raw of diff.replace(/\r\n/g, "\n").split("\n")) {
+    if (/^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/.test(raw)) {
+      flush();
+      continue;
+    }
+    if (
+      raw.startsWith("--- ") ||
+      raw.startsWith("+++ ") ||
+      raw.startsWith("diff ") ||
+      raw.startsWith("index ") ||
+      raw.startsWith("\\")
+    ) {
+      continue;
+    }
+    if (raw.startsWith("-")) {
+      oldLines.push(raw.slice(1));
+      continue;
+    }
+    if (raw.startsWith("+")) {
+      newLines.push(raw.slice(1));
+      continue;
+    }
+    if (raw.startsWith(" ")) flush();
+  }
+  flush();
+  return edits;
+}
+
+function makeEdit(label: string, oldValue: unknown, newValue: unknown): Omit<StructuredEdit, "oldHtml" | "newHtml"> {
   return {
     label,
     oldLines: toLines(oldValue),
@@ -264,13 +330,48 @@ function toLines(value: unknown) {
   return lines;
 }
 
-function highlightLine(line: string, activity: ToolActivity) {
-  const path = String(activity.arguments?.path ?? "");
+function highlightLines(lines: string[], path: string): string[] {
+  if (!lines.length) return [];
+  const text = lines.join("\n");
   const language = codeLanguageForPath(path).id;
   const highlighted = language && hljs.getLanguage(language)
-    ? hljs.highlight(line, { language }).value
-    : hljs.highlightAuto(line).value;
-  return DOMPurify.sanitize(highlighted);
+    ? hljs.highlight(text, { language }).value
+    : hljs.highlightAuto(text).value;
+  return splitHighlightedLines(DOMPurify.sanitize(highlighted));
+}
+
+// highlight.js tokenizes a whole document, so we highlight each contiguous
+// old/new block as one document and split the resulting HTML back into lines.
+// Spans that stay open across a newline are re-opened on the following line so
+// every fragment stays independently parseable by the browser.
+function splitHighlightedLines(html: string): string[] {
+  const stack: string[] = [];
+  return html.split("\n").map((raw) => {
+    const prefix = stack.join("");
+    let out = "";
+    let index = 0;
+    while (index < raw.length) {
+      if (raw.startsWith('<span class="', index)) {
+        const end = raw.indexOf(">", index);
+        if (end === -1) {
+          out += raw.slice(index);
+          break;
+        }
+        const tag = raw.slice(index, end + 1);
+        stack.push(tag);
+        out += tag;
+        index = end + 1;
+      } else if (raw.startsWith("</span>", index)) {
+        stack.pop();
+        out += "</span>";
+        index += 7;
+      } else {
+        out += raw[index];
+        index += 1;
+      }
+    }
+    return prefix + out;
+  });
 }
 
 function shouldShowResult(activity: ToolActivity) {
@@ -297,10 +398,8 @@ function icon(activity: ToolActivity): Component {
 
 const SUBAGENT_TOOLS = new Set([
   "run_subagent",
-  "run_readonly_subagent",
   "run_parallel_subagents",
   "run_skill",
-  "run_readonly_skill",
   "explore_codebase",
   "research_topic",
   "review_code",
@@ -555,6 +654,24 @@ watch(
 .structured-diff :deep(.hljs-number), .structured-diff :deep(.hljs-symbol) { color: #f78c6c; }
 .structured-diff :deep(.hljs-title), .structured-diff :deep(.hljs-section), .structured-diff :deep(.hljs-built_in) { color: #82aaff; }
 .structured-diff :deep(.hljs-variable), .structured-diff :deep(.hljs-params) { color: #f07178; }
+/* Global fallback so syntax colors apply to the v-html diff lines even if the
+   scoped :deep() compilation differs across build tooling. */
+:global(.structured-diff .hljs-comment),
+:global(.structured-diff .hljs-quote) { color: #7f8c98; font-style: italic; }
+:global(.structured-diff .hljs-keyword),
+:global(.structured-diff .hljs-selector-tag),
+:global(.structured-diff .hljs-type),
+:global(.structured-diff .hljs-literal) { color: #c792ea; }
+:global(.structured-diff .hljs-string),
+:global(.structured-diff .hljs-regexp),
+:global(.structured-diff .hljs-attribute) { color: #addb67; }
+:global(.structured-diff .hljs-number),
+:global(.structured-diff .hljs-symbol) { color: #f78c6c; }
+:global(.structured-diff .hljs-title),
+:global(.structured-diff .hljs-section),
+:global(.structured-diff .hljs-built_in) { color: #82aaff; }
+:global(.structured-diff .hljs-variable),
+:global(.structured-diff .hljs-params) { color: #f07178; }
 .diff-line.deletion { background: color-mix(in srgb, var(--destructive) 19%, transparent); color: color-mix(in srgb, #fecaca 88%, var(--peek-text)); }
 .diff-line.addition { background: color-mix(in srgb, #22c55e 19%, transparent); color: color-mix(in srgb, #bbf7d0 88%, var(--peek-text)); }
 :global([data-theme="light"]) .diff-line.deletion, :global([data-theme="cream"]) .diff-line.deletion { color: #991b1b; }

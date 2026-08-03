@@ -125,7 +125,6 @@
                   @zoom-change="onZoomChange"
                   @reasoning-effort-change="onReasoningEffortChange"
                   @reasoning-language-change="onReasoningLanguageChange"
-                  @response-tone-change="onResponseToneChange"
                   @tool-approval-mode-change="onToolApprovalModeChange"
                   @web-search-provider-change="onWebSearchProviderChange"
                   @default-model-change="onDefaultModelChange"
@@ -205,7 +204,6 @@ import type {
   ColorScheme,
   ReasoningEffort,
   ReasoningLanguage,
-  ResponseTone,
   ModelSelection,
   WebSearchProvider,
   ToolApprovalMode,
@@ -408,13 +406,6 @@ function onReasoningLanguageChange(value: unknown) {
     return;
   }
   void settingStore.update({ reasoningLanguage: value as ReasoningLanguage });
-}
-
-function onResponseToneChange(value: unknown) {
-  if (!(["rigorous", "friendly", "abstract", "irritable"] as const).includes(value as ResponseTone)) {
-    return;
-  }
-  void settingStore.update({ responseTone: value as ResponseTone });
 }
 
 function onSliderChange(id: string, value: number) {

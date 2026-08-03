@@ -8,6 +8,7 @@ use crate::core::chat::error::ChatError;
 use crate::core::chat::limits::max_turn_tokens_for;
 use crate::core::chat::preferences::SendPreferences;
 use crate::core::chat::prompt::{PromptBuildInput, PromptBuilder, PromptPreferences};
+use crate::models::chat::ChatSendOverrides;
 use crate::core::context::ContextResolver;
 use crate::core::event::{BusEvent, EventBus};
 use crate::core::runtime::{ChatMessage, MessageStatus, Role, DEFAULT_SESSION_ID};
@@ -90,6 +91,23 @@ impl ChatService {
         }
     }
 
+    /// Honor a per-conversation model override; otherwise fall back to global settings.
+    fn resolve_provider(&self, overrides: &ChatSendOverrides) -> Arc<dyn AIProvider> {
+        let model = overrides
+            .model_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty());
+        match (model, &self.app_handle) {
+            (Some(model), Some(app)) => crate::core::ai::resolve_provider_for_selection(
+                app.clone(),
+                model.to_string(),
+                overrides.model_provider.clone().unwrap_or_default(),
+            ),
+            _ => self.active_provider(),
+        }
+    }
+
     pub async fn send(
         &self,
         session_id: Option<String>,
@@ -97,6 +115,7 @@ impl ChatService {
         preferences: SendPreferences,
         workspace_id: Option<String>,
         quick_ask: bool,
+        overrides: ChatSendOverrides,
     ) -> Result<ChatSendResult, ChatError> {
         let content = content.trim().to_string();
         if content.is_empty() {
@@ -207,7 +226,7 @@ impl ChatService {
             .unwrap_or(true);
         let context_window = context_window_tokens(large_context);
         let max_turn_tokens = max_turn_tokens_for(large_context);
-        let provider = self.active_provider();
+        let provider = self.resolve_provider(&overrides);
         let summarizer = crate::core::chat::compact::ProviderSummarizer::new(Arc::clone(&provider));
         let compact = compact::prepare_history_for_prompt(
             &history,
@@ -243,7 +262,6 @@ impl ChatService {
         let prompt_preferences = PromptPreferences {
             app_language: preferences.app_language,
             reasoning_language: preferences.reasoning_language,
-            response_tone: preferences.response_tone,
             collaboration_models,
         };
         let request = PromptBuilder::build(PromptBuildInput {
@@ -272,11 +290,14 @@ impl ChatService {
                 .map(|workspace| std::path::Path::new(&workspace.root)),
         );
 
-        let chat_mode = self
-            .app_handle
-            .as_ref()
-            .and_then(|app| crate::services::settings_store::get_settings(app).ok())
-            .map(|settings| settings.chat_mode)
+        let chat_mode = overrides
+            .chat_mode
+            .or_else(|| {
+                self.app_handle
+                    .as_ref()
+                    .and_then(|app| crate::services::settings_store::get_settings(app).ok())
+                    .map(|settings| settings.chat_mode)
+            })
             .unwrap_or_default();
         let tools = if chat_mode == ChatMode::Ask {
             Arc::new(self.tools.read_only())
@@ -284,12 +305,23 @@ impl ChatService {
             Arc::clone(&self.tools)
         };
 
-        let model = self
-            .app_handle
-            .as_ref()
-            .and_then(|app| crate::services::settings_store::get_settings(app).ok())
-            .map(|settings| settings.chat_model)
+        let model = overrides
+            .model_id
+            .as_deref()
+            .filter(|model| !model.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                self.app_handle
+                    .as_ref()
+                    .and_then(|app| crate::services::settings_store::get_settings(app).ok())
+                    .map(|settings| settings.chat_model)
+            })
             .unwrap_or_default();
+
+        // Per-conversation approval mode: register (or clear) the override for
+        // this session so tool approvals honor each conversation's choice.
+        crate::core::tools::tool_approval::shared_tool_approval_store()
+            .set_session_mode(&session_id, overrides.tool_approval_mode);
 
         let spawn_result = self.agent_runtime.spawn(AgentSpawnInput {
             run_id: agent_run_id.clone(),

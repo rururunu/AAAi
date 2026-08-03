@@ -26,6 +26,7 @@ where
 pub struct ConversationManager {
     sessions: Arc<Mutex<HashMap<String, Vec<ChatMessage>>>>,
     session_workspaces: Arc<Mutex<HashMap<String, String>>>,
+    session_titles: Arc<Mutex<HashMap<String, String>>>,
     db_pool: sqlx::SqlitePool,
     journal: super::journal::SessionJournal,
 }
@@ -115,10 +116,19 @@ impl ConversationManager {
                     .expect("Failed to load chat session workspaces")
             }
         });
+        let session_titles = block_on_compat({
+            let db_pool = db_pool.clone();
+            async move {
+                super::db::load_session_titles(&db_pool)
+                    .await
+                    .expect("Failed to load chat session titles")
+            }
+        });
 
         Self {
             sessions: Arc::new(Mutex::new(sessions)),
             session_workspaces: Arc::new(Mutex::new(session_workspaces)),
+            session_titles: Arc::new(Mutex::new(session_titles)),
             db_pool,
             journal,
         }
@@ -187,6 +197,30 @@ impl ConversationManager {
             .and_then(|workspaces| workspaces.get(session_id).cloned())
     }
 
+    pub fn set_session_title(&self, session_id: &str, title: String) {
+        let title = title.trim().to_string();
+        if title.is_empty() {
+            return;
+        }
+        if let Ok(mut titles) = self.session_titles.lock() {
+            titles.insert(session_id.to_string(), title.clone());
+        }
+        let pool = self.db_pool.clone();
+        let session_id = session_id.to_string();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = super::db::save_session_title(&pool, &session_id, &title).await {
+                eprintln!("Failed to save chat session title: {error}");
+            }
+        });
+    }
+
+    pub fn session_title(&self, session_id: &str) -> Option<String> {
+        self.session_titles
+            .lock()
+            .ok()
+            .and_then(|titles| titles.get(session_id).cloned())
+    }
+
     pub fn history(&self, session_id: &str) -> Result<Vec<ChatMessage>, ChatError> {
         Ok(self.messages(session_id))
     }
@@ -220,7 +254,9 @@ impl ConversationManager {
                 if messages.is_empty() {
                     return None;
                 }
-                let preview = session_preview(messages);
+                let preview = self
+                    .session_title(session_id)
+                    .unwrap_or_else(|| session_preview(messages));
                 let updated_at = messages
                     .iter()
                     .map(|message| message.timestamp)

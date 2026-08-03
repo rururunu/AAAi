@@ -14,7 +14,6 @@ const SUBAGENT_PROMPT: &str = include_str!("../../../../prompts/subagent.md");
 
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Arc::new(RunSubagentTool));
-    registry.register(Arc::new(RunReadonlySubagentTool));
     registry.register(Arc::new(RunParallelSubagentsTool));
 }
 
@@ -22,10 +21,8 @@ pub fn is_async_runtime_tool(name: &str) -> bool {
     matches!(
         name,
         "run_subagent"
-            | "run_readonly_subagent"
             | "run_parallel_subagents"
             | "run_skill"
-            | "run_readonly_skill"
             | "explore_codebase"
             | "research_topic"
             | "review_code"
@@ -232,11 +229,8 @@ pub async fn execute_async_tool(
     match name {
         "run_subagent" => {
             let prompt = args["prompt"].as_str().unwrap_or("");
-            run_subagent(ctx, prompt, false, args["model"].as_str()).await
-        }
-        "run_readonly_subagent" => {
-            let prompt = args["prompt"].as_str().unwrap_or("");
-            run_subagent(ctx, prompt, true, args["model"].as_str()).await
+            let read_only = args["read_only"].as_bool().unwrap_or(false);
+            run_subagent(ctx, prompt, read_only, args["model"].as_str()).await
         }
         "run_parallel_subagents" => {
             let tasks = args["tasks"].as_array().cloned().unwrap_or_default();
@@ -247,14 +241,8 @@ pub async fn execute_async_tool(
             let task = args["task"].as_str().unwrap_or("");
             let body = crate::core::tools::skills::resolve_skill_body(skill)?;
             let prompt = format!("{body}\n\n## Task\n{task}");
-            run_subagent(ctx, &prompt, false, args["model"].as_str()).await
-        }
-        "run_readonly_skill" => {
-            let skill = args["name"].as_str().unwrap_or("");
-            let task = args["task"].as_str().unwrap_or("");
-            let body = crate::core::tools::skills::resolve_skill_body(skill)?;
-            let prompt = format!("{body}\n\n## Task\n{task}");
-            run_subagent(ctx, &prompt, true, args["model"].as_str()).await
+            let read_only = args["read_only"].as_bool().unwrap_or(false);
+            run_subagent(ctx, &prompt, read_only, args["model"].as_str()).await
         }
         "explore_codebase" => {
             run_builtin_skill(ctx, "explore", args["task"].as_str().unwrap_or(""), true).await
@@ -317,7 +305,7 @@ impl Tool for RunSubagentTool {
         "run_subagent"
     }
     fn description(&self) -> &str {
-        "Run one bounded child task after judging that delegation fits its difficulty and scope; only the final answer returns."
+        "Run one bounded child task after judging that delegation fits its difficulty and scope; only the final answer returns. With read_only=true the child is restricted to read-only tools (research, exploration, review, verification)."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -325,46 +313,16 @@ impl Tool for RunSubagentTool {
             "properties": {
                 "description": { "type": "string" },
                 "prompt": { "type": "string" },
-                "model": { "type": "string", "description": "Coordinator-selected exact model ID. Required by policy when multi-model collaboration is enabled; otherwise optional." }
+                "model": { "type": "string", "description": "Coordinator-selected exact model ID. Required by policy when multi-model collaboration is enabled; otherwise optional." },
+                "read_only": { "type": "boolean", "default": false, "description": "Restrict the child agent to read-only tools" }
             },
             "required": ["prompt"]
         })
     }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         let prompt = args["prompt"].as_str().unwrap_or("");
-        run_subagent_sync_with_model(ctx, prompt, false, args["model"].as_str())
-    }
-}
-
-struct RunReadonlySubagentTool;
-
-impl Tool for RunReadonlySubagentTool {
-    fn name(&self) -> &str {
-        "run_readonly_subagent"
-    }
-    fn description(&self) -> &str {
-        "Run one bounded read-only child task when delegation improves research, exploration, review, or verification."
-    }
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "prompt": { "type": "string" },
-                "model": { "type": "string", "description": "Coordinator-selected exact model ID. Required by policy when multi-model collaboration is enabled; otherwise optional." }
-            },
-            "required": ["prompt"]
-        })
-    }
-    fn read_only(&self) -> bool {
-        true
-    }
-    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
-        run_subagent_sync_with_model(
-            ctx,
-            args["prompt"].as_str().unwrap_or(""),
-            true,
-            args["model"].as_str(),
-        )
+        let read_only = args["read_only"].as_bool().unwrap_or(false);
+        run_subagent_sync_with_model(ctx, prompt, read_only, args["model"].as_str())
     }
 }
 

@@ -5,8 +5,9 @@ use crate::core::agent::AgentDebugEvent;
 use crate::core::ai::deepseek;
 use crate::core::chat::SendPreferences;
 use crate::models::chat::{
-    ChatCancelRequest, ChatHistoryRequest, ChatHistoryResponse, ChatModelInfo, ChatSendRequest,
-    ChatSendResponse, ContextUsageRequest, ContextUsageResponse, ListChatSessionsResponse,
+    ChatCancelRequest, ChatHistoryRequest, ChatHistoryResponse, ChatModelInfo,
+    ChatSendOverrides, ChatSendRequest, ChatSendResponse, ContextUsageRequest,
+    ContextUsageResponse, ListChatSessionsResponse,
 };
 use crate::services::gemini_oauth;
 use crate::services::settings_store::{apply_chat_request_settings, get_settings};
@@ -28,6 +29,7 @@ pub async fn chat(
     .await
     .map_err(|error| format!("configure runtimes failed: {error}"))?;
 
+    let overrides = ChatSendOverrides::from_request(&request);
     let result = state
         .core
         .chat()
@@ -37,6 +39,7 @@ pub async fn chat(
             preferences,
             request.workspace_id,
             request.quick_ask,
+            overrides,
         )
         .await
         .map_err(|error| error.to_string())?;

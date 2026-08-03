@@ -37,29 +37,28 @@ mod tests {
         assert!(SYSTEM_PROMPT.contains("ask_user"));
         assert!(SYSTEM_PROMPT.contains("User-attached files"));
         assert!(SYSTEM_PROMPT.contains("peek-attached-file"));
-        assert!(SYSTEM_PROMPT.contains("Memory is for durable user context"));
+        assert!(SYSTEM_PROMPT.contains("Memory is for durable, user-confirmed facts"));
         assert!(SYSTEM_PROMPT.contains("Recall only when prior context could materially affect"));
-        assert!(SYSTEM_PROMPT.contains("exact callable tools and argument schemas"));
+        assert!(SYSTEM_PROMPT.contains("exact callable tools and schemas"));
         assert!(SYSTEM_PROMPT.contains("compact desktop chat panel"));
         assert!(SYSTEM_PROMPT.contains("Do not use level-one or level-two Markdown headings"));
     }
 
     #[test]
     fn memory_prompt_defines_a_safe_lifecycle() {
-        assert!(SYSTEM_PROMPT.contains("Save a memory only when all of these are true"));
-        assert!(SYSTEM_PROMPT
-            .contains("current user message and verified current state override memory"));
-        assert!(SYSTEM_PROMPT.contains("delete the obsolete memory by id"));
-        assert!(SYSTEM_PROMPT.contains("When the user asks to forget something"));
-        assert!(SYSTEM_PROMPT.contains("Include scope in the title or content"));
+        assert!(SYSTEM_PROMPT.contains("Save a memory only if:"));
+        assert!(SYSTEM_PROMPT.contains("delete the obsolete memory by ID first"));
+        assert!(SYSTEM_PROMPT.contains("When asked to forget"));
+        assert!(SYSTEM_PROMPT.contains("Include project scope"));
     }
 
     #[test]
     fn editing_prompt_routes_tools_by_change_shape() {
-        assert!(SYSTEM_PROMPT.contains("Choose the narrowest editor"));
-        assert!(SYSTEM_PROMPT.contains("One localized change in one existing file"));
-        assert!(SYSTEM_PROMPT.contains("Several independent localized changes in one file"));
+        assert!(SYSTEM_PROMPT.contains("Choose the narrowest tool"));
+        assert!(SYSTEM_PROMPT.contains("Localized edit"));
+        assert!(SYSTEM_PROMPT.contains("Multiple independent edits"));
         assert!(SYSTEM_PROMPT.contains("Do not default to `apply_patch`"));
+        assert!(SYSTEM_PROMPT.contains("Never pass whole-file content"));
         assert!(!SYSTEM_PROMPT.contains("Prefer `apply_patch` for most edits"));
     }
 

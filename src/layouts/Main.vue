@@ -208,7 +208,10 @@
         class="conversation-pane"
         :class="{ 'empty-conversation': !hasConversationMessages }"
       >
-        <div v-if="contextNotice" class="context-notice">{{ contextNotice }}</div>
+        <div v-if="contextNotice" class="context-notice" role="status">
+          <CircleAlert :size="14" :stroke-width="1.8" aria-hidden="true" />
+          <span>{{ contextNotice }}</span>
+        </div>
         <div v-if="!hasConversationMessages" class="empty-conversation-brand" aria-hidden="true">
           <img :src="appIconAsset" alt="" draggable="false" />
         </div>
@@ -227,6 +230,43 @@
         />
 
         <div class="composer-wrap">
+          <div v-if="stagedMessages.length" class="staged-wrap" data-tauri-drag-region="false">
+            <div class="staged-list">
+              <div
+                v-for="(message, index) in stagedMessages"
+                :key="`${index}-${message}`"
+                class="staged-item"
+              >
+                <span class="staged-item-text">{{ message }}</span>
+                <span class="staged-item-actions">
+                  <button
+                    type="button"
+                    class="staged-btn staged-btn-guide"
+                    :title="labels.guideOneHint"
+                    @click="guideStaged(index)"
+                  >
+                    <CornerDownLeft :size="13" />
+                  </button>
+                  <button
+                    type="button"
+                    class="staged-btn"
+                    :title="labels.editStaged"
+                    @click="startStagedEdit(index)"
+                  >
+                    <Pencil :size="13" />
+                  </button>
+                  <button
+                    type="button"
+                    class="staged-btn staged-btn-danger"
+                    :title="labels.removeStaged"
+                    @click="removeStaged(index)"
+                  >
+                    <Trash2 :size="13" />
+                  </button>
+                </span>
+              </div>
+            </div>
+          </div>
           <ChatInputBar
             ref="inputRef"
             :sending="sending"
@@ -294,7 +334,9 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   Bug,
+  CircleAlert,
   ChevronRight,
+  CornerDownLeft,
   Ellipsis,
   FileDiff,
   Folder,
@@ -302,6 +344,7 @@ import {
   Image as ImageIcon,
   Minus,
   PanelLeft,
+  Pencil,
   PanelRight,
   PanelRightClose,
   Pin,
@@ -333,6 +376,7 @@ import {
   listCheckpoints,
   listenAskUser,
   listenChatFinished,
+  listenChatSessionTitleUpdated,
   listenInteractionResolved,
   listenPathPermission,
   listenToolApproval,
@@ -384,10 +428,8 @@ type WorkspacePointerDrag = {
 
 const SUBAGENT_TOOLS = new Set([
   "run_subagent",
-  "run_readonly_subagent",
   "run_parallel_subagents",
   "run_skill",
-  "run_readonly_skill",
   "explore_codebase",
   "research_topic",
   "review_code",
@@ -449,6 +491,10 @@ const labels = computed(() => isChinese.value ? {
   noConversations: "还没有对话",
   closePanel: "关闭审阅区",
   deleteConfirm: "确定删除这个对话吗？此操作无法撤销。",
+  guideOneHint: "立即发送这条暂存消息给当前执行中的 AI 作为引导",
+  editStaged: "编辑这条暂存消息",
+  removeStaged: "删除这条暂存消息",
+  stagedAutoHint: "本轮结束后自动发送",
   diff: "差异",
   agents: "子 Agent",
   runtime: "运行时",
@@ -466,6 +512,10 @@ const labels = computed(() => isChinese.value ? {
   noConversations: "No conversations yet",
   closePanel: "Close review pane",
   deleteConfirm: "Delete this conversation? This cannot be undone.",
+  guideOneHint: "Send this staged message to the running AI as guidance now",
+  editStaged: "Edit this staged message",
+  removeStaged: "Remove this staged message",
+  stagedAutoHint: "Sent automatically when this turn finishes",
   diff: "Diff",
   agents: "Sub-agents",
   runtime: "Runtime",
@@ -519,13 +569,16 @@ const emptyConversationPrompt = computed(() => {
     : `What would you like me to help you accomplish in ${activeWorkspaceName.value}?`;
 });
 
+// The runtime/debug panel is a development aid; keep it out of packaged builds.
 const reviewViews = computed(() => [
   { id: "diff" as const, label: labels.value.diff, icon: FileDiff },
   { id: "agents" as const, label: labels.value.agents, icon: Workflow },
   ...(openedImageSources.value.length
     ? [{ id: "image" as const, label: tr(settingStore.language, "image.preview"), icon: ImageIcon }]
     : []),
-  { id: "runtime" as const, label: labels.value.runtime, icon: Bug },
+  ...(import.meta.env.DEV
+    ? [{ id: "runtime" as const, label: labels.value.runtime, icon: Bug }]
+    : []),
 ]);
 const pinnedWorkspaces = computed(() => workspaces.value.filter((workspace) => workspace.pinned));
 const regularWorkspaces = computed(() => workspaces.value.filter((workspace) => !workspace.pinned));
@@ -562,6 +615,8 @@ const hasConversationMessages = computed(() =>
 );
 const sending = computed(() => Boolean(chatStore.sending[activeSessionId.value]));
 const runningSessionIds = computed(() => Object.keys(chatStore.sending));
+const stagedMessages = computed(() => chatStore.stagedMessages[activeSessionId.value] ?? []);
+const pendingStagedEdit = ref<{ sessionId: string; index: number; original: string } | null>(null);
 const attentionSessionIds = computed(() => Object.keys(pendingInteractions.value));
 const unreadSessionIdList = computed(() => [...unreadSessionIds.value]);
 const activePendingInteraction = computed(() => pendingInteractions.value[activeSessionId.value]);
@@ -865,6 +920,7 @@ async function removeWorkspace(workspace: Workspace) {
 function createConversation(workspaceId: string | null) {
   const sessionId = createSessionId();
   chatStore.setSessionMessages(sessionId, []);
+  chatStore.ensureCompose(sessionId);
   chatStore.setOverlayDraftSession(sessionId);
   activeSessionId.value = sessionId;
   activeSessionWorkspaceId.value = workspaceId;
@@ -882,6 +938,9 @@ async function refreshSessions() {
     ]);
     sessions.value = chatResponse.sessions;
     workspaces.value = workspaceResponse;
+    if (chatResponse && chatResponse.sessions) {
+      chatStore.setStartedSessionIds(chatResponse.sessions.map((s: any) => s.sessionId));
+    }
   } catch (error) {
     console.error("list_chat_sessions failed:", error);
   } finally {
@@ -897,6 +956,7 @@ function toggleWorkspaceGroup(id: string) {
 }
 
 async function selectConversation(sessionId: string) {
+  cancelStagedEdit();
   clearSessionUnread(sessionId);
   const summary = sessions.value.find((session) => session.sessionId === sessionId);
   activeSessionWorkspaceId.value = summary?.workspaceId ?? null;
@@ -906,6 +966,7 @@ async function selectConversation(sessionId: string) {
     await clearCurrentWorkspace();
   }
   activeSessionId.value = sessionId;
+  chatStore.ensureCompose(sessionId);
   chatStore.setOverlayDraftSession(sessionId);
   await chatStore.loadHistory(sessionId);
   await refreshCheckpoints();
@@ -920,7 +981,9 @@ async function removeConversation(sessionId: string) {
     cancelLabel: navigationLabels.value.cancel,
   });
   if (!confirmed) return;
+  pendingStagedEdit.value = null;
   await deleteChatSession(sessionId);
+  chatStore.removeCompose(sessionId);
   delete chatStore.sessions[sessionId];
   clearSessionUnread(sessionId);
   removePendingInteraction(sessionId);
@@ -932,10 +995,56 @@ async function removeConversation(sessionId: string) {
   }
 }
 
+async function guideStaged(index: number) {
+  await chatStore.guideStagedMessage(activeSessionId.value, index);
+}
+
+function startStagedEdit(index: number) {
+  // 若正在编辑另一条，先把上一条原文案放回队列，避免覆盖丢失。
+  cancelStagedEdit();
+  const sessionId = activeSessionId.value;
+  const message = chatStore.stagedMessages[sessionId]?.[index];
+  if (!message) {
+    return;
+  }
+  // 先移除队列中的原文案并回填输入框；提交或取消时再放回队列，避免丢消息。
+  pendingStagedEdit.value = { sessionId, index, original: message };
+  chatStore.removeStagedMessage(sessionId, index);
+  inputRef.value?.setMessage(message);
+  void nextTick(() => inputRef.value?.focusInput());
+}
+
+function cancelStagedEdit() {
+  const pending = pendingStagedEdit.value;
+  if (!pending) {
+    return;
+  }
+  pendingStagedEdit.value = null;
+  // 编辑未提交：把原文案放回队列原位。
+  chatStore.insertStagedMessage(pending.sessionId, pending.index, pending.original);
+}
+
+function removeStaged(index: number) {
+  chatStore.removeStagedMessage(activeSessionId.value, index);
+}
+
 async function submitMessage(text: string) {
-  if (!text.trim()) return;
-  if (!activeSessionId.value) await createQuickConversation();
-  await chatStore.send(text, activeSessionId.value, {
+  const trimmed = text.trim();
+  const sessionId = activeSessionId.value;
+  if (!trimmed) {
+    cancelStagedEdit();
+    return;
+  }
+  const pending = pendingStagedEdit.value;
+  if (pending) {
+    // 编辑暂存消息：改完的内容放回队列原位，不直接发送（AI 仍在执行中）。
+    pendingStagedEdit.value = null;
+    chatStore.insertStagedMessage(pending.sessionId, pending.index, trimmed);
+    await refreshSessions();
+    return;
+  }
+  if (!sessionId) await createQuickConversation();
+  await chatStore.send(trimmed, sessionId, {
     workspaceId: activeSessionWorkspaceId.value ?? undefined,
     quickAsk: !activeSessionWorkspaceId.value,
   });
@@ -1178,6 +1287,9 @@ onMounted(async () => {
       );
     })();
   }));
+  unlisteners.push(await listenChatSessionTitleUpdated(() => {
+    void refreshSessions();
+  }));
   unlisteners.push(await listenAskUser((payload) => {
     const sessionId = payload.sessionId || activeSessionId.value;
     setPendingInteraction(sessionId, {
@@ -1400,9 +1512,93 @@ button { font: inherit; }
 .workbench-messages :deep(.message-list) { padding: 18px 40px 28px; gap: 20px; }
 .workbench-messages :deep(.assistant-bubble) { max-width: 100%; }
 .workbench-messages :deep(.user-turn) { max-width: min(76%, 680px); }
-.composer-wrap { z-index: 8; flex: 0 0 auto; width: min(calc(100% - 48px), 820px); min-height: 0; max-height: min(280px, calc(100% - 24px)); margin: 0 auto clamp(10px, 2.5vh, 24px); }
-.composer-wrap :deep(.chat-input-shell) { width: 100%; min-height: 0; max-height: 100%; }
+.composer-wrap { position: relative; z-index: 8; flex: 0 0 auto; width: min(calc(100% - 48px), 820px); min-height: 0; max-height: min(280px, calc(100% - 24px)); margin: 0 auto clamp(10px, 2.5vh, 24px); }
+.composer-wrap :deep(.chat-input-shell) { position: relative; z-index: 2; width: 100%; min-height: 0; max-height: 100%; }
 .composer-wrap :deep(.input-bar) { width: 100%; max-height: 100%; }
+.staged-wrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% - 1px);
+  z-index: 1;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+  pointer-events: none;
+}
+.staged-list {
+  pointer-events: auto;
+  box-sizing: border-box;
+  width: min(calc(100% - 32px), 720px);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 184px;
+  overflow-y: auto;
+  padding: 6px 8px 0;
+  border: 1px solid color-mix(in srgb, var(--peek-accent) 20%, transparent);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background: color-mix(in srgb, var(--peek-surface) 97%, transparent);
+  box-shadow: 0 -10px 24px color-mix(in srgb, #000 16%, transparent);
+}
+.staged-item {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 5px 4px 5px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--peek-border) 42%, transparent);
+  background: transparent;
+}
+.staged-item:last-child { border-bottom: 0; }
+.staged-item-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--peek-text);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.staged-item-actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-top: 0;
+}
+.staged-btn {
+  flex: none;
+  width: 24px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--peek-muted);
+  cursor: pointer;
+}
+.staged-btn:hover {
+  background: color-mix(in srgb, var(--peek-fg) 9%, transparent);
+  color: var(--peek-text);
+}
+.staged-btn-guide {
+  color: var(--peek-accent);
+}
+.staged-btn-guide:hover {
+  background: color-mix(in srgb, var(--peek-accent) 15%, transparent);
+}
+.staged-btn-danger:hover {
+  background: color-mix(in srgb, var(--peek-danger) 13%, transparent);
+  color: var(--peek-danger);
+}
 .conversation-pane.empty-conversation .workbench-messages { visibility: hidden; pointer-events: none; }
 .empty-conversation-brand { position: absolute; top: calc(50% - 318px); left: 50%; width: 128px; height: 128px; transform: translateX(-50%); pointer-events: none; }
 .empty-conversation-brand img { display: block; width: 100%; height: 100%; object-fit: contain; opacity: 0.9; }
@@ -1412,7 +1608,29 @@ button { font: inherit; }
 .conversation-pane.empty-conversation .composer-wrap :deep(.model-picker-list) {
   max-height: max(96px, calc(50vh - 96px));
 }
-.context-notice { position: absolute; z-index: 9; top: 10px; left: 50%; max-width: min(720px, calc(100% - 48px)); padding: 7px 10px; border-radius: 6px; background: color-mix(in srgb, var(--peek-warning) 14%, var(--peek-surface)); color: var(--peek-text); box-shadow: 0 8px 24px var(--peek-shadow); font-size: 11px; transform: translateX(-50%); }
+.context-notice {
+  position: absolute;
+  z-index: 9;
+  top: 12px;
+  left: 50%;
+  box-sizing: border-box;
+  width: min(calc(100% - 80px), 720px);
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border: 1px solid color-mix(in srgb, var(--peek-warning) 24%, var(--peek-border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--peek-warning) 8%, var(--peek-surface));
+  color: var(--peek-text);
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 13%, transparent);
+  font-size: 11px;
+  line-height: 1.45;
+  transform: translateX(-50%);
+}
+.context-notice > svg { flex: none; color: var(--peek-warning); }
+.context-notice > span { min-width: 0; overflow-wrap: anywhere; }
 
 .review-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--workbench-chrome-bg); box-shadow: -12px 0 34px color-mix(in srgb, #000 9%, transparent); container: workspace-sidebar / inline-size; }
 .review-header { flex: none; height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; }

@@ -12,6 +12,7 @@ use super::error::ToolError;
 const WAIT_POLL: Duration = Duration::from_millis(100);
 const WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const FOREGROUND_TIMEOUT: Duration = Duration::from_secs(120);
+const BACKGROUND_OUTPUT_MAX_CHARS: usize = 256 * 1024;
 
 #[derive(Debug)]
 pub struct ShellJob {
@@ -54,7 +55,9 @@ impl ShellJobStore {
             cmd.current_dir(dir);
         }
         prepare_command(&mut cmd);
-        let child = cmd.spawn()?;
+        let mut child = cmd.spawn()?;
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
 
         let id = {
             let mut guard = self
@@ -85,17 +88,26 @@ impl ShellJobStore {
             );
         }
 
+        let stdout_reader =
+            stdout.map(|stream| spawn_output_reader(Arc::clone(self), id.clone(), stream));
+        let stderr_reader =
+            stderr.map(|stream| spawn_output_reader(Arc::clone(self), id.clone(), stream));
         let store = Arc::clone(self);
         let job_id = id.clone();
         std::thread::spawn(move || {
-            store.finish_job(&job_id);
+            store.finish_job(&job_id, stdout_reader, stderr_reader);
         });
 
         Ok(id)
     }
 
     /// Take the child under a short lock, wait outside the lock, then publish.
-    fn finish_job(&self, job_id: &str) {
+    fn finish_job(
+        &self,
+        job_id: &str,
+        stdout_reader: Option<std::thread::JoinHandle<()>>,
+        stderr_reader: Option<std::thread::JoinHandle<()>>,
+    ) {
         let (mut child, cancelled) = {
             let mut guard = match self.jobs.lock() {
                 Ok(guard) => guard,
@@ -122,16 +134,19 @@ impl ShellJobStore {
                 Err(_) => break false,
             }
         };
-        let (stdout, stderr, exit_code) = collect_child_output(&mut child);
-        let output = if was_cancelled {
-            format!("cancelled\n{}", format_streams(&stdout, &stderr))
-        } else {
-            format_streams(&stdout, &stderr)
-        };
+        let exit_code = child.wait().ok().and_then(|status| status.code());
+        if let Some(reader) = stdout_reader {
+            let _ = reader.join();
+        }
+        if let Some(reader) = stderr_reader {
+            let _ = reader.join();
+        }
 
         if let Ok(mut guard) = self.jobs.lock() {
             if let Some(job) = guard.get_mut(job_id) {
-                job.output = output;
+                if was_cancelled {
+                    append_bounded(&mut job.output, "\n[cancelled]\n");
+                }
                 job.exit_code = exit_code;
                 job.done = true;
                 crate::core::context::provider::environment_provider::record_shell_execution(
@@ -144,11 +159,28 @@ impl ShellJobStore {
     }
 
     pub fn read_output(&self, job_id: &str) -> Result<String, ToolError> {
+        self.read_output_limited(job_id, None, None)
+    }
+
+    pub fn read_output_limited(
+        &self,
+        job_id: &str,
+        tail_lines: Option<usize>,
+        max_chars: Option<usize>,
+    ) -> Result<String, ToolError> {
         let guard = self.jobs.lock().map_err(|_| ToolError::new("job lock"))?;
         let job = guard
             .get(job_id)
             .ok_or_else(|| ToolError::new(format!("unknown job: {job_id}")))?;
-        Ok(format_job_status(job))
+        let mut output = job.output.clone();
+        if let Some(lines) = tail_lines.filter(|value| *value > 0) {
+            let all: Vec<&str> = output.lines().collect();
+            output = all[all.len().saturating_sub(lines)..].join("\n");
+        }
+        if let Some(limit) = max_chars.filter(|value| *value > 0) {
+            output = take_tail_chars(&output, limit);
+        }
+        Ok(format_job_status_with_output(job, &output))
     }
 
     pub fn wait_job(
@@ -202,12 +234,92 @@ impl ShellJobStore {
 }
 
 fn format_job_status(job: &ShellJob) -> String {
+    format_job_status_with_output(job, &job.output)
+}
+
+fn format_job_status_with_output(job: &ShellJob, output: &str) -> String {
     format!(
         "status: {}\nexit_code: {:?}\n{}",
         if job.done { "done" } else { "running" },
         job.exit_code,
-        job.output
+        output
     )
+}
+
+fn spawn_output_reader<R: Read + Send + 'static>(
+    store: Arc<ShellJobStore>,
+    job_id: String,
+    mut stream: R,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 4096];
+        loop {
+            match stream.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => {
+                    let chunk = String::from_utf8_lossy(&buffer[..read]);
+                    if let Ok(mut jobs) = store.jobs.lock() {
+                        if let Some(job) = jobs.get_mut(&job_id) {
+                            append_bounded(&mut job.output, &chunk);
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    })
+}
+
+fn append_bounded(output: &mut String, chunk: &str) {
+    output.push_str(chunk);
+    let count = output.chars().count();
+    if count > BACKGROUND_OUTPUT_MAX_CHARS {
+        *output = take_tail_chars(output, BACKGROUND_OUTPUT_MAX_CHARS);
+    }
+}
+
+fn take_tail_chars(value: &str, limit: usize) -> String {
+    let count = value.chars().count();
+    value.chars().skip(count.saturating_sub(limit)).collect()
+}
+
+/// Only commands expected to stay alive are allowed to allocate a background
+/// job. This prevents routine reads, tests, builds, Git, and Docker inspection
+/// from being turned into noisy `job-n` handles merely to avoid waiting.
+pub fn background_allowed(command: &str) -> bool {
+    let normalized = command.to_ascii_lowercase();
+    let persistent_markers = [
+        "get-content -wait",
+        "tail -f",
+        "docker logs -f",
+        "docker logs --follow",
+        "docker compose logs -f",
+        "docker compose logs --follow",
+        "docker-compose logs -f",
+        "docker-compose logs --follow",
+        "npm run dev",
+        "pnpm dev",
+        "yarn dev",
+        "bun run dev",
+        "vite --host",
+        "webpack --watch",
+        "cargo watch",
+        "dotnet watch",
+    ];
+    if persistent_markers
+        .iter()
+        .any(|marker| normalized.contains(marker))
+    {
+        return true;
+    }
+
+    let trimmed = normalized.trim();
+    (trimmed.starts_with("docker compose up")
+        || trimmed.starts_with("docker-compose up")
+        || trimmed.starts_with("docker run"))
+        && !normalized
+            .split_whitespace()
+            .any(|part| part == "-d" || part == "--detach")
 }
 
 fn collect_child_output(child: &mut Child) -> (String, String, Option<i32>) {
@@ -366,5 +478,53 @@ mod tests {
 
         assert!(error.is_cancelled());
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn finite_commands_are_not_allowed_in_background() {
+        assert!(!background_allowed("git status"));
+        assert!(!background_allowed("pnpm build"));
+        assert!(!background_allowed("docker compose ps"));
+        assert!(!background_allowed("docker compose logs --tail 100"));
+        assert!(background_allowed("docker compose logs -f --tail 100"));
+        assert!(background_allowed("Get-Content -Wait -Tail 100 app.log"));
+    }
+
+    #[test]
+    fn background_output_is_readable_before_process_exits() {
+        let store = ShellJobStore::new();
+        let id = store
+            .spawn_background(
+                "Write-Output 'first'; Start-Sleep -Milliseconds 800; Write-Output 'second'".into(),
+                None,
+                Arc::new(AtomicBool::new(false)),
+            )
+            .expect("spawn");
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let running = loop {
+            let status = store.read_output(&id).expect("read");
+            if status.contains("first") {
+                break status;
+            }
+            assert!(Instant::now() < deadline, "first log line was not streamed");
+            std::thread::sleep(Duration::from_millis(25));
+        };
+        assert!(running.contains("status: running"));
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let status = store.read_output(&id).expect("read");
+            if status.contains("status: done") {
+                assert!(status.contains("first"));
+                assert!(status.contains("second"));
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "background command did not finish"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
     }
 }

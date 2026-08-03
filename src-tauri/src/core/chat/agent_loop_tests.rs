@@ -32,19 +32,10 @@ struct ProviderTurn {
     tool_calls: Vec<ToolCallPayload>,
 }
 
-#[async_trait]
-impl AIProvider for ScriptedProvider {
-    fn id(&self) -> &'static str {
-        "scripted"
-    }
-
-    async fn stream(
-        &self,
-        _request: ChatRequest,
-        tx: mpsc::Sender<StreamEvent>,
-    ) -> Result<(), ProviderError> {
-        let turn = self
-            .scripts
+impl ScriptedProvider {
+    /// Pop the next scripted turn without holding the lock across any await.
+    fn take_turn(&self) -> ProviderTurn {
+        self.scripts
             .lock()
             .ok()
             .and_then(|mut scripts| {
@@ -57,7 +48,22 @@ impl AIProvider for ScriptedProvider {
             .unwrap_or(ProviderTurn {
                 content: "done".into(),
                 tool_calls: vec![],
-            });
+            })
+    }
+}
+
+#[async_trait]
+impl AIProvider for ScriptedProvider {
+    fn id(&self) -> &'static str {
+        "scripted"
+    }
+
+    async fn stream(
+        &self,
+        _request: ChatRequest,
+        tx: mpsc::Sender<StreamEvent>,
+    ) -> Result<(), ProviderError> {
+        let turn = self.take_turn();
 
         let _ = tx.send(StreamEvent::Start).await;
         if !turn.content.is_empty() {
@@ -142,10 +148,13 @@ fn tool_call(id: &str, name: &str) -> ToolCallPayload {
 
 fn make_ctx(registry: Arc<ToolRegistry>) -> (ToolContext, std::path::PathBuf) {
     let db_path = std::env::temp_dir().join(format!("peek-agent-loop-{}.db", uuid::Uuid::new_v4()));
+    let session_id = "s1".to_string();
+    crate::core::tools::tool_approval::shared_tool_approval_store()
+        .set_session_mode(&session_id, Some(crate::models::settings::ToolApprovalMode::AlwaysAllow));
     let ctx = ToolContext {
         workspace_root: std::env::temp_dir(),
         request_context: RequestContext::default(),
-        session_id: "s1".into(),
+        session_id,
         assistant_message_id: "a1".into(),
         conversation: Arc::new(ConversationManager::new(db_path.clone())),
         event_bus: Arc::new(NullEventBus),
@@ -347,6 +356,349 @@ async fn finishes_without_tools() {
     let finish = collect_finish(&mut rx).await.expect("finish");
     match finish {
         StreamEvent::TurnComplete { content, .. } => assert_eq!(content, "final answer"),
+        _ => panic!("unexpected"),
+    }
+    let _ = std::fs::remove_file(db);
+}
+
+/// A task-like request whose final answer claims completion without any
+/// successful modifying tool is rejected as unverified.
+#[tokio::test]
+async fn completion_claim_without_mutation_is_rejected() {
+    let provider = Arc::new(ScriptedProvider {
+        scripts: Mutex::new(vec![
+            ProviderTurn {
+                content: "已完成修改，超时已更新为30秒".into(),
+                tool_calls: vec![],
+            },
+            ProviderTurn {
+                content: "已完成修改，超时已更新为30秒".into(),
+                tool_calls: vec![],
+            },
+            ProviderTurn {
+                content: "已完成修改，超时已更新为30秒".into(),
+                tool_calls: vec![],
+            },
+        ]),
+    });
+    let tools = Arc::new(ToolManager::new(ToolRegistry::new()));
+    let (ctx, db) = make_ctx(tools.registry());
+    let runner = AgentRunner::new(provider, tools);
+    let (tx, mut rx) = mpsc::channel(16);
+    let mut request = base_request();
+    request.messages[0].content = "修改配置文件，把超时改成30秒".into();
+    runner
+        .run(
+            request,
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
+        .await
+        .unwrap();
+    let finish = collect_finish(&mut rx).await.expect("finish");
+    match finish {
+        StreamEvent::TurnComplete {
+            content,
+            finish_reason,
+            ..
+        } => {
+            assert!(!content.contains("已完成修改"), "claim leaked: {content}");
+            assert!(content.contains("未完成"), "rejection missing: {content}");
+            assert_eq!(finish_reason.as_deref(), Some("unverified_completion"));
+        }
+        _ => panic!("unexpected"),
+    }
+    let _ = std::fs::remove_file(db);
+}
+
+/// An unverified completion claim is challenged and sent back; the model must
+/// actually run a modifying tool before a "done" summary is accepted as-is.
+#[tokio::test]
+async fn completion_claim_without_mutation_forces_actual_work() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(CountingTool {
+        name: "write_file",
+        read_only: false,
+        counter: Arc::new(AtomicUsize::new(0)),
+        parallel_peak: Arc::new(AtomicUsize::new(0)),
+        active: Arc::new(AtomicUsize::new(0)),
+        payload: "ok".into(),
+    }));
+    registry.register(Arc::new(CountingTool {
+        name: "read_file",
+        read_only: true,
+        counter: Arc::new(AtomicUsize::new(0)),
+        parallel_peak: Arc::new(AtomicUsize::new(0)),
+        active: Arc::new(AtomicUsize::new(0)),
+        payload: "verified".into(),
+    }));
+    let tools = Arc::new(ToolManager::new(registry));
+    let provider = Arc::new(ScriptedProvider {
+        scripts: Mutex::new(vec![
+            ProviderTurn {
+                content: "已完成修改".into(),
+                tool_calls: vec![],
+            },
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("1", "write_file")],
+            },
+            ProviderTurn {
+                content: "已完成修改".into(),
+                tool_calls: vec![],
+            },
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("2", "read_file")],
+            },
+            ProviderTurn {
+                content: "已完成修改".into(),
+                tool_calls: vec![],
+            },
+        ]),
+    });
+    let (ctx, db) = make_ctx(tools.registry());
+    let runner = AgentRunner::new(provider, tools);
+    let (tx, mut rx) = mpsc::channel(16);
+    let mut request = base_request();
+    request.messages[0].content = "修改配置文件，把超时改成30秒".into();
+    runner
+        .run(
+            request,
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
+        .await
+        .unwrap();
+    let finish = collect_finish(&mut rx).await.expect("finish");
+    match finish {
+        StreamEvent::TurnComplete { content, .. } => {
+            assert_eq!(content, "已完成修改");
+            assert!(!content.contains("未完成"), "rejection should not appear: {content}");
+        }
+        _ => panic!("unexpected"),
+    }
+    let _ = std::fs::remove_file(db);
+}
+
+/// Updating task bookkeeping is not evidence that the requested file change
+/// happened, even though the tool itself mutates runtime state.
+#[tokio::test]
+async fn task_update_does_not_verify_completion() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(CountingTool {
+        name: "update_tasks",
+        read_only: false,
+        counter: Arc::new(AtomicUsize::new(0)),
+        parallel_peak: Arc::new(AtomicUsize::new(0)),
+        active: Arc::new(AtomicUsize::new(0)),
+        payload: "ok".into(),
+    }));
+    let tools = Arc::new(ToolManager::new(registry));
+    let provider = Arc::new(ScriptedProvider {
+        scripts: Mutex::new(vec![
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("1", "update_tasks")],
+            },
+            ProviderTurn {
+                content: "已完成修改".into(),
+                tool_calls: vec![],
+            },
+            ProviderTurn {
+                content: "已完成修改".into(),
+                tool_calls: vec![],
+            },
+        ]),
+    });
+    let (ctx, db) = make_ctx(tools.registry());
+    let runner = AgentRunner::new(provider, tools);
+    let (tx, mut rx) = mpsc::channel(16);
+    let mut request = base_request();
+    request.messages[0].content = "修改配置文件".into();
+    runner
+        .run(
+            request,
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
+        .await
+        .unwrap();
+    let finish = collect_finish(&mut rx).await.expect("finish");
+    match finish {
+        StreamEvent::TurnComplete {
+            content,
+            finish_reason,
+            ..
+        } => {
+            assert!(content.contains("未完成"), "rejection missing: {content}");
+            assert_eq!(finish_reason.as_deref(), Some("unverified_completion"));
+        }
+        _ => panic!("unexpected"),
+    }
+    let _ = std::fs::remove_file(db);
+}
+
+/// A modifying tool plus a successful read-back allows a completion summary.
+#[tokio::test]
+async fn completion_claim_after_mutation_and_verification_is_kept() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(CountingTool {
+        name: "write_file",
+        read_only: false,
+        counter: Arc::new(AtomicUsize::new(0)),
+        parallel_peak: Arc::new(AtomicUsize::new(0)),
+        active: Arc::new(AtomicUsize::new(0)),
+        payload: "ok".into(),
+    }));
+    registry.register(Arc::new(CountingTool {
+        name: "read_file",
+        read_only: true,
+        counter: Arc::new(AtomicUsize::new(0)),
+        parallel_peak: Arc::new(AtomicUsize::new(0)),
+        active: Arc::new(AtomicUsize::new(0)),
+        payload: "verified".into(),
+    }));
+    let tools = Arc::new(ToolManager::new(registry));
+    let provider = Arc::new(ScriptedProvider {
+        scripts: Mutex::new(vec![
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("1", "write_file")],
+            },
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("2", "read_file")],
+            },
+            ProviderTurn {
+                content: "已完成修改".into(),
+                tool_calls: vec![],
+            },
+        ]),
+    });
+    let (ctx, db) = make_ctx(tools.registry());
+    let runner = AgentRunner::new(provider, tools);
+    let (tx, mut rx) = mpsc::channel(16);
+    let mut request = base_request();
+    request.messages[0].content = "修改配置文件，把超时改成30秒".into();
+    runner
+        .run(
+            request,
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
+        .await
+        .unwrap();
+    let finish = collect_finish(&mut rx).await.expect("finish");
+    match finish {
+        StreamEvent::TurnComplete { content, .. } => {
+            assert_eq!(content, "已完成修改");
+            assert!(!content.contains("未完成"));
+        }
+        _ => panic!("unexpected"),
+    }
+    let _ = std::fs::remove_file(db);
+}
+
+/// Running a modifying tool is not enough: completion is rejected until the
+/// model checks the resulting state.
+#[tokio::test]
+async fn completion_claim_after_mutation_without_verification_is_rejected() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(CountingTool {
+        name: "write_file",
+        read_only: false,
+        counter: Arc::new(AtomicUsize::new(0)),
+        parallel_peak: Arc::new(AtomicUsize::new(0)),
+        active: Arc::new(AtomicUsize::new(0)),
+        payload: "ok".into(),
+    }));
+    let tools = Arc::new(ToolManager::new(registry));
+    let provider = Arc::new(ScriptedProvider {
+        scripts: Mutex::new(vec![
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("1", "write_file")],
+            },
+            ProviderTurn {
+                content: "已完成修改".into(),
+                tool_calls: vec![],
+            },
+            ProviderTurn {
+                content: "已完成修改".into(),
+                tool_calls: vec![],
+            },
+        ]),
+    });
+    let (ctx, db) = make_ctx(tools.registry());
+    let runner = AgentRunner::new(provider, tools);
+    let (tx, mut rx) = mpsc::channel(16);
+    let mut request = base_request();
+    request.messages[0].content = "修改配置文件".into();
+    runner
+        .run(
+            request,
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
+        .await
+        .unwrap();
+    let finish = collect_finish(&mut rx).await.expect("finish");
+    match finish {
+        StreamEvent::TurnComplete {
+            content,
+            finish_reason,
+            ..
+        } => {
+            assert!(content.contains("未验证完成"), "rejection missing: {content}");
+            assert_eq!(finish_reason.as_deref(), Some("unverified_completion"));
+        }
+        _ => panic!("unexpected"),
+    }
+    let _ = std::fs::remove_file(db);
+}
+
+/// Pure questions may legitimately answer "done" without tools — no caveat.
+#[tokio::test]
+async fn question_only_request_with_completion_answer_has_no_caveat() {
+    let provider = Arc::new(ScriptedProvider {
+        scripts: Mutex::new(vec![ProviderTurn {
+            content: "已完成回答：Rust 是一种系统编程语言。".into(),
+            tool_calls: vec![],
+        }]),
+    });
+    let tools = Arc::new(ToolManager::new(ToolRegistry::new()));
+    let (ctx, db) = make_ctx(tools.registry());
+    let runner = AgentRunner::new(provider, tools);
+    let (tx, mut rx) = mpsc::channel(16);
+    let mut request = base_request();
+    request.messages[0].content = "介绍一下Rust".into();
+    runner
+        .run(
+            request,
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
+        .await
+        .unwrap();
+    let finish = collect_finish(&mut rx).await.expect("finish");
+    match finish {
+        StreamEvent::TurnComplete { content, .. } => {
+            assert!(content.starts_with("已完成回答"));
+            assert!(!content.contains("未完成"));
+        }
         _ => panic!("unexpected"),
     }
     let _ = std::fs::remove_file(db);
@@ -643,6 +995,129 @@ async fn stops_when_token_budget_exhausted() {
         } => {
             assert_eq!(finish_reason.as_deref(), Some("max_turn_tokens"));
             assert!(content.contains("token"));
+        }
+        _ => panic!("unexpected"),
+    }
+    let _ = std::fs::remove_file(db);
+}
+
+struct FailingTool {
+    name: &'static str,
+}
+
+impl Tool for FailingTool {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn description(&self) -> &str {
+        "always fails"
+    }
+    fn parameters_schema(&self) -> Value {
+        serde_json::json!({ "type": "object" })
+    }
+    fn execute(&self, _ctx: &ToolContext, _args: Value) -> Result<String, ToolError> {
+        Err(ToolError::new("boom"))
+    }
+}
+
+#[tokio::test]
+async fn stops_after_repeated_identical_tool_error() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(FailingTool { name: "flaky" }));
+    let tools = Arc::new(ToolManager::new(registry));
+    let provider = Arc::new(ScriptedProvider {
+        scripts: Mutex::new(vec![
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("1", "flaky")],
+            },
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("2", "flaky")],
+            },
+            ProviderTurn {
+                content: "unreachable".into(),
+                tool_calls: vec![],
+            },
+        ]),
+    });
+    let (ctx, db) = make_ctx(tools.registry());
+    let runner = AgentRunner::new(provider, tools);
+    let (tx, mut rx) = mpsc::channel(16);
+    runner
+        .run(
+            base_request(),
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
+        .await
+        .unwrap();
+    let finish = collect_finish(&mut rx).await.expect("finish");
+    match finish {
+        StreamEvent::TurnComplete {
+            content,
+            finish_reason,
+            ..
+        } => {
+            assert_eq!(finish_reason.as_deref(), Some("tool_failure_breaker"));
+            assert!(content.contains("相同参数"), "{content}");
+        }
+        _ => panic!("unexpected"),
+    }
+    let _ = std::fs::remove_file(db);
+}
+
+#[tokio::test]
+async fn stops_after_consecutive_failures() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(FailingTool { name: "fail_a" }));
+    registry.register(Arc::new(FailingTool { name: "fail_b" }));
+    registry.register(Arc::new(FailingTool { name: "fail_c" }));
+    let tools = Arc::new(ToolManager::new(registry));
+    let provider = Arc::new(ScriptedProvider {
+        scripts: Mutex::new(vec![
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("1", "fail_a")],
+            },
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("2", "fail_b")],
+            },
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("3", "fail_c")],
+            },
+            ProviderTurn {
+                content: "unreachable".into(),
+                tool_calls: vec![],
+            },
+        ]),
+    });
+    let (ctx, db) = make_ctx(tools.registry());
+    let runner = AgentRunner::new(provider, tools);
+    let (tx, mut rx) = mpsc::channel(16);
+    runner
+        .run(
+            base_request(),
+            ctx,
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(std::collections::VecDeque::new())),
+        )
+        .await
+        .unwrap();
+    let finish = collect_finish(&mut rx).await.expect("finish");
+    match finish {
+        StreamEvent::TurnComplete {
+            content,
+            finish_reason,
+            ..
+        } => {
+            assert_eq!(finish_reason.as_deref(), Some("tool_failure_breaker"));
+            assert!(content.contains("连续失败"), "{content}");
         }
         _ => panic!("unexpected"),
     }

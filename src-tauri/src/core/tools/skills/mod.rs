@@ -31,7 +31,6 @@ const GENERATE_WORD_SKILL: &str = include_str!("../../../../prompts/skills/gener
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Arc::new(LoadSkillTool));
     registry.register(Arc::new(RunSkillTool));
-    registry.register(Arc::new(RunReadonlySkillTool));
     registry.register(Arc::new(ListSkillsTool));
     registry.register(Arc::new(InstallSkillTool));
     registry.register(Arc::new(UninstallSkillTool));
@@ -360,14 +359,15 @@ impl Tool for RunSkillTool {
         "run_skill"
     }
     fn description(&self) -> &str {
-        "Run a skill by injecting its playbook and executing as subagent."
+        "Run a skill by injecting its playbook and executing as subagent. With read_only=true the subagent is restricted to read-only tools (research, exploration, review)."
     }
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
                 "name": { "type": "string" },
-                "task": { "type": "string" }
+                "task": { "type": "string" },
+                "read_only": { "type": "boolean", "default": false, "description": "Restrict the skill subagent to read-only tools" }
             },
             "required": ["name", "task"]
         })
@@ -377,38 +377,7 @@ impl Tool for RunSkillTool {
         let task = args["task"].as_str().unwrap_or("");
         let body = resolve_skill_body(name)?;
         let prompt = format!("{body}\n\n## Task\n{task}");
-        run_subagent_sync(ctx, &prompt, false)
-    }
-}
-
-struct RunReadonlySkillTool;
-
-impl Tool for RunReadonlySkillTool {
-    fn name(&self) -> &str {
-        "run_readonly_skill"
-    }
-    fn description(&self) -> &str {
-        "Run a skill in read-only mode."
-    }
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "name": { "type": "string" },
-                "task": { "type": "string" }
-            },
-            "required": ["name", "task"]
-        })
-    }
-    fn read_only(&self) -> bool {
-        true
-    }
-    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
-        let name = args["name"].as_str().unwrap_or("");
-        let task = args["task"].as_str().unwrap_or("");
-        let body = resolve_skill_body(name)?;
-        let prompt = format!("{body}\n\n## Task\n{task}");
-        run_subagent_sync(ctx, &prompt, true)
+        run_subagent_sync(ctx, &prompt, args["read_only"].as_bool().unwrap_or(false))
     }
 }
 

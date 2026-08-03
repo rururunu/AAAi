@@ -190,6 +190,10 @@ async function bootstrap() {
         event.reasoning,
       );
     }
+    // 本轮正常执行完后，立即自动发出暂存的消息（引导按钮之外的默认路径）。
+    if (sId && event.finishReason !== "cancelled") {
+      void chatStore.flushStaged(sId);
+    }
   });
 
   await listenChatError((payload) => {

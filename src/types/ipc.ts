@@ -50,6 +50,7 @@ export const IPC_EVENTS = {
   chatStatus: "chat-status",
   chatUserContent: "chat-user-content",
   chatFinished: "chat-finished",
+  chatSessionTitleUpdated: "chat-session-title-updated",
   chatError: "chat-error",
   chatContextNotice: "chat-context-notice",
   contextCaptured: "context-captured",

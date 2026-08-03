@@ -181,6 +181,25 @@ impl ToolRegistry {
         }
         filtered
     }
+
+    /// Tools exposed while plan mode is active: read-only tools plus the
+    /// planning / interaction tools plan mode explicitly allows.
+    pub fn filter_for_plan_mode(&self) -> ToolRegistry {
+        let mut filtered = ToolRegistry::new();
+        for name in self.names() {
+            if let Some(tool) = self.get(&name) {
+                if tool.read_only()
+                    || matches!(
+                        name.as_str(),
+                        "update_tasks" | "ask_user" | "complete_plan_step" | "todo_write"
+                    )
+                {
+                    filtered.register(tool);
+                }
+            }
+        }
+        filtered
+    }
 }
 
 impl Default for ToolRegistry {
@@ -233,7 +252,6 @@ mod tests {
         }));
         for name in [
             "run_subagent",
-            "run_readonly_subagent",
             "run_parallel_subagents",
             "run_skill",
             "explore_codebase",

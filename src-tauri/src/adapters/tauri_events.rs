@@ -3,8 +3,8 @@ use tauri::{AppHandle, Emitter};
 use crate::core::event::{BusEvent, EventBus};
 use crate::models::chat::{
     AskUserEvent, ChatContextNoticeEvent, ChatDeltaEvent, ChatErrorEvent, ChatFinishedEvent,
-    ChatReasoningEvent, ChatStartedEvent, ChatStatusEvent, ChatUserContentEvent,
-    PathPermissionEvent, TaskListUpdatedEvent, ToolActivityEvent,
+    ChatReasoningEvent, ChatSessionTitleUpdatedEvent, ChatStartedEvent, ChatStatusEvent,
+    ChatUserContentEvent, PathPermissionEvent, TaskListUpdatedEvent, ToolActivityEvent,
 };
 
 pub struct TauriEventBus {
@@ -116,6 +116,12 @@ impl EventBus for TauriEventBus {
                         reasoning,
                         finish_reason,
                     },
+                );
+            }
+            BusEvent::ChatSessionTitleUpdated { session_id, title } => {
+                let _ = self.app.emit(
+                    "chat-session-title-updated",
+                    ChatSessionTitleUpdatedEvent { session_id, title },
                 );
             }
             BusEvent::ChatError {

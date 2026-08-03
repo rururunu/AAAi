@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub use crate::core::runtime::ChatMessage;
+use crate::models::settings::{ChatMode, ToolApprovalMode};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,6 +13,36 @@ pub struct ChatSendRequest {
     pub workspace_id: Option<String>,
     #[serde(default)]
     pub quick_ask: bool,
+    /// Per-conversation model override. Each conversation remembers its own
+    /// model/mode/approval choice; a missing value falls back to global settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_mode: Option<ChatMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_approval_mode: Option<ToolApprovalMode>,
+}
+
+/// Optional per-send settings that override global settings for one conversation.
+#[derive(Debug, Clone, Default)]
+pub struct ChatSendOverrides {
+    pub model_id: Option<String>,
+    pub model_provider: Option<String>,
+    pub chat_mode: Option<ChatMode>,
+    pub tool_approval_mode: Option<ToolApprovalMode>,
+}
+
+impl ChatSendOverrides {
+    pub fn from_request(request: &ChatSendRequest) -> Self {
+        Self {
+            model_id: request.model_id.clone(),
+            model_provider: request.model_provider.clone(),
+            chat_mode: request.chat_mode,
+            tool_approval_mode: request.tool_approval_mode,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +110,13 @@ pub struct ChatFinishedEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
     pub finish_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSessionTitleUpdatedEvent {
+    pub session_id: String,
+    pub title: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

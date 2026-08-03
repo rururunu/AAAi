@@ -11,9 +11,10 @@ use crate::core::ai::provider::{AIProvider, ProviderError};
 use crate::core::chat::agent::AgentRunner;
 use crate::core::chat::conversation_manager::ConversationManager;
 use crate::core::chat::error::ChatError;
+use crate::core::chat::limits::truncate_chars;
 use crate::core::chat::telemetry::TurnSpan;
 use crate::core::event::{BusEvent, EventBus};
-use crate::core::runtime::{ChatRequest, MessageStatus, StreamEvent};
+use crate::core::runtime::{ChatMessage, ChatRequest, MessageStatus, RequestContext, Role, StreamEvent};
 use crate::core::token::AccountingProvider;
 use crate::core::tools::context::{AskStore, PathPermissionStore, TaskItem, ToolContext};
 use crate::runtime::ToolManager;
@@ -399,6 +400,7 @@ impl StreamManager {
             match result {
                 Ok(()) => {
                     turn_span.finish_ok(finish_reason.as_deref());
+                    let assistant_content = content.clone();
                     finish_success(
                         &event_bus,
                         &conversation,
@@ -407,6 +409,13 @@ impl StreamManager {
                         content,
                         reasoning,
                         finish_reason,
+                    );
+                    maybe_generate_session_title(
+                        Arc::clone(&conversation),
+                        Arc::clone(&event_bus),
+                        Arc::clone(&provider),
+                        session_id.clone(),
+                        assistant_content,
                     );
                 }
                 Err(ProviderError::Cancelled) => {
@@ -555,6 +564,157 @@ fn finish_success(
             crate::core::tools::memory::shared_memory_store().remember_exchange(user, content);
         });
     }
+}
+
+const TITLE_MAX_CHARS: usize = 24;
+
+/// Generate a concise AI title for the first completed exchange of a session.
+/// Runs in the background; failures are logged and never block the turn.
+fn maybe_generate_session_title(
+    conversation: Arc<ConversationManager>,
+    event_bus: Arc<dyn EventBus>,
+    provider: Arc<dyn AIProvider>,
+    session_id: String,
+    assistant_content: String,
+) {
+    let messages = conversation.messages(&session_id);
+    let user_turn_count = messages
+        .iter()
+        .filter(|message| message.role == Role::User)
+        .count();
+    // Only the very first exchange gets an AI title; later turns keep it.
+    if user_turn_count != 1 || conversation.session_title(&session_id).is_some() {
+        return;
+    }
+    let Some(first_user) = messages
+        .iter()
+        .find(|message| message.role == Role::User)
+        .map(|message| super::selection::visible_user_text(&message.content).to_string())
+    else {
+        return;
+    };
+    if first_user.trim().is_empty() {
+        return;
+    }
+
+    tauri::async_runtime::spawn(async move {
+        match generate_session_title(provider, &first_user, &assistant_content).await {
+            Ok(title) => {
+                conversation.set_session_title(&session_id, title.clone());
+                event_bus.emit(BusEvent::ChatSessionTitleUpdated { session_id, title });
+            }
+            Err(error) => eprintln!("failed to generate session title: {error}"),
+        }
+    });
+}
+
+async fn generate_session_title(
+    provider: Arc<dyn AIProvider>,
+    first_user: &str,
+    assistant_content: &str,
+) -> Result<String, String> {
+    let mut material = format!("User: {}", truncate_chars(first_user, 600));
+    let reply = assistant_content.trim();
+    if !reply.is_empty() {
+        material.push_str("\n\nAssistant: ");
+        material.push_str(&truncate_chars(reply, 400));
+    }
+
+    let (tx, mut rx) = mpsc::channel::<StreamEvent>(16);
+    let request = ChatRequest {
+        request_id: format!("title-{}", now_millis()),
+        session_id: "title".to_string(),
+        messages: vec![
+            ChatMessage {
+                id: "title-system".into(),
+                session_id: "title".into(),
+                role: Role::System,
+                content: "You create a very short conversation title. Reply with ONLY the title: plain text, no quotes, no trailing punctuation, no explanation, no emoji. Keep it to 2-6 words (under 24 characters). If the conversation is not in English, reply in the same language as the user's message.".into(),
+                reasoning: None,
+                tool_activities: None,
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+                status: MessageStatus::Done,
+                timestamp: 0,
+                estimated_tokens: None,
+            },
+            ChatMessage {
+                id: "title-user".into(),
+                session_id: "title".into(),
+                role: Role::User,
+                content: material,
+                reasoning: None,
+                tool_activities: None,
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+                status: MessageStatus::Done,
+                timestamp: 0,
+                estimated_tokens: None,
+            },
+        ],
+        context: RequestContext::default(),
+        provider: Some(provider.id().to_string()),
+        stream: true,
+        tools: std::sync::Arc::from([]),
+        temperature: Some(0.2),
+        max_tokens: Some(64),
+    };
+
+    let provider_task =
+        tauri::async_runtime::spawn(async move { provider.stream(request, tx).await });
+
+    let mut content = String::new();
+    while let Some(event) = rx.recv().await {
+        match event {
+            StreamEvent::Delta(delta) => content.push_str(&delta),
+            StreamEvent::TurnComplete {
+                content: turn_content,
+                ..
+            } => {
+                if !turn_content.is_empty() {
+                    content = turn_content;
+                }
+            }
+            StreamEvent::Error(message) => return Err(message),
+            _ => {}
+        }
+    }
+    provider_task
+        .await
+        .map_err(|error| format!("title task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+
+    let title = clean_title(&content);
+    if title.is_empty() {
+        return Err("empty title".into());
+    }
+    Ok(truncate_chars(&title, TITLE_MAX_CHARS))
+}
+
+fn clean_title(value: &str) -> String {
+    let mut cleaned = value.trim().to_string();
+    for prefix in ['"', '\'', '「', '『', '《', '“', '‘'] {
+        if let Some(rest) = cleaned.strip_prefix(prefix) {
+            cleaned = rest.trim_start().to_string();
+            break;
+        }
+    }
+    for suffix in ['"', '\'', '」', '』', '》', '”', '’', '.', '。', '!', '！', '?', '？', ':'] {
+        if let Some(rest) = cleaned.strip_suffix(suffix) {
+            cleaned = rest.trim_end().to_string();
+            break;
+        }
+    }
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn finish_with_error(

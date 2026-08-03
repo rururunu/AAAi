@@ -20,7 +20,9 @@ pub const MEMORIES_MAX_CHARS: usize = 8_000;
 pub const CONTEXT_BLOCKS_TOTAL_MAX_CHARS: usize = 16_000;
 
 /// Max agent tool-loop iterations per turn. `0` = unlimited.
-pub const DEFAULT_MAX_STEPS: u32 = 0;
+pub const DEFAULT_MAX_STEPS: u32 = 20;
+/// Consecutive tool failures that trip the circuit breaker and stop the turn.
+pub const MAX_CONSECUTIVE_TOOL_FAILURES: u32 = 3;
 /// Per-turn token budget when large context is off.
 pub const DEFAULT_MAX_TURN_TOKENS: usize = 200_000;
 /// Per-turn token budget when large context (1M) is on.

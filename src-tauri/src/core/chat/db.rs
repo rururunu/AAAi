@@ -162,6 +162,12 @@ async fn init_chat_session_schema(pool: &SqlitePool) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     }
+    if !column_names.iter().any(|name| name == "title") {
+        sqlx::query("ALTER TABLE chat_sessions ADD COLUMN title TEXT")
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
 
     Ok(())
 }
@@ -194,6 +200,46 @@ pub async fn bind_session_workspace(
     )
     .bind(session_id)
     .bind(workspace_id)
+    .bind(now)
+    .bind(now)
+    .execute(pool)
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub async fn load_session_titles(pool: &SqlitePool) -> Result<HashMap<String, String>, String> {
+    let rows = sqlx::query(
+        "SELECT session_id, title FROM chat_sessions
+         WHERE title IS NOT NULL AND trim(title) != ''",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.get("session_id"), row.get("title")))
+        .collect())
+}
+
+pub async fn save_session_title(
+    pool: &SqlitePool,
+    session_id: &str,
+    title: &str,
+) -> Result<(), String> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0);
+    sqlx::query(
+        "INSERT INTO chat_sessions (session_id, title, created_at, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET
+             title = excluded.title,
+             updated_at = excluded.updated_at",
+    )
+    .bind(session_id)
+    .bind(title)
     .bind(now)
     .bind(now)
     .execute(pool)
@@ -236,6 +282,32 @@ mod session_workspace_tests {
 
         assert_eq!(workspaces["legacy"], "D:\\Code\\Peek");
         assert_eq!(workspaces["new"], "D:\\Code\\VueAdmin");
+    }
+
+    #[tokio::test]
+    async fn migrates_title_column_and_persists_titles() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        // Legacy schema without a title column must be migrated by init.
+        sqlx::query(
+            "CREATE TABLE chat_sessions (
+                session_id TEXT PRIMARY KEY,
+                workspace_id TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        init_chat_session_schema(&pool).await.unwrap();
+        save_session_title(&pool, "s1", "修复工具循环熔断").await.unwrap();
+        save_session_title(&pool, "s1", "更新标题").await.unwrap();
+        save_session_title(&pool, "s2", "  ").await.unwrap();
+
+        let titles = load_session_titles(&pool).await.unwrap();
+        assert_eq!(titles["s1"], "更新标题");
+        assert!(!titles.contains_key("s2"));
     }
 }
 

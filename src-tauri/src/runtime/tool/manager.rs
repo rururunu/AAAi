@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use crate::core::runtime::{ChatRequest, Role};
 use crate::core::tools::preview::ToolPreview;
 use crate::core::tools::registry::ToolRegistry;
 use crate::runtime::tool::{Tool, ToolContext, ToolError};
@@ -29,6 +30,22 @@ impl ToolManager {
 
     pub fn schemas_arc(&self) -> std::sync::Arc<[Value]> {
         self.registry.schemas_arc()
+    }
+
+    /// Model-facing schemas for one request, derived from its mode:
+    ///
+    /// - Plan mode active for `plan_session_id` → read-only tools plus the
+    ///   planning/interaction tools plan mode allows.
+    /// - Question-only request (Answer/explain/review, Diagnose) → read-only tools.
+    /// - Otherwise → the full toolset.
+    pub fn schemas_for_request(&self, request: &ChatRequest, plan_session_id: &str) -> Arc<[Value]> {
+        if crate::core::tools::plan_mode::shared_plan_mode_store().is_active(plan_session_id) {
+            return self.registry.filter_for_plan_mode().schemas_arc();
+        }
+        if is_question_only_request(request) {
+            return self.read_only().schemas_arc();
+        }
+        self.schemas_arc()
     }
 
     pub fn preview(
@@ -116,6 +133,45 @@ impl ToolManager {
     pub fn registry(&self) -> Arc<ToolRegistry> {
         Arc::clone(&self.registry)
     }
+}
+
+/// True when the latest user message looks like a pure question
+/// (Answer/explain/review or Diagnose): no change intent, and either
+/// question-shaped or very short.
+pub(crate) fn is_question_only_request(request: &ChatRequest) -> bool {
+    let Some(user) = request
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == Role::User)
+    else {
+        return false;
+    };
+    is_question_only_text(user.content.trim())
+}
+
+fn is_question_only_text(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    const CHANGE_MARKERS: &[&str] = &[
+        "fix", "change", "update", "create", "build", "implement", "add", "remove", "delete",
+        "write", "edit", "refactor", "complete", "finish", "install", "deploy", "run", "test",
+        "merge", "commit", "rename", "move", "optimize", "migrate", "generate", "checkout",
+        "pull", "push", "rebase", "修复", "修改", "实现", "完成", "添加", "删除", "写入", "编辑",
+        "构建", "优化", "重构", "拆分", "合并", "更新", "创建", "生成", "运行", "执行", "测试",
+        "提交", "部署",
+    ];
+    if CHANGE_MARKERS.iter().any(|marker| text.contains(marker)) {
+        return false;
+    }
+    const QUESTION_MARKERS: &[&str] = &[
+        "explain", "review", "analyze", "summarize", "describe", "compare", "diagnose",
+        "inspect", "what", "why", "how", "which", "who", "when", "where", "check", "show",
+        "list", "read", "解释", "分析", "总结", "描述", "比较", "诊断", "排查", "检查", "查看",
+        "介绍", "什么", "为什么", "如何", "哪些", "怎么", "原因",
+    ];
+    QUESTION_MARKERS.iter().any(|marker| text.contains(marker)) || text.chars().count() <= 40
 }
 
 #[cfg(test)]

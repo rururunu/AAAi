@@ -28,6 +28,10 @@ impl Tool for BrowserTool {
     fn read_only(&self) -> bool {
         true
     }
+    /// Hidden when web search is disabled; browser_read is a companion of web_search.
+    fn available(&self) -> bool {
+        crate::runtime::search::shared_search_runtime().is_available()
+    }
     fn execute(&self, _ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         let document = self
             .provider

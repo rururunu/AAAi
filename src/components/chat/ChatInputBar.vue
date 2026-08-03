@@ -105,7 +105,7 @@
         v-else-if="showChatModePicker"
         key="chat-mode-list"
         :options="chatModePickerOptions"
-        :selected-id="settingStore.chatMode"
+        :selected-id="sessionChatMode"
         :selected-index="selectedIndex"
         :ariaLabel="tr(language, 'chooseChatMode')"
         @hover="selectedIndex = $event"
@@ -127,7 +127,7 @@
         v-else-if="showApprovalPicker"
         key="approval-mode-list"
         :options="approvalPickerOptions"
-        :selected-id="settingStore.toolApprovalMode"
+        :selected-id="sessionToolApprovalMode"
         :selected-index="selectedIndex"
         :ariaLabel="tr(language, 'toolApprovalMode')"
         @hover="selectedIndex = $event"
@@ -398,8 +398,8 @@
 
       <div
         class="model-picker approval-slot"
-        :class="{ dormant: settingStore.chatMode === 'ask' }"
-        :aria-hidden="settingStore.chatMode === 'ask'"
+        :class="{ dormant: sessionChatMode === 'ask' }"
+        :aria-hidden="sessionChatMode === 'ask'"
       >
         <button
           ref="approvalButtonRef"
@@ -411,13 +411,13 @@
           :aria-label="approvalBadgeTitle"
           aria-haspopup="listbox"
           :aria-expanded="approvalPickerOpen"
-          :tabindex="settingStore.chatMode === 'ask' ? -1 : 0"
-          :disabled="settingStore.chatMode === 'ask'"
+          :tabindex="sessionChatMode === 'ask' ? -1 : 0"
+          :disabled="sessionChatMode === 'ask'"
           @mousedown.stop
           @click.stop="toggleApprovalMenu"
         >
           <component
-            :is="getApprovalIcon(settingStore.toolApprovalMode)"
+            :is="getApprovalIcon(sessionToolApprovalMode)"
             :size="13"
             class="footer-chip-icon"
           />
@@ -536,7 +536,7 @@ import {
   modelHasThinkingVariants,
 } from "@/lib/modelThinking";
 import { formatTokenCount } from "@/lib/formatTokens";
-import { useChatStore } from "@/stores/chat";
+import { useChatStore, type SessionCompose } from "@/stores/chat";
 import {
   localizedOptionLabel,
   toolApprovalModeOptions,
@@ -653,6 +653,33 @@ const mentionedFiles = ref<string[]>([]);
 const attachedImages = ref<string[]>([]);
 const attachedFiles = ref<AttachedFileChip[]>([]);
 const fileDragOver = ref(false);
+
+/** Draft persistence is per-conversation: switching chats never loses input
+ * and one conversation's draft is not shared with others. */
+function persistDraft(sessionId = props.sessionId, draft = message.value) {
+  if (sessionId) {
+    chatStore.setComposeDraft(sessionId, draft);
+  }
+}
+
+function loadDraft() {
+  if (!props.sessionId) {
+    return;
+  }
+  const compose = chatStore.ensureCompose(props.sessionId);
+  if (compose.draft !== message.value) {
+    message.value = compose.draft || "";
+  }
+}
+
+const persistDraftDebounced = useDebounceFn(
+  (sessionId: string, draft: string) => persistDraft(sessionId, draft),
+  400,
+);
+
+watch(message, (draft) => {
+  persistDraftDebounced(props.sessionId, draft);
+});
 
 function previewImage(url: string) {
   emit("previewImage", url);
@@ -888,25 +915,33 @@ function formatTime(timestamp: number) {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-// Bound to global settings used by backend provider resolution.
-const chatModel = ref(settingStore.chatModel);
-const chatModelProvider = ref(settingStore.chatModelProvider);
+// Model selection is per-conversation (chatStore.sessionCompose). A session
+// without its own choice inherits the last used conversation on first open.
+const chatModel = ref("");
+const chatModelProvider = ref("");
+
+function syncComposeToModel() {
+  if (!props.sessionId) {
+    return;
+  }
+  const compose = chatStore.ensureCompose(props.sessionId);
+  if (compose.chatModel !== chatModel.value) {
+    chatModel.value = compose.chatModel;
+  }
+  if (compose.chatModelProvider !== chatModelProvider.value) {
+    chatModelProvider.value = compose.chatModelProvider;
+  }
+}
+syncComposeToModel();
 
 watch(
-  () => settingStore.chatModel,
-  (next) => {
-    if (next !== chatModel.value) {
-      chatModel.value = next;
+  () => props.sessionId,
+  (next, prev) => {
+    if (prev && prev !== next) {
+      persistDraft(prev, message.value);
     }
-  },
-);
-
-watch(
-  () => settingStore.chatModelProvider,
-  (next) => {
-    if (next !== chatModelProvider.value) {
-      chatModelProvider.value = next;
-    }
+    syncComposeToModel();
+    loadDraft();
   },
 );
 
@@ -1066,18 +1101,46 @@ const modelBadgeTitle = computed(() => {
   });
 });
 const chatModeLabel = computed(() =>
-  settingStore.chatMode === "ask"
+  sessionChatMode.value === "ask"
     ? tr(language.value, "chatModeAsk")
     : tr(language.value, "chatModeAgent"),
 );
 const chatModeBadgeTitle = computed(() =>
-  settingStore.chatMode === "ask"
+  sessionChatMode.value === "ask"
     ? tr(language.value, "currentChatModeAsk")
     : tr(language.value, "currentChatModeAgent"),
 );
 const chatModeIcon = computed(() =>
-  settingStore.chatMode === "ask" ? MessageCircle : Bot,
+  sessionChatMode.value === "ask" ? MessageCircle : Bot,
 );
+
+/** Per-conversation mode/approval choices; sessionless overlay falls back to
+ * global settings so its pickers keep working without a conversation. */
+const sessionChatMode = computed(() =>
+  props.sessionId
+    ? chatStore.ensureCompose(props.sessionId).chatMode
+    : settingStore.chatMode,
+);
+const sessionToolApprovalMode = computed(() =>
+  props.sessionId
+    ? chatStore.ensureCompose(props.sessionId).toolApprovalMode
+    : settingStore.toolApprovalMode,
+);
+
+function updateCompose(
+  patch: Partial<
+    Pick<
+      SessionCompose,
+      "chatModel" | "chatModelProvider" | "chatMode" | "toolApprovalMode"
+    >
+  >,
+) {
+  if (props.sessionId) {
+    chatStore.setCompose(props.sessionId, patch);
+  } else {
+    void settingStore.update(patch as never);
+  }
+}
 
 function getApprovalIcon(mode: ToolApprovalMode) {
   switch (mode) {
@@ -1116,7 +1179,7 @@ const approvalPickerOptions = computed(() =>
 );
 const approvalModeLabel = computed(() => {
   const current = approvalPickerOptions.value.find(
-    (option) => option.id === settingStore.toolApprovalMode,
+    (option) => option.id === sessionToolApprovalMode.value,
   );
   return current?.label ?? tr(language.value, "toolApprovalMode");
 });
@@ -1682,12 +1745,12 @@ async function openModelPicker() {
 }
 
 async function openApprovalPicker() {
-  if (settingStore.chatMode === "ask") {
+  if (sessionChatMode.value === "ask") {
     return;
   }
   await prepareChipPicker();
   const idx = approvalPickerOptions.value.findIndex(
-    (option) => option.id === settingStore.toolApprovalMode,
+    (option) => option.id === sessionToolApprovalMode.value,
   );
   selectedIndex.value = idx >= 0 ? idx : 0;
   approvalPickerOpen.value = true;
@@ -1700,7 +1763,7 @@ async function openApprovalPicker() {
 async function openChatModePicker() {
   await prepareChipPicker();
   const idx = chatModePickerOptions.value.findIndex(
-    (option) => option.id === settingStore.chatMode,
+    (option) => option.id === sessionChatMode.value,
   );
   selectedIndex.value = idx >= 0 ? idx : 0;
   chatModePickerOpen.value = true;
@@ -1735,7 +1798,7 @@ function toggleModelMenu() {
 }
 
 function toggleApprovalMenu() {
-  if (settingStore.chatMode === "ask") {
+  if (sessionChatMode.value === "ask") {
     return;
   }
   if (approvalPickerOpen.value) {
@@ -1785,7 +1848,7 @@ function selectModel(entry: ChatModelInfo) {
   chatModel.value = nextId;
   chatModelProvider.value = nextProvider;
   flashModelChipConfirm();
-  void settingStore.update({ chatModel: nextId, chatModelProvider: nextProvider });
+  updateCompose({ chatModel: nextId, chatModelProvider: nextProvider });
   emit("modelChange", nextId);
 }
 
@@ -1799,22 +1862,22 @@ async function refreshModelList() {
 function selectApprovalMode(mode: string) {
   closeApprovalPicker();
   const next = mode as ToolApprovalMode;
-  if (next === settingStore.toolApprovalMode) {
+  if (next === sessionToolApprovalMode.value) {
     return;
   }
-  void settingStore.update({ toolApprovalMode: next });
+  updateCompose({ toolApprovalMode: next });
 }
 
 function selectChatMode(mode: string) {
   closeChatModePicker();
   const next = mode as ChatMode;
-  if (next === settingStore.chatMode) {
+  if (next === sessionChatMode.value) {
     return;
   }
   if (next === "ask") {
     closeApprovalPicker();
   }
-  void settingStore.update({ chatMode: next });
+  updateCompose({ chatMode: next });
 }
 
 function selectThinkingTier(variantId: string) {
@@ -1823,7 +1886,7 @@ function selectThinkingTier(variantId: string) {
     return;
   }
   chatModel.value = variantId;
-  void settingStore.update({
+  updateCompose({
     chatModel: variantId,
     chatModelProvider: chatModelProvider.value,
   });
@@ -1842,8 +1905,11 @@ onMounted(async () => {
   ) {
     chatModel.value = "";
     chatModelProvider.value = "";
-    if (settingStore.chatModel.trim() === "deepseek-chat") {
-      void settingStore.update({ chatModel: "", chatModelProvider: "" });
+    const composeFallback = props.sessionId
+      ? chatStore.ensureCompose(props.sessionId).chatModel
+      : settingStore.chatModel;
+    if (composeFallback.trim() === "deepseek-chat") {
+      updateCompose({ chatModel: "", chatModelProvider: "" });
     }
   } else if (
     chatModelStore.models.length > 0 &&
@@ -1858,15 +1924,10 @@ onMounted(async () => {
     const fallbackProvider = chatModelStore.models[0].provider;
     chatModel.value = fallbackId;
     chatModelProvider.value = fallbackProvider;
-    if (
-      fallbackId !== settingStore.chatModel ||
-      fallbackProvider !== settingStore.chatModelProvider
-    ) {
-      void settingStore.update({
-        chatModel: fallbackId,
-        chatModelProvider: fallbackProvider,
-      });
-    }
+    updateCompose({
+      chatModel: fallbackId,
+      chatModelProvider: fallbackProvider,
+    });
   }
   void refreshContextUsage();
   await loadWorkspaceState();
@@ -1891,6 +1952,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  persistDraft();
   unlistenWorkspaces?.();
   unlistenChatFinished?.();
   unlistenChatStarted?.();
@@ -2055,6 +2117,7 @@ async function executeCommand(command: string) {
     return;
   }
   message.value = "";
+  persistDraft();
   prefixText.value = "";
   selectedIndex.value = 0;
   emitLayoutChange();
@@ -2351,6 +2414,7 @@ async function submit() {
     .join("\n\n");
   emit("submit", submittedText);
   message.value = "";
+  persistDraft();
   prefixText.value = "";
   pastedText.value = "";
   mentionedFiles.value = [];
@@ -3267,6 +3331,35 @@ defineExpose({ focusInput, reset, setMessage });
   box-shadow: 0 -14px 32px color-mix(in srgb, #000 14%, transparent);
 }
 
+/* Interaction requests use the same inset, attached panel language as the
+   staged-message queue instead of spanning the full composer width. */
+.workbench-composer.overlay-pickers :deep(.ask-user-list) {
+  right: max(16px, calc((100% - 720px) / 2));
+  left: max(16px, calc((100% - 720px) / 2));
+  width: auto;
+  padding: 6px 8px 0;
+  border-color: color-mix(in srgb, var(--peek-accent) 20%, transparent);
+  background: color-mix(in srgb, var(--peek-surface) 97%, transparent);
+  box-shadow: 0 -10px 24px color-mix(in srgb, #000 16%, transparent);
+}
+
+.workbench-composer.overlay-pickers :deep(.ask-user-list .command-item) {
+  min-height: 36px;
+  height: 36px;
+  padding: 0 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--peek-border) 42%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.workbench-composer.overlay-pickers :deep(.ask-user-list .command-item:last-child) {
+  border-bottom: 0;
+}
+
+.workbench-composer.overlay-pickers :deep(.ask-user-list .command-item.active) {
+  background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
+}
+
 .workbench-composer.picker-open .input-bar {
   border-color: color-mix(in srgb, var(--peek-accent) 24%, transparent);
   border-top-color: transparent;
@@ -3775,7 +3868,6 @@ defineExpose({ focusInput, reset, setMessage });
   }
 }
 </style>
-
 <style>
 /* Image thumbnail area in input bar */
 .input-images {

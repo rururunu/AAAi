@@ -10,7 +10,7 @@ use crate::core::tools::context::{AskQuestion, TaskItem, Tool, ToolContext};
 use crate::core::tools::error::ToolError;
 use crate::core::tools::memory::shared_memory_store;
 use crate::core::tools::registry::ToolRegistry;
-use crate::core::tools::shell_jobs::{run_foreground, ShellJobStore};
+use crate::core::tools::shell_jobs::{background_allowed, run_foreground, ShellJobStore};
 
 use files::*;
 
@@ -81,11 +81,8 @@ pub fn register_all(
     }));
     registry.register(Arc::new(RunSlashCommandTool));
     registry.register(Arc::new(ConnectToolsTool));
-    registry.register(Arc::new(ReconnectToolsTool));
     registry.register(Arc::new(InstallToolSourceTool));
-    registry.register(Arc::new(LspHoverTool));
-    registry.register(Arc::new(LspDefinitionTool));
-    registry.register(Arc::new(LspDiagnosticsTool));
+    registry.register(Arc::new(LspTool));
 }
 
 struct RunShellTool {
@@ -97,21 +94,24 @@ impl Tool for RunShellTool {
         "run_shell"
     }
     fn description(&self) -> &str {
-        "Run a PowerShell command in the project workspace directory. Prefer dedicated file tools for scoped file operations. When rtk is installed, use it to compact large command output (for example rtk grep, rtk git, rtk test, or rtk cargo), and fall back to the native command when RTK cannot express the required operation."
+        "Run a PowerShell command in the project workspace directory, including Docker and Docker Compose commands. Prefer dedicated file tools for scoped file operations. Background mode is only for persistent processes such as log following, watchers, development servers, and foreground container services; finite commands such as Git, status checks, tests, builds, and ordinary Docker commands run in the foreground. When rtk is installed, use it to compact large command output and fall back to the native command when needed."
     }
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
                 "command": { "type": "string" },
-                "run_in_background": { "type": "boolean" }
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "Only for persistent processes (follow/watch/dev server/foreground service). Finite commands are forced to foreground."
+                }
             },
             "required": ["command"]
         })
     }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         let command = args["command"].as_str().unwrap_or("");
-        if args["run_in_background"].as_bool().unwrap_or(false) {
+        if args["run_in_background"].as_bool().unwrap_or(false) && background_allowed(command) {
             return self.jobs.spawn_background(
                 command.to_string(),
                 Some(&ctx.workspace_root),
@@ -131,12 +131,16 @@ impl Tool for ReadShellOutputTool {
         "read_shell_output"
     }
     fn description(&self) -> &str {
-        "Read output from a background shell job."
+        "Read the latest available stdout/stderr from a background shell job while it is still running or after it exits. Use tail_lines/max_chars to keep log reads bounded."
     }
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
-            "properties": { "job_id": { "type": "string" } },
+            "properties": {
+                "job_id": { "type": "string" },
+                "tail_lines": { "type": "integer", "minimum": 1, "description": "Return only the last N lines" },
+                "max_chars": { "type": "integer", "minimum": 1, "description": "Maximum output characters, taken from the tail" }
+            },
             "required": ["job_id"]
         })
     }
@@ -145,7 +149,11 @@ impl Tool for ReadShellOutputTool {
     }
     fn execute(&self, _ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         let job_id = args["job_id"].as_str().unwrap_or("");
-        self.jobs.read_output(job_id)
+        self.jobs.read_output_limited(
+            job_id,
+            args["tail_lines"].as_u64().map(|value| value as usize),
+            args["max_chars"].as_u64().map(|value| value as usize),
+        )
     }
 }
 
@@ -606,14 +614,20 @@ impl Tool for ConnectToolsTool {
         "connect_tools"
     }
     fn description(&self) -> &str {
-        "Connect a configured MCP server by id and register its tools as mcp__{id}__{tool}."
+        "Connect a configured MCP server by id and register its tools as mcp__{id}__{tool}. With reconnect=true, disconnect first and reconnect to refresh the server's tools."
     }
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
-            "properties": { "source": { "type": "string", "description": "MCP server id from Settings" } },
+            "properties": {
+                "source": { "type": "string", "description": "MCP server id from Settings" },
+                "reconnect": { "type": "boolean", "default": false, "description": "Disconnect first, then reconnect to refresh the server's tools" }
+            },
             "required": ["source"]
         })
+    }
+    fn available(&self) -> bool {
+        crate::core::mcp::shared_mcp_manager().has_enabled_servers()
     }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         let source = args["source"].as_str().unwrap_or("");
@@ -621,35 +635,12 @@ impl Tool for ConnectToolsTool {
             .registry
             .as_ref()
             .ok_or_else(|| ToolError::new("tool registry unavailable"))?;
-        let count = crate::core::mcp::shared_mcp_manager().connect_by_id(source, registry)?;
+        let count = if args["reconnect"].as_bool().unwrap_or(false) {
+            crate::core::mcp::shared_mcp_manager().reconnect_by_id(source, registry)?
+        } else {
+            crate::core::mcp::shared_mcp_manager().connect_by_id(source, registry)?
+        };
         Ok(format!("connected MCP `{source}` with {count} tools"))
-    }
-}
-
-struct ReconnectToolsTool;
-
-impl Tool for ReconnectToolsTool {
-    fn name(&self) -> &str {
-        "reconnect_tools"
-    }
-    fn description(&self) -> &str {
-        "Disconnect and reconnect a configured MCP server by id, refreshing its mcp__{id}__* tools."
-    }
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": { "source": { "type": "string", "description": "MCP server id from Settings" } },
-            "required": ["source"]
-        })
-    }
-    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
-        let source = args["source"].as_str().unwrap_or("");
-        let registry = ctx
-            .registry
-            .as_ref()
-            .ok_or_else(|| ToolError::new("tool registry unavailable"))?;
-        let count = crate::core::mcp::shared_mcp_manager().reconnect_by_id(source, registry)?;
-        Ok(format!("reconnected MCP `{source}` with {count} tools"))
     }
 }
 
@@ -677,95 +668,55 @@ impl Tool for InstallToolSourceTool {
     }
 }
 
-struct LspHoverTool;
+struct LspTool;
 
-impl Tool for LspHoverTool {
+impl Tool for LspTool {
     fn name(&self) -> &str {
-        "lsp_hover"
+        "lsp"
     }
     fn description(&self) -> &str {
-        "LSP hover information for a symbol. Requires LSP enabled in Settings."
+        "Language-aware navigation via LSP: hover (symbol info at a position), definition (go-to-definition), or diagnostics (file problems). Requires LSP enabled in Settings."
     }
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "path": { "type": "string" },
+                "action": {
+                    "type": "string",
+                    "enum": ["hover", "definition", "diagnostics"],
+                    "description": "hover: symbol info at a position; definition: go-to-definition; diagnostics: file problems"
+                },
+                "path": { "type": "string", "description": "File path relative to workspace root" },
                 "line": { "type": "integer" },
                 "character": { "type": "integer" }
             },
-            "required": ["path", "line", "character"]
+            "required": ["action", "path"]
         })
     }
     fn read_only(&self) -> bool {
         true
     }
-    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
-        crate::core::lsp::shared_lsp_manager().hover(
-            &ctx.workspace_root,
-            args["path"].as_str().unwrap_or(""),
-            args["line"].as_u64().unwrap_or(0),
-            args["character"].as_u64().unwrap_or(0),
-        )
-    }
-}
-
-struct LspDefinitionTool;
-
-impl Tool for LspDefinitionTool {
-    fn name(&self) -> &str {
-        "lsp_definition"
-    }
-    fn description(&self) -> &str {
-        "LSP go-to-definition. Requires LSP enabled in Settings."
-    }
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string" },
-                "line": { "type": "integer" },
-                "character": { "type": "integer" }
-            },
-            "required": ["path", "line", "character"]
-        })
-    }
-    fn read_only(&self) -> bool {
-        true
+    fn available(&self) -> bool {
+        crate::core::lsp::shared_lsp_manager().is_enabled()
     }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
-        crate::core::lsp::shared_lsp_manager().definition(
-            &ctx.workspace_root,
-            args["path"].as_str().unwrap_or(""),
-            args["line"].as_u64().unwrap_or(0),
-            args["character"].as_u64().unwrap_or(0),
-        )
-    }
-}
-
-struct LspDiagnosticsTool;
-
-impl Tool for LspDiagnosticsTool {
-    fn name(&self) -> &str {
-        "lsp_diagnostics"
-    }
-    fn description(&self) -> &str {
-        "Pull LSP diagnostics for a file. Requires LSP enabled in Settings."
-    }
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string" }
-            },
-            "required": ["path"]
-        })
-    }
-    fn read_only(&self) -> bool {
-        true
-    }
-    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
-        crate::core::lsp::shared_lsp_manager()
-            .diagnostics(&ctx.workspace_root, args["path"].as_str().unwrap_or(""))
+        let manager = crate::core::lsp::shared_lsp_manager();
+        let path = args["path"].as_str().unwrap_or("");
+        match args["action"].as_str().unwrap_or("") {
+            "hover" => manager.hover(
+                &ctx.workspace_root,
+                path,
+                args["line"].as_u64().unwrap_or(0),
+                args["character"].as_u64().unwrap_or(0),
+            ),
+            "definition" => manager.definition(
+                &ctx.workspace_root,
+                path,
+                args["line"].as_u64().unwrap_or(0),
+                args["character"].as_u64().unwrap_or(0),
+            ),
+            "diagnostics" => manager.diagnostics(&ctx.workspace_root, path),
+            other => Err(ToolError::new(format!("unsupported lsp action: {other}"))),
+        }
     }
 }

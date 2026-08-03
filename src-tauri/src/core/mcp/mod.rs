@@ -473,6 +473,10 @@ impl Tool for NamedMcpTool {
     fn parameters_schema(&self) -> Value {
         self.input_schema.clone()
     }
+    /// Hidden from model-facing schemas when the owning server is disconnected.
+    fn available(&self) -> bool {
+        shared_mcp_manager().is_server_connected(&self.server_id)
+    }
     fn execute(&self, _ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         shared_mcp_manager().call(&self.server_id, &self.local_name, args)
     }
@@ -498,6 +502,23 @@ impl McpManager {
         if let Ok(mut p) = self.processes.lock() {
             p.clear();
         }
+    }
+
+    /// Whether at least one enabled MCP server is configured; the `connect_tools`
+    /// tool hides itself when there is nothing to connect.
+    pub fn has_enabled_servers(&self) -> bool {
+        self.servers
+            .lock()
+            .ok()
+            .is_some_and(|servers| servers.iter().any(|server| server.enabled))
+    }
+
+    /// Whether a server's process is currently alive (its tools are usable).
+    pub fn is_server_connected(&self, server_id: &str) -> bool {
+        self.processes
+            .lock()
+            .ok()
+            .is_some_and(|processes| processes.contains_key(server_id))
     }
 
     pub fn register_enabled(&self, registry: &ToolRegistry) -> Result<usize, ToolError> {

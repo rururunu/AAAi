@@ -99,6 +99,24 @@ fn single_edit_preview(path: &str, content: String, old: &str, new: &str) -> Opt
     })
 }
 
+/// Rejects whole-file edits: an `old_string` covering most of a file hides the real change.
+fn guard_minimal_edit(tool_name: &str, old_strings: &[&str], content: &str) -> Result<(), ToolError> {
+    let total = content.lines().count();
+    if total < 20 {
+        return Ok(());
+    }
+    for old in old_strings {
+        let old_lines = old.lines().count();
+        if old_lines * 100 >= total * 80 {
+            return Err(ToolError::new(format!(
+                "{tool_name}: old_string covers {old_lines}/{total} lines (~{}%) — pass ONLY the lines that change (e.g. `- const a = 1` / `+ const a = 2`), never whole-file content or long unchanged blocks. For a connected block rewrite use `apply_patch` with minimal hunks; do NOT fall back to `write_file` on an existing file.",
+                old_lines * 100 / total
+            )));
+        }
+    }
+    Ok(())
+}
+
 impl Tool for ReadFileTool {
     fn name(&self) -> &str {
         "read_file"
@@ -358,7 +376,7 @@ impl Tool for WriteFileTool {
         "write_file"
     }
     fn description(&self) -> &str {
-        "Create a new file, or perform an explicitly requested full-file replacement. This overwrites existing content: do not use it for localized edits to an existing file; use replace_in_file or replace_many_in_file instead. Parent directories are created automatically. Path is relative to workspace root."
+        "Create a new file, or perform an explicitly requested full-file replacement. Never use for an existing file when only part of the content changes — a full rewrite hides the real diff; use replace_in_file or replace_many_in_file instead. Parent directories are created automatically. Path is relative to workspace root."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -410,15 +428,15 @@ impl Tool for ReplaceInFileTool {
         "replace_in_file"
     }
     fn description(&self) -> &str {
-        "First choice for one localized change to an existing file. Replace the smallest unique old string that remains unambiguous (exact match first, then narrow fuzzy matching for whitespace/indentation), preserving all other content. Path is relative to workspace root."
+        "First choice for one localized change to an existing file. old_string and new_string must contain ONLY the lines that change, plus at most a couple of unchanged lines as match context — a one-line change looks like old: `const a = 1`, new: `const a = 2`. Never pass whole-file content or long unchanged blocks (whole-file edits are rejected). Exact match first, then narrow fuzzy matching for whitespace/indentation. Path is relative to workspace root."
     }
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
                 "path": { "type": "string", "description": "File path relative to workspace root" },
-                "old_string": { "type": "string" },
-                "new_string": { "type": "string" }
+                "old_string": { "type": "string", "description": "ONLY the lines that change plus minimal unique context; never whole-file content" },
+                "new_string": { "type": "string", "description": "The changed lines replacing old_string" }
             },
             "required": ["path", "old_string", "new_string"]
         })
@@ -432,6 +450,7 @@ impl Tool for ReplaceInFileTool {
             .ok_or_else(|| ToolError::new("new_string is required"))?;
         let resolved = resolve_write(ctx, self.name(), path)?;
         let content = fs::read_to_string(&resolved)?;
+        guard_minimal_edit(self.name(), &[old], &content)?;
         let applied = apply_old_string_edit(&content, old, new, false);
         if applied.applied != 1 {
             return Err(ToolError::new(format!(
@@ -459,6 +478,7 @@ impl Tool for ReplaceInFileTool {
             .ok_or_else(|| ToolError::new("new_string is required"))?;
         let resolved = resolve_write(ctx, self.name(), path)?;
         let content = fs::read_to_string(&resolved)?;
+        guard_minimal_edit(self.name(), &[old], &content)?;
         Ok(single_edit_preview(path, content, old, new))
     }
 }
@@ -468,7 +488,7 @@ impl Tool for ReplaceManyInFileTool {
         "replace_many_in_file"
     }
     fn description(&self) -> &str {
-        "First choice for several independent localized changes in one existing file. Apply multiple unique replacements atomically (exact then narrow fuzzy matching), preserving all other content. Use apply_patch only when the changes form a structural block rewrite or require contextual insertion/deletion. Path is relative to workspace root."
+        "First choice for several independent localized changes in one existing file. Apply multiple unique replacements atomically (exact then narrow fuzzy matching), preserving all other content. Each old_string/new_string pair must contain ONLY the lines that change; whole-file edits are rejected. Use apply_patch only when the changes form a structural block rewrite or require contextual insertion/deletion. Path is relative to workspace root."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -480,8 +500,8 @@ impl Tool for ReplaceManyInFileTool {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "old_string": { "type": "string" },
-                            "new_string": { "type": "string" }
+                            "old_string": { "type": "string", "description": "ONLY the lines that change plus minimal unique context; never whole-file content" },
+                            "new_string": { "type": "string", "description": "The changed lines replacing old_string" }
                         },
                         "required": ["old_string", "new_string"]
                     }
@@ -494,6 +514,16 @@ impl Tool for ReplaceManyInFileTool {
         let path = required_string(&args, "path")?;
         let resolved = resolve_write(ctx, self.name(), path)?;
         let content = fs::read_to_string(&resolved)?;
+        let olds = args["edits"]
+            .as_array()
+            .map(|edits| {
+                edits
+                    .iter()
+                    .filter_map(|e| e.get("old_string").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        guard_minimal_edit(self.name(), &olds, &content)?;
         let (updated, fuzzy_count) = apply_many_edits(&content, &args)?;
         let total = args["edits"].as_array().map_or(0, Vec::len);
         atomic_write(&resolved, updated)?;
@@ -510,6 +540,16 @@ impl Tool for ReplaceManyInFileTool {
         let path = required_string(args, "path")?;
         let resolved = resolve_write(ctx, self.name(), path)?;
         let original = fs::read_to_string(&resolved)?;
+        let olds = args["edits"]
+            .as_array()
+            .map(|edits| {
+                edits
+                    .iter()
+                    .filter_map(|e| e.get("old_string").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        guard_minimal_edit(self.name(), &olds, &original)?;
         let (content, _) = apply_many_edits(&original, args)?;
         Ok(Some(ToolPreview {
             path: path.to_string(),
@@ -748,5 +788,35 @@ mod edit_tests {
         assert!(preview.unified_diff.contains(" before"));
         assert!(preview.unified_diff.contains("-old"));
         assert!(preview.unified_diff.contains("+new"));
+    }
+
+    #[test]
+    fn full_file_edit_is_rejected_by_the_guard() {
+        let content = (0..50).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let error = guard_minimal_edit("replace_in_file", &[&content], &content).unwrap_err();
+        assert!(error.to_string().contains("old_string covers 50/50 lines"));
+        assert!(error.to_string().contains("const a = 1"));
+    }
+
+    #[test]
+    fn majority_edit_is_rejected_by_the_guard() {
+        let content = (0..50).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let big = (0..45).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let error = guard_minimal_edit("replace_in_file", &[&big], &content).unwrap_err();
+        assert!(error.to_string().contains("old_string covers 45/50 lines"));
+    }
+
+    #[test]
+    fn minimal_and_medium_edits_pass_the_guard() {
+        let content = (0..50).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        guard_minimal_edit("replace_in_file", &["line 3"], &content).unwrap();
+        let medium = (0..30).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        guard_minimal_edit("replace_in_file", &[&medium], &content).unwrap();
+    }
+
+    #[test]
+    fn small_files_are_not_guarded() {
+        let content = "a\nb\nc\nd\ne\n";
+        guard_minimal_edit("replace_in_file", &[&content], &content).unwrap();
     }
 }

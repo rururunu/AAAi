@@ -49,6 +49,7 @@ pub struct ToolApprovalStore {
     pending: Mutex<HashMap<String, PendingApproval>>,
     session_grants: Mutex<HashMap<String, Vec<String>>>,
     mode: Mutex<ToolApprovalMode>,
+    session_modes: Mutex<HashMap<String, ToolApprovalMode>>,
 }
 
 impl ToolApprovalStore {
@@ -57,6 +58,7 @@ impl ToolApprovalStore {
             pending: Mutex::new(HashMap::new()),
             session_grants: Mutex::new(HashMap::new()),
             mode: Mutex::new(ToolApprovalMode::Ask),
+            session_modes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -71,6 +73,32 @@ impl ToolApprovalStore {
             .lock()
             .map(|g| *g)
             .unwrap_or(ToolApprovalMode::Ask)
+    }
+
+    /// Register (Some) or clear (None) a per-conversation approval mode override.
+    /// Each conversation keeps its own approval choice; a cleared entry falls
+    /// back to the global mode.
+    pub fn set_session_mode(&self, session_id: &str, mode: Option<ToolApprovalMode>) {
+        let mut session_modes = match self.session_modes.lock() {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+        match mode {
+            Some(mode) => {
+                session_modes.insert(session_id.to_string(), mode);
+            }
+            None => {
+                session_modes.remove(session_id);
+            }
+        }
+    }
+
+    pub fn mode_for_session(&self, session_id: &str) -> ToolApprovalMode {
+        self.session_modes
+            .lock()
+            .ok()
+            .and_then(|modes| modes.get(session_id).copied())
+            .unwrap_or_else(|| self.mode())
     }
 
     pub fn complete(&self, request_id: &str, decision: &str) -> bool {
@@ -119,7 +147,7 @@ impl ToolApprovalStore {
         if !requires_approval(tool) {
             return Ok(());
         }
-        let mode = self.mode();
+        let mode = self.mode_for_session(&ctx.root_session_id().to_string());
         if mode == ToolApprovalMode::AlwaysAllow {
             return Ok(());
         }

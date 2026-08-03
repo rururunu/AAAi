@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use crate::core::ai::provider::{AIProvider, ProviderError};
 use crate::core::chat::limits::{
     estimate_tokens, truncate_tool_output, DEFAULT_MAX_STEPS, DEFAULT_MAX_TURN_TOKENS,
-    TOOL_OUTPUT_MAX_CHARS,
+    MAX_CONSECUTIVE_TOOL_FAILURES, TOOL_OUTPUT_MAX_CHARS,
 };
 use crate::core::runtime::{
     ChatMessage, ChatRequest, MessageStatus, Role, StreamEvent, ToolActivity, ToolCallPayload,
@@ -19,6 +19,26 @@ use crate::core::tools::display::build_activity_view;
 use crate::core::tools::error::ToolError;
 use crate::core::tools::registry::ToolRegistry;
 use crate::runtime::ToolManager;
+
+/// How many times an unverified completion claim is challenged and sent back
+/// before the final answer is replaced with an explicit unverified result.
+const MAX_COMPLETION_RETRIES: u32 = 1;
+
+/// Injected after the model's final answer claims completion without any
+/// successful modifying tool. The model must either actually execute the work
+/// or explicitly admit nothing was changed — claiming done is not accepted.
+const COMPLETION_CHALLENGE: &str = concat!(
+    "[System] 你声称任务已完成，但本轮没有任何修改类工具成功执行。",
+    "请立即实际执行所需的修改/操作（调用相应工具），",
+    "或者明确说明你没有进行任何改动、哪些部分尚未完成。",
+    "不得在未执行任何修改工具的情况下再次声称“已完成”。",
+);
+
+const VERIFICATION_CHALLENGE: &str = concat!(
+    "[System] 你已经执行了修改，但还没有验证修改后的实际结果。",
+    "请使用读取、检查、测试、构建或其他合适的工具确认结果确实满足用户要求。",
+    "只有验证成功后才能声称任务完成；如果验证失败，请继续修复或明确说明失败。",
+);
 
 pub struct AgentRunner {
     provider: Arc<dyn AIProvider>,
@@ -69,13 +89,19 @@ impl AgentRunner {
         cancelled: Arc<AtomicBool>,
         soft_queue: Arc<Mutex<VecDeque<String>>>,
     ) -> Result<(), ProviderError> {
-        request.tools = self.tools.schemas_arc();
+        request.tools = self.tools.schemas_for_request(&request, tool_ctx.root_session_id());
         let mut steps = 0u32;
+        let mut consecutive_tool_failures = 0u32;
+        let mut repeated_tool_errors: HashMap<String, String> = HashMap::new();
+        let mut mutation_succeeded = false;
+        let mut verification_succeeded = false;
         let mut user_msg_index = request
             .messages
             .iter()
             .rposition(|msg| msg.role == Role::User);
         let mut used_tokens = estimate_request_tokens(&request);
+        let mut empty_completion_retries = 0u32;
+        let mut verification_retries = 0u32;
 
         loop {
             if cancelled.load(Ordering::Relaxed) {
@@ -214,12 +240,100 @@ impl AgentRunner {
             used_tokens += estimate_tokens(&content) + estimate_tokens(&reasoning);
 
             if tool_calls.is_empty() {
+                // Honest-completion enforcement: a task-like final answer that
+                // claims completion without any successful modifying tool is
+                // challenged and sent back so the model either actually executes
+                // the work or explicitly admits nothing was changed.
+                if !mutation_succeeded
+                    && !crate::runtime::tool::is_question_only_request(&request)
+                    && has_completion_claim(&content)
+                    && empty_completion_retries < MAX_COMPLETION_RETRIES
+                {
+                    empty_completion_retries += 1;
+
+                    let assistant = ChatMessage {
+                        id: format!("msg-{}", now_millis()),
+                        session_id: request.session_id.clone(),
+                        role: Role::Assistant,
+                        content: content.clone(),
+                        reasoning: non_empty(reasoning.clone()),
+                        tool_activities: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                        name: None,
+                        status: MessageStatus::Done,
+                        timestamp: now_millis(),
+                        estimated_tokens: None,
+                    };
+                    request.messages.push(assistant);
+
+                    let user_feedback = ChatMessage {
+                        id: format!("msg-{}", now_millis()),
+                        session_id: request.session_id.clone(),
+                        role: Role::User,
+                        content: COMPLETION_CHALLENGE.to_string(),
+                        reasoning: None,
+                        tool_activities: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                        name: None,
+                        status: MessageStatus::Done,
+                        timestamp: now_millis(),
+                        estimated_tokens: None,
+                    };
+                    if user_msg_index.is_none() {
+                        user_msg_index = Some(request.messages.len());
+                    }
+                    request.messages.push(user_feedback);
+
+                    let _ = tx
+                        .send(StreamEvent::Status {
+                            kind: "reject_empty_completion".to_string(),
+                        })
+                        .await;
+
+                    steps += 1;
+                    continue;
+                }
+
+                if mutation_succeeded
+                    && !verification_succeeded
+                    && has_completion_claim(&content)
+                    && verification_retries < MAX_COMPLETION_RETRIES
+                {
+                    verification_retries += 1;
+                    push_completion_feedback(
+                        &mut request,
+                        &mut user_msg_index,
+                        content.clone(),
+                        reasoning.clone(),
+                        VERIFICATION_CHALLENGE,
+                    );
+                    let _ = tx
+                        .send(StreamEvent::Status {
+                            kind: "verify_completion".to_string(),
+                        })
+                        .await;
+                    steps += 1;
+                    continue;
+                }
+
+                let completion_rejected = reject_unverified_completion(
+                    &mut content,
+                    &request,
+                    mutation_succeeded,
+                    verification_succeeded,
+                );
                 let _ = tx
                     .send(StreamEvent::TurnComplete {
                         content,
                         reasoning: non_empty(reasoning),
                         tool_calls: vec![],
-                        finish_reason,
+                        finish_reason: if completion_rejected {
+                            Some("unverified_completion".to_string())
+                        } else {
+                            finish_reason
+                        },
                     })
                     .await;
                 break;
@@ -261,18 +375,26 @@ impl AgentRunner {
             };
 
             let mut user_denied = false;
-            for outcome in outcomes {
+            for outcome in &outcomes {
+                if outcome.success {
+                    if mutation_succeeded && provides_verification_evidence(&self.tools, outcome) {
+                        verification_succeeded = true;
+                    } else if provides_completion_evidence(&self.tools, outcome) {
+                        mutation_succeeded = true;
+                        verification_succeeded = false;
+                    }
+                }
                 used_tokens += estimate_tokens(&outcome.result);
                 request.messages.push(ChatMessage {
                     id: format!("msg-{}", now_millis()),
                     session_id: request.session_id.clone(),
                     role: Role::Tool,
-                    content: outcome.result,
+                    content: outcome.result.clone(),
                     reasoning: None,
                     tool_activities: None,
                     tool_calls: None,
-                    tool_call_id: Some(outcome.call_id),
-                    name: Some(outcome.tool_name),
+                    tool_call_id: Some(outcome.call_id.clone()),
+                    name: Some(outcome.tool_name.clone()),
                     status: MessageStatus::Done,
                     timestamp: now_millis(),
                     estimated_tokens: None,
@@ -280,6 +402,52 @@ impl AgentRunner {
                 if outcome.user_denied {
                     user_denied = true;
                 }
+            }
+
+            // 失败熔断与同错误防重复：连续失败超过阈值，或同一工具以相同参数
+            // 反复返回同一错误，立即停止本轮，避免无效循环。
+            let mut stop_reason = None;
+            for outcome in &outcomes {
+                if outcome.user_denied {
+                    continue;
+                }
+                if !outcome.success {
+                    consecutive_tool_failures += 1;
+                    if consecutive_tool_failures >= MAX_CONSECUTIVE_TOOL_FAILURES {
+                        stop_reason = Some(format!(
+                            "工具连续失败 {} 次，已触发熔断",
+                            MAX_CONSECUTIVE_TOOL_FAILURES
+                        ));
+                        break;
+                    }
+                    let key = format!("{}|{}", outcome.tool_name, outcome.arguments);
+                    match repeated_tool_errors.get(&key) {
+                        Some(previous) if previous == &outcome.result => {
+                            stop_reason = Some(format!(
+                                "工具 `{}` 以相同参数反复返回同一错误，已停止重试",
+                                outcome.tool_name
+                            ));
+                            break;
+                        }
+                        _ => {
+                            repeated_tool_errors.insert(key, outcome.result.clone());
+                        }
+                    }
+                } else {
+                    consecutive_tool_failures = 0;
+                }
+            }
+
+            if let Some(reason) = stop_reason {
+                let _ = tx
+                    .send(StreamEvent::TurnComplete {
+                        content: format!("已停止：{reason}。"),
+                        reasoning: None,
+                        tool_calls: vec![],
+                        finish_reason: Some("tool_failure_breaker".to_string()),
+                    })
+                    .await;
+                return Ok(());
             }
 
             if user_denied {
@@ -317,7 +485,6 @@ impl AgentRunner {
         }
         Ok(outcomes)
     }
-
     async fn execute_tools_parallel(
         &self,
         tool_calls: &[ToolCallPayload],
@@ -482,7 +649,7 @@ impl AgentRunner {
                 title: finished.title,
                 kind: finished.kind,
                 detail,
-                arguments: started.args,
+                arguments: started.args.clone(),
                 preview: started.tool_preview,
                 result: result.clone(),
                 success,
@@ -490,7 +657,9 @@ impl AgentRunner {
         ToolOutcome {
             call_id: started.call_id,
             tool_name: started.tool_name,
+            arguments: serde_json::to_string(&started.args).unwrap_or_default(),
             result,
+            success,
             user_denied,
         }
     }
@@ -619,7 +788,10 @@ struct StartedTool {
 struct ToolOutcome {
     call_id: String,
     tool_name: String,
+    /// Serialized arguments, used to detect repeated identical calls.
+    arguments: String,
     result: String,
+    success: bool,
     user_denied: bool,
 }
 
@@ -660,6 +832,186 @@ fn non_empty(value: String) -> Option<String> {
     } else {
         Some(value)
     }
+}
+
+fn push_completion_feedback(
+    request: &mut ChatRequest,
+    user_msg_index: &mut Option<usize>,
+    content: String,
+    reasoning: String,
+    feedback: &str,
+) {
+    request.messages.push(ChatMessage {
+        id: format!("msg-{}", now_millis()),
+        session_id: request.session_id.clone(),
+        role: Role::Assistant,
+        content,
+        reasoning: non_empty(reasoning),
+        tool_activities: None,
+        tool_calls: None,
+        tool_call_id: None,
+        name: None,
+        status: MessageStatus::Done,
+        timestamp: now_millis(),
+        estimated_tokens: None,
+    });
+    if user_msg_index.is_none() {
+        *user_msg_index = Some(request.messages.len());
+    }
+    request.messages.push(ChatMessage {
+        id: format!("msg-{}", now_millis()),
+        session_id: request.session_id.clone(),
+        role: Role::User,
+        content: feedback.to_string(),
+        reasoning: None,
+        tool_activities: None,
+        tool_calls: None,
+        tool_call_id: None,
+        name: None,
+        status: MessageStatus::Done,
+        timestamp: now_millis(),
+        estimated_tokens: None,
+    });
+}
+
+/// Successful non-read-only tools normally prove that work happened, but
+/// orchestration-only tools must not let a model turn task bookkeeping into
+/// evidence that the requested change was made.
+fn provides_completion_evidence(tools: &ToolManager, outcome: &ToolOutcome) -> bool {
+    if tools.is_read_only(&outcome.tool_name) {
+        return false;
+    }
+    !matches!(
+        outcome.tool_name.as_str(),
+        "update_tasks" | "ask_user" | "complete_plan_step" | "connect_tools"
+    )
+}
+
+fn provides_verification_evidence(tools: &ToolManager, outcome: &ToolOutcome) -> bool {
+    if tools.is_read_only(&outcome.tool_name) {
+        return !matches!(
+            outcome.tool_name.as_str(),
+            "search_memory" | "list_chats" | "read_chat" | "search_past_chats"
+        );
+    }
+    if outcome.tool_name != "run_shell" {
+        return false;
+    }
+    let command = outcome.arguments.to_ascii_lowercase();
+    const CHECK_MARKERS: &[&str] = &[
+        " test", "test ", "cargo test", "pytest", "unittest", "pnpm build", "npm run build",
+        "npm test", "cargo check", "tsc", "vue-tsc", "lint", "check", "verify",
+    ];
+    CHECK_MARKERS.iter().any(|marker| command.contains(marker))
+}
+
+/// A change request cannot finish with a completion claim unless a modifying
+/// tool succeeded in this turn. Replace the claim instead of displaying it with
+/// a caveat, because the original text is still misleading and looks complete.
+fn reject_unverified_completion(
+    content: &mut String,
+    request: &ChatRequest,
+    mutation_succeeded: bool,
+    verification_succeeded: bool,
+) -> bool {
+    if mutation_succeeded && verification_succeeded {
+        return false;
+    }
+    if crate::runtime::tool::is_question_only_request(request) {
+        return false;
+    }
+    if !has_completion_claim(content) {
+        return false;
+    }
+    *content = if content
+        .chars()
+        .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+    {
+        if mutation_succeeded {
+            "未验证完成：虽然执行了修改，但没有成功检查修改后的结果，因此不能确认任务真的完成。请运行读取检查、测试或构建验证。".to_string()
+        } else {
+            "未完成：本轮没有任何修改类工具成功执行，因此无法确认发生了实际改动。请重新执行所需操作，或明确说明当前阻塞项。".to_string()
+        }
+    } else {
+        if mutation_succeeded {
+            "Completion not verified: a modification ran, but its result was not successfully checked. Run a read-back, test, build, or equivalent verification before claiming completion.".to_string()
+        } else {
+            "Not completed: no modifying tool succeeded in this turn, so no actual change can be verified. Run the required operation or state the current blocker explicitly.".to_string()
+        }
+    };
+    true
+}
+
+fn has_completion_claim(content: &str) -> bool {
+    const CLAIMS: &[&str] = &[
+        "已完成",
+        "完成了",
+        "全部完成",
+        "完成修改",
+        "修改完成",
+        "修复完成",
+        "更新完成",
+        "创建完成",
+        "写入完成",
+        "全部搞定",
+        "搞定",
+        "修好",
+        "改好",
+        "写好",
+        "做好",
+        "办妥",
+        "成功修改",
+        "成功创建",
+        "成功删除",
+        "成功写入",
+        "成功修复",
+        "成功更新",
+        "成功应用",
+        "已修改",
+        "已创建",
+        "已删除",
+        "已更新",
+        "processed",
+        "已写入",
+        "已修复",
+        "已解决",
+        "已应用",
+        "修改了",
+        "修复了",
+        "更新了",
+        "创建了",
+        "删除了",
+        "写入了",
+        "应用了",
+        "解决了",
+        "生效",
+        "大功告成",
+        "done",
+        "finished",
+        "completed",
+        "all done",
+        "all set",
+        "fixed",
+        "updated",
+        "created",
+        "deleted",
+        "resolved",
+        "implemented",
+        "applied",
+        "saved",
+        "has been modified",
+        "have modified",
+        "has been updated",
+        "have updated",
+        "has been fixed",
+        "have fixed",
+        "has been created",
+        "have created",
+        "has been written",
+        "have written",
+    ];
+    let lower = content.to_ascii_lowercase();
+    CLAIMS.iter().any(|claim| lower.contains(claim))
 }
 
 fn now_millis() -> u64 {

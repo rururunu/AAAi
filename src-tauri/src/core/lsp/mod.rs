@@ -157,8 +157,7 @@ impl LspManager {
     pub fn configure(&self, settings: &AppSettings) {
         if let Ok(mut e) = self.enabled.lock() {
             *e = settings.lsp_enabled;
-        }
-        if let Ok(mut s) = self.servers.lock() {
+        }        if let Ok(mut s) = self.servers.lock() {
             *s = if settings.lsp_servers.is_empty() {
                 AppSettings::default().lsp_servers
             } else {
@@ -168,6 +167,11 @@ impl LspManager {
         if let Ok(mut p) = self.processes.lock() {
             p.clear();
         }
+    }
+
+    /// Whether LSP is enabled in Settings; the `lsp` tool hides itself when false.
+    pub fn is_enabled(&self) -> bool {
+        *self.enabled.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn language_for_path(path: &str) -> &'static str {

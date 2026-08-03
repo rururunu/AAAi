@@ -48,7 +48,9 @@ fn custom_provider_for_selection<'a>(
         .find(|provider| provider.id == provider_hint && provider_has_model(provider, model))
 }
 
-fn resolve_provider_for_selection(
+/// Resolve the provider by an explicit model + provider-hint selection.
+/// Used for per-conversation model overrides; empty hint resolves by model match.
+pub(crate) fn resolve_provider_for_selection(
     app: AppHandle,
     model: String,
     provider_hint: String,
@@ -63,7 +65,6 @@ fn resolve_provider_for_selection(
     {
         return Arc::new(AntigravityProvider::for_model(app, model));
     }
-
     let resolve_api_key = {
         let app = app.clone();
         let selected_model = model.clone();

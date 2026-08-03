@@ -439,6 +439,9 @@ function isWaitingForAskUser(message: ChatMessage) {
 }
 
 function activityLabel(message: ChatMessage) {
+  if (message.activityStatus === "reject_empty_completion") {
+    return "检测到空完成，正在纠正并强制重试修改...";
+  }
   if (!isPending(message) || isWaitingForAskUser(message)) return "";
 
   // Prefer real reply progress over a stale analyzing label.
