@@ -1,10 +1,9 @@
-use crate::models::settings::{AppLanguage, AppSettings, ReasoningLanguage, ResponseTone};
+use crate::models::settings::{AppLanguage, AppSettings, ReasoningLanguage};
 
 #[derive(Debug, Clone, Default)]
 pub struct SendPreferences {
     pub reasoning_language: ReasoningLanguage,
     pub app_language: AppLanguage,
-    pub response_tone: ResponseTone,
 }
 
 impl From<&AppSettings> for SendPreferences {
@@ -12,7 +11,6 @@ impl From<&AppSettings> for SendPreferences {
         Self {
             reasoning_language: settings.reasoning_language,
             app_language: settings.language,
-            response_tone: settings.response_tone,
         }
     }
 }
