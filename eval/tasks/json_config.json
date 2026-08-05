@@ -1,0 +1,46 @@
+{
+  "id": "json_config",
+  "prompt": "Set package.json name to aaai-eval.",
+  "setupFiles": [
+    {
+      "path": "package.json",
+      "content": "{\"name\":\"old\"}"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "package.json",
+            "content": "{\"name\":\"aaai-eval\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "package.json"
+          }
+        }
+      ]
+    },
+    {
+      "content": "任务完成",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "fileContains",
+      "path": "package.json",
+      "text": "aaai-eval"
+    }
+  ]
+}

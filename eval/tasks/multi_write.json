@@ -1,0 +1,58 @@
+{
+  "id": "multi_write",
+  "prompt": "Write a.txt=A and b.txt=B.",
+  "script": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "a.txt",
+            "content": "A"
+          }
+        },
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "b.txt",
+            "content": "B"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "a.txt"
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "b.txt"
+          }
+        }
+      ]
+    },
+    {
+      "content": "任务完成",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "fileEquals",
+      "path": "a.txt",
+      "text": "A"
+    },
+    {
+      "type": "fileEquals",
+      "path": "b.txt",
+      "text": "B"
+    }
+  ]
+}

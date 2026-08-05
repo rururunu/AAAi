@@ -6,14 +6,27 @@
       :aria-expanded="expanded"
       @click="expanded = !expanded"
     >
-      <ChevronRight class="shell-terminal-chevron" :class="{ open: expanded }" :size="12" aria-hidden="true" />
+      <ChevronRight
+        class="shell-terminal-chevron"
+        :class="{ open: expanded }"
+        :size="12"
+        aria-hidden="true"
+      />
       <span class="shell-terminal-prompt" aria-hidden="true">&gt;_</span>
       <span class="shell-terminal-title">{{ title }}</span>
       <span v-if="status === 'running'" class="shell-terminal-status">{{ runningLabel }}</span>
-      <span v-else-if="status === 'error'" class="shell-terminal-status error">{{ failedLabel }}</span>
+      <span v-else-if="status === 'error'" class="shell-terminal-status error">
+        {{ failedLabel }}
+      </span>
     </button>
-    <pre v-if="expanded && body" class="shell-terminal-body peek-scrollbar"><code>{{ body }}</code></pre>
-    <pre v-else-if="expanded && status === 'running'" class="shell-terminal-body muted peek-scrollbar"><code>{{ waitingLabel }}</code></pre>
+    <pre
+      v-if="expanded && body"
+      class="shell-terminal-body peek-scrollbar"
+    ><code>{{ body }}</code></pre>
+    <pre
+      v-else-if="expanded && status === 'running'"
+      class="shell-terminal-body muted peek-scrollbar"
+    ><code>{{ waitingLabel }}</code></pre>
   </section>
 </template>
 
@@ -24,20 +37,21 @@ import type { ToolActivity } from "@/types/chat";
 import { useSettingStore } from "@/stores/setting";
 import { tr } from "@/services/i18n";
 
-const props = withDefaults(defineProps<{
-  activity: ToolActivity;
-  startCollapsed?: boolean;
-}>(), {
-  startCollapsed: false,
-});
+const props = withDefaults(
+  defineProps<{
+    activity: ToolActivity;
+    startCollapsed?: boolean;
+  }>(),
+  {
+    startCollapsed: false,
+  },
+);
 
 const settingStore = useSettingStore();
 const expanded = ref(!props.startCollapsed || props.activity.status === "running");
 const runningLabel = computed(() => tr(settingStore.language, "running"));
 const failedLabel = computed(() => tr(settingStore.language, "failed"));
-const waitingLabel = computed(() =>
-  settingStore.language === "zh-CN" ? "正在运行…" : "Running…",
-);
+const waitingLabel = computed(() => (settingStore.language === "zh-CN" ? "正在运行…" : "Running…"));
 
 const status = computed(() => props.activity.status);
 
@@ -45,7 +59,7 @@ watch(
   () => props.activity.status,
   (next, prev) => {
     if (next === "running") expanded.value = true;
-    else if (props.startCollapsed && prev === "running" && next !== "running") {
+    else if (props.startCollapsed && prev === "running") {
       expanded.value = false;
     }
   },

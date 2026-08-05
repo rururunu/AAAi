@@ -23,26 +23,22 @@
 
     <div v-show="!revealing" class="onboarding-stage">
       <p class="onboarding-step">
-        {{
-          t('onboarding.stepOf')
-            .replace('{current}', String(step))
-            .replace('{total}', '3')
-        }}
+        {{ t("onboarding.stepOf").replace("{current}", String(step)).replace("{total}", "3") }}
       </p>
 
       <Transition name="onboarding-page" mode="out-in">
         <section v-if="step === 1" key="welcome" class="onboarding-page welcome-page">
-          <h1>{{ t('onboarding.welcomeTitle') }}</h1>
-          <p>{{ t('onboarding.welcomeSubtitle') }}</p>
+          <h1>{{ t("onboarding.welcomeTitle") }}</h1>
+          <p>{{ t("onboarding.welcomeSubtitle") }}</p>
           <button type="button" class="primary-btn" @click="goToStep(2)">
-            {{ t('onboarding.continue') }}
+            {{ t("onboarding.continue") }}
           </button>
         </section>
 
         <section v-else-if="step === 2" key="provider" class="onboarding-page provider-page">
           <header>
-            <h1>{{ t('onboarding.providerTitle') }}</h1>
-            <p>{{ t('onboarding.providerSubtitle') }}</p>
+            <h1>{{ t("onboarding.providerTitle") }}</h1>
+            <p>{{ t("onboarding.providerSubtitle") }}</p>
           </header>
 
           <div class="provider-panels">
@@ -51,13 +47,15 @@
                 <span class="provider-icon"><DeepSeekIcon :size="18" /></span>
                 <span class="provider-copy">
                   <strong>DeepSeek</strong>
-                  <small>{{ t('onboarding.providerDeepSeekHint') }}</small>
+                  <small>{{ t("onboarding.providerDeepSeekHint") }}</small>
                 </span>
-                <span v-if="isDeepSeekConfigured" class="ready-pill">{{ t('onboarding.providerConfigured') }}</span>
+                <span v-if="isDeepSeekConfigured" class="ready-pill">
+                  {{ t("onboarding.providerConfigured") }}
+                </span>
               </button>
               <div v-if="providerTab === 'deepseek'" class="provider-panel-body">
                 <div class="field-row">
-                  <label for="onboarding-deepseek-key">{{ t('settings.provider.apiKey') }}</label>
+                  <label for="onboarding-deepseek-key">{{ t("settings.provider.apiKey") }}</label>
                   <div class="onboarding-secret">
                     <input
                       id="onboarding-deepseek-key"
@@ -67,7 +65,7 @@
                       placeholder="sk-..."
                       spellcheck="false"
                       autocomplete="off"
-                      @input="persistDeepSeekDebounced"
+                      @input="handleDeepSeekInput"
                       @blur="saveDeepSeek"
                     />
                     <button
@@ -91,18 +89,20 @@
                 <span class="provider-icon"><GeminiIcon :size="18" /></span>
                 <span class="provider-copy">
                   <strong>Gemini</strong>
-                  <small>{{ t('onboarding.providerGeminiHint') }}</small>
+                  <small>{{ t("onboarding.providerGeminiHint") }}</small>
                 </span>
-                <span v-if="isGeminiConfigured" class="ready-pill">{{ t('onboarding.providerConfigured') }}</span>
+                <span v-if="isGeminiConfigured" class="ready-pill">
+                  {{ t("onboarding.providerConfigured") }}
+                </span>
               </button>
               <div v-if="providerTab === 'gemini'" class="provider-panel-body gemini-body">
                 <div class="oauth-status">
-                  <p class="oauth-status-label">{{ t('settings.provider.geminiAccount') }}</p>
+                  <p class="oauth-status-label">{{ t("settings.provider.geminiAccount") }}</p>
                   <p class="oauth-status-value">
                     {{
                       isGeminiConfigured
-                        ? (settingStore.geminiOauth.email || t('settings.provider.geminiSignedIn'))
-                        : t('settings.provider.geminiSignedOut')
+                        ? settingStore.geminiOauth.email || t("settings.provider.geminiSignedIn")
+                        : t("settings.provider.geminiSignedOut")
                     }}
                   </p>
                   <p v-if="geminiError" class="gemini-error">{{ geminiError }}</p>
@@ -114,14 +114,14 @@
                     class="primary-btn compact"
                     @click="loginGemini"
                   >
-                    {{ t('settings.provider.geminiLogin') }}
+                    {{ t("settings.provider.geminiLogin") }}
                   </button>
                   <template v-else-if="!isGeminiConfigured && geminiBusy">
                     <button type="button" class="primary-btn compact" disabled>
-                      {{ t('settings.provider.geminiLoggingIn') }}
+                      {{ t("settings.provider.geminiLoggingIn") }}
                     </button>
                     <button type="button" class="ghost-btn compact" @click="cancelGeminiLogin">
-                      {{ t('settings.provider.geminiCancelLogin') }}
+                      {{ t("settings.provider.geminiCancelLogin") }}
                     </button>
                   </template>
                   <button
@@ -131,7 +131,7 @@
                     :disabled="geminiBusy"
                     @click="logoutGemini"
                   >
-                    {{ t('settings.provider.geminiLogout') }}
+                    {{ t("settings.provider.geminiLogout") }}
                   </button>
                 </div>
               </div>
@@ -141,15 +141,17 @@
               <button type="button" class="provider-panel-head" @click="providerTab = 'custom'">
                 <span class="provider-icon"><Globe2 :size="18" /></span>
                 <span class="provider-copy">
-                  <strong>{{ t('settings.provider.custom') }}</strong>
-                  <small>{{ t('onboarding.providerCustomHint') }}</small>
+                  <strong>{{ t("settings.provider.custom") }}</strong>
+                  <small>{{ t("onboarding.providerCustomHint") }}</small>
                 </span>
-                <span v-if="hasCustomProvider" class="ready-pill">{{ t('onboarding.providerConfigured') }}</span>
+                <span v-if="hasCustomProvider" class="ready-pill">
+                  {{ t("onboarding.providerConfigured") }}
+                </span>
               </button>
               <div v-if="providerTab === 'custom'" class="provider-panel-body custom-body">
                 <div class="custom-fields">
                   <div class="field-row">
-                    <label for="onboarding-custom-name">{{ t('onboarding.customName') }}</label>
+                    <label for="onboarding-custom-name">{{ t("onboarding.customName") }}</label>
                     <input
                       id="onboarding-custom-name"
                       v-model="customName"
@@ -161,7 +163,7 @@
                     />
                   </div>
                   <div class="field-row">
-                    <label for="onboarding-custom-url">{{ t('onboarding.customBaseUrl') }}</label>
+                    <label for="onboarding-custom-url">{{ t("onboarding.customBaseUrl") }}</label>
                     <input
                       id="onboarding-custom-url"
                       v-model="customUrl"
@@ -173,7 +175,7 @@
                     />
                   </div>
                   <div class="field-row">
-                    <label for="onboarding-custom-key">{{ t('onboarding.customApiKey') }}</label>
+                    <label for="onboarding-custom-key">{{ t("onboarding.customApiKey") }}</label>
                     <div class="onboarding-secret">
                       <input
                         id="onboarding-custom-key"
@@ -198,7 +200,7 @@
                     </div>
                   </div>
                   <div class="field-row">
-                    <label for="onboarding-custom-models">{{ t('onboarding.customModels') }}</label>
+                    <label for="onboarding-custom-models">{{ t("onboarding.customModels") }}</label>
                     <input
                       id="onboarding-custom-models"
                       v-model="customModels"
@@ -211,54 +213,51 @@
                   </div>
                 </div>
                 <button type="button" class="primary-btn compact" @click="saveCustom">
-                  {{ t('onboarding.saveCustom') }}
+                  {{ t("onboarding.saveCustom") }}
                 </button>
               </div>
             </article>
           </div>
 
-          <p class="provider-later">{{ t('onboarding.providerLater') }}</p>
+          <p class="provider-later">{{ t("onboarding.providerLater") }}</p>
 
           <div class="onboarding-actions">
-            <button type="button" class="ghost-btn" @click="goToStep(1)">{{ t('onboarding.back') }}</button>
+            <button type="button" class="ghost-btn" @click="goToStep(1)">
+              {{ t("onboarding.back") }}
+            </button>
             <button type="button" class="primary-btn" @click="goToStep(3)">
-              {{ hasAnyProvider ? t('onboarding.continue') : t('onboarding.skip') }}
+              {{ hasAnyProvider ? t("onboarding.continue") : t("onboarding.skip") }}
             </button>
           </div>
         </section>
 
         <section v-else key="hotkey" class="onboarding-page hotkey-page">
           <header>
-            <h1>{{ t('onboarding.hotkeyTitle') }}</h1>
-            <p>{{ t('onboarding.hotkeySubtitle') }}</p>
+            <h1>{{ t("onboarding.hotkeyTitle") }}</h1>
+            <p>{{ t("onboarding.hotkeySubtitle") }}</p>
           </header>
 
           <div class="hotkey-demo" aria-hidden="true">
-            <span class="hotkey-key">{{ t('onboarding.hotkeyGesture') }}</span>
+            <span class="hotkey-key">{{ t("onboarding.hotkeyGesture") }}</span>
             <span class="hotkey-dot" />
-            <span class="hotkey-key pulse">{{ t('onboarding.hotkeyGesture') }}</span>
+            <span class="hotkey-key pulse">{{ t("onboarding.hotkeyGesture") }}</span>
           </div>
-          <p class="hotkey-caption">{{ t('onboarding.hotkeyHint') }}</p>
+          <p class="hotkey-caption">{{ t("onboarding.hotkeyHint") }}</p>
 
           <div class="onboarding-actions">
             <button type="button" class="ghost-btn" :disabled="revealing" @click="goToStep(2)">
-              {{ t('onboarding.back') }}
+              {{ t("onboarding.back") }}
             </button>
             <button type="button" class="primary-btn" :disabled="revealing" @click="finish">
-              {{ t('onboarding.finish') }}
+              {{ t("onboarding.finish") }}
             </button>
           </div>
         </section>
       </Transition>
     </div>
 
-    <button
-      v-show="!revealing"
-      type="button"
-      class="skip-tour-btn"
-      @click="skipTour"
-    >
-      {{ t('onboarding.skipTour') }}
+    <button v-show="!revealing" type="button" class="skip-tour-btn" @click="skipTour">
+      {{ t("onboarding.skipTour") }}
     </button>
   </div>
 </template>
@@ -272,13 +271,8 @@ import gsap from "gsap";
 import DeepSeekIcon from "@/components/icons/DeepSeekIcon.vue";
 import GeminiIcon from "@/components/icons/GeminiIcon.vue";
 import { tr } from "@/services/i18n";
-import {
-  geminiOauthCancelLogin,
-  geminiOauthLogin,
-  geminiOauthLogout,
-} from "@/services/ipc";
+import { geminiOauthCancelLogin, geminiOauthLogin, geminiOauthLogout } from "@/services/ipc";
 import { gsapOnboardingReveal } from "@/services/motion/gsapPresets";
-import { ensureDefaultChatModel } from "@/services/chat/ensureDefaultModel";
 import { useChatModelStore } from "@/stores/chatModel";
 import { useSettingStore } from "@/stores/setting";
 import appIconAsset from "../../../src-tauri/icons/AAAi-transparent.svg";
@@ -297,6 +291,7 @@ const overlayRef = ref<HTMLElement | null>(null);
 const logoWrapRef = ref<HTMLElement | null>(null);
 
 const deepseekKey = ref(settingStore.deepseekApiKey);
+const deepseekKeyDirty = ref(false);
 const deepseekKeyVisible = ref(false);
 const customKeyVisible = ref(false);
 const geminiBusy = ref(false);
@@ -362,9 +357,21 @@ onMounted(() => {
 
 async function saveDeepSeek() {
   const next = deepseekKey.value.trim();
-  if (next === settingStore.deepseekApiKey) return;
+  const current = settingStore.deepseekApiKey.trim();
+  if (next === current) return;
+  // Do not let a stale pre-load draft erase a persisted credential.
+  if (!deepseekKeyDirty.value && !next && current) {
+    deepseekKey.value = settingStore.deepseekApiKey;
+    return;
+  }
   await settingStore.update({ deepseekApiKey: next });
   await chatModelStore.refresh();
+  deepseekKeyDirty.value = false;
+}
+
+function handleDeepSeekInput() {
+  deepseekKeyDirty.value = true;
+  persistDeepSeekDebounced();
 }
 
 const persistDeepSeekDebounced = useDebounceFn(() => {
@@ -452,8 +459,9 @@ async function finish() {
   // lands on the empty-conversation brand above the composer.
   const from = logo.getBoundingClientRect();
   const targetEl = document.querySelector<HTMLElement>("[data-onboarding-logo-target]");
-  const target = targetEl?.getBoundingClientRect()
-    ?? new DOMRect(
+  const target =
+    targetEl?.getBoundingClientRect() ??
+    new DOMRect(
       Math.round(window.innerWidth / 2 - 52),
       Math.round(window.innerHeight / 2 - 188),
       104,
@@ -483,7 +491,7 @@ async function finish() {
 }
 
 async function completeOnboarding() {
-  await ensureDefaultChatModel({ refresh: true });
+  await chatModelStore.ensureDefault({ refresh: true });
   await settingStore.update({ onboardingCompleted: true });
   emit("completed");
 }
@@ -918,6 +926,13 @@ async function completeOnboarding() {
   height: 6px;
   border-radius: 50%;
   background: rgba(28, 25, 21, 0.28);
+}
+
+.hotkey-plus {
+  font-size: 20px;
+  font-weight: 600;
+  color: rgba(28, 25, 21, 0.42);
+  user-select: none;
 }
 
 @keyframes hotkey-pulse {

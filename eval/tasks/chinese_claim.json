@@ -1,0 +1,24 @@
+{
+  "id": "chinese_claim",
+  "prompt": "修改 hello.rs",
+  "script": [
+    {
+      "content": "修改完成",
+      "tool_calls": []
+    },
+    {
+      "content": "修改完成",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "statusSeen",
+      "kind": "reject_empty_completion"
+    },
+    {
+      "type": "answerContains",
+      "text": "未完成"
+    }
+  ]
+}

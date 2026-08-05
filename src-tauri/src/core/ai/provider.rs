@@ -1,11 +1,14 @@
 use async_trait::async_trait;
+use thiserror::Error;
 use tokio::sync::mpsc::Sender;
 
 use crate::core::runtime::{ChatRequest, StreamEvent};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
 pub enum ProviderError {
+    #[error("provider request cancelled")]
     Cancelled,
+    #[error("{0}")]
     Message(String),
 }
 
@@ -22,15 +25,6 @@ impl ProviderError {
 impl From<String> for ProviderError {
     fn from(value: String) -> Self {
         Self::Message(value)
-    }
-}
-
-impl std::fmt::Display for ProviderError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Cancelled => write!(f, "provider request cancelled"),
-            Self::Message(message) => write!(f, "{message}"),
-        }
     }
 }
 

@@ -17,12 +17,32 @@
         <span class="summary-value">{{ language }}</span>
       </div>
       <div class="summary-item">
-        <span class="summary-label">Cursor</span>
+        <span class="summary-label">Position</span>
         <span class="summary-value">{{ cursor }}</span>
       </div>
       <div class="summary-item">
         <span class="summary-label">Git</span>
         <span class="summary-value" :title="gitBranch">{{ gitBranch }}</span>
+      </div>
+    </div>
+
+    <div v-if="office" class="context-paths office-block">
+      <div class="path-row">
+        <FileText :size="15" :stroke-width="1.7" aria-hidden="true" />
+        <div class="path-content">
+          <span class="path-label">Office</span>
+          <span class="path-primary">{{ officeAppLabel }}</span>
+          <span class="path-secondary" :title="officeDocument">{{ officeDocument }}</span>
+        </div>
+      </div>
+      <div v-if="officeSelectionPreview" class="path-row subdued">
+        <Highlighter :size="15" :stroke-width="1.7" aria-hidden="true" />
+        <div class="path-content office-selection">
+          <span class="path-label">Selection preview</span>
+          <span class="path-secondary office-preview" :title="officeSelectionPreview">
+            {{ officeSelectionPreview }}
+          </span>
+        </div>
       </div>
     </div>
 
@@ -79,7 +99,10 @@
         <pre><code>{{ shell }}</code></pre>
       </details>
 
-      <div v-if="!selection && !gitStatus && !shell" class="empty-details">
+      <div
+        v-if="!selection && !gitStatus && !shell && !officeSelectionPreview"
+        class="empty-details"
+      >
         No selection, Git changes, or shell result
       </div>
     </div>
@@ -88,7 +111,15 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { AppWindow, ChevronRight, Code2, FileCode2, FolderGit2 } from "@lucide/vue";
+import {
+  AppWindow,
+  ChevronRight,
+  Code2,
+  FileCode2,
+  FileText,
+  FolderGit2,
+  Highlighter,
+} from "@lucide/vue";
 import type { CapturedContext } from "@/types/chat";
 
 const props = defineProps<{ context: CapturedContext }>();
@@ -128,13 +159,39 @@ const selectionMeta = computed(() => {
   return `${lines} ${lines === 1 ? "line" : "lines"}`;
 });
 const gitStatus = computed(() => props.context.gitStatus?.trim() || "");
-const gitLines = computed(() => gitStatus.value ? gitStatus.value.split(/\r?\n/) : []);
+const gitLines = computed(() => (gitStatus.value ? gitStatus.value.split(/\r?\n/) : []));
 const gitBranch = computed(() => gitLines.value[0]?.replace(/^##\s*/, "") || unavailable);
 const gitMeta = computed(() => {
   const changes = Math.max(0, gitLines.value.length - 1);
   return changes ? `${changes} ${changes === 1 ? "change" : "changes"}` : "Clean";
 });
 const shell = computed(() => props.context.lastShellExecution?.trim() || "");
+const office = computed(() => props.context.officeContext);
+const officeAppLabel = computed(() => {
+  switch (office.value?.app) {
+    case "excel":
+      return "Microsoft Excel";
+    case "powerpoint":
+      return "Microsoft PowerPoint";
+    case "word":
+      return "Microsoft Word";
+    default:
+      return office.value?.app || unavailable;
+  }
+});
+const officeDocument = computed(() => {
+  if (!office.value) return unavailable;
+  const name = office.value.documentName?.trim();
+  const path = office.value.documentPath?.trim();
+  if (name && path) return `${name} — ${path}`;
+  return name || path || unavailable;
+});
+const officeSelectionPreview = computed(() => {
+  const text = office.value?.selectedText?.trim() || "";
+  if (!text) return "";
+  if (text.length <= 240) return text;
+  return `${text.slice(0, 240)}…`;
+});
 </script>
 
 <style scoped>
@@ -275,6 +332,22 @@ const shell = computed(() => props.context.lastShellExecution?.trim() || "");
 
 .path-row.subdued .path-secondary {
   grid-column: 1 / -1;
+}
+
+.office-block {
+  border-bottom: 1px solid var(--peek-border);
+}
+
+.office-selection {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.office-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
 }
 
 .context-details {

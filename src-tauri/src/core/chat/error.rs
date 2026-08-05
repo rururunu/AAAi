@@ -1,20 +1,15 @@
-#[derive(Debug, Clone)]
-pub enum ChatError {
-    EmptyMessage,
-    MessageNotFound,
-    Provider(String),
-    Internal(String),
-}
+use thiserror::Error;
 
-impl std::fmt::Display for ChatError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EmptyMessage => write!(f, "message cannot be empty"),
-            Self::MessageNotFound => write!(f, "message not found"),
-            Self::Provider(message) => write!(f, "{message}"),
-            Self::Internal(message) => write!(f, "{message}"),
-        }
-    }
+#[derive(Debug, Clone, Error)]
+pub enum ChatError {
+    #[error("message cannot be empty")]
+    EmptyMessage,
+    #[error("message not found")]
+    MessageNotFound,
+    #[error("{0}")]
+    Provider(String),
+    #[error("{0}")]
+    Internal(String),
 }
 
 impl From<crate::core::ai::ProviderError> for ChatError {

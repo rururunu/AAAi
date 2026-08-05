@@ -176,6 +176,32 @@ impl SessionJournal {
         let _ = self.tx.send(JournalCommand::DeleteAll);
     }
 
+    /// Record a tool outcome for trajectory mining (failures → rule/skill candidates).
+    pub fn record_tool_outcome(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        message_id: &str,
+        tool_name: &str,
+        arguments: &str,
+        success: bool,
+        result: &str,
+    ) {
+        let kind = if success { "tool_result" } else { "tool_error" };
+        self.append(
+            session_id,
+            turn_id,
+            message_id,
+            kind,
+            json!({
+                "tool": tool_name,
+                "arguments": arguments,
+                "success": success,
+                "result": truncate_payload(result, 2_000),
+            }),
+        );
+    }
+
     fn append_snapshot(&self, snapshot: (String, String, String, String, String)) {
         self.append(
             &snapshot.0,
@@ -187,6 +213,16 @@ impl SessionJournal {
                 "reasoning": snapshot.4,
             }),
         );
+    }
+}
+
+fn truncate_payload(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let head: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{head}…")
+    } else {
+        head
     }
 }
 

@@ -11,9 +11,11 @@ pub mod path_permission;
 pub mod plan_mode;
 pub mod preview;
 pub mod registry;
+pub mod sandbox;
 pub mod shell_jobs;
 pub mod skills;
 pub mod tool_approval;
+pub mod workspace_index;
 
 pub mod context;
 
@@ -34,6 +36,7 @@ pub fn default_registry(
     apply_patch::register(&mut registry);
     skills::register_all(&mut registry);
     agent::register_all(&mut registry);
+    crate::core::office::register_tools(&mut registry);
     registry.register(Arc::new(crate::runtime::context::ContextTool));
     registry.register(Arc::new(crate::runtime::workspace::WorkspaceTool));
     registry.register(Arc::new(crate::runtime::git::GitTool));

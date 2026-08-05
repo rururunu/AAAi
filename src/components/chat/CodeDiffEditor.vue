@@ -33,7 +33,12 @@ import { rust } from "@codemirror/lang-rust";
 import { sql } from "@codemirror/lang-sql";
 import { xml } from "@codemirror/lang-xml";
 import { yaml } from "@codemirror/lang-yaml";
-import { buildCodeDiff, type CodeDiffDocument, type CodeDiffLine, type CodeDiffLineKind } from "@/services/chat/codeDiff";
+import {
+  buildCodeDiff,
+  type CodeDiffDocument,
+  type CodeDiffLine,
+  type CodeDiffLineKind,
+} from "@/services/chat/codeDiff";
 
 type DiffViewMode = "split" | "unified";
 
@@ -59,11 +64,13 @@ let unifiedView: EditorView | null = null;
 let requestVersion = 0;
 let syncingScroll = false;
 
-const requestKey = computed(() => JSON.stringify({
-  oldText: props.oldText,
-  newText: props.newText,
-  unifiedDiff: props.unifiedDiff,
-}));
+const requestKey = computed(() =>
+  JSON.stringify({
+    oldText: props.oldText,
+    newText: props.newText,
+    unifiedDiff: props.unifiedDiff,
+  }),
+);
 
 watch(requestKey, loadDocument, { immediate: true });
 watch(
@@ -146,7 +153,7 @@ function createEditor(parent: HTMLElement, lines: DisplayLine[]) {
       lineNumbers({ formatNumber: (line) => String(lineNumbersByDisplayLine[line - 1] ?? "") }),
       wrapCompartment.of(props.wrapLines ? EditorView.lineWrapping : []),
       languageExtension(props.language),
-      syntaxHighlighting(diffHighlightStyle),
+      syntaxHighlighting(diffHighlightStyle, { fallback: true }),
       diffTheme,
       lineClasses(lines),
     ],
@@ -178,7 +185,12 @@ function lineClasses(lines: DisplayLine[]): Extension {
   const builder = new RangeSetBuilder<Decoration>();
   let position = 0;
   for (const line of lines) {
-    if (line.kind) builder.add(position, position, Decoration.line({ attributes: { class: `diff-${line.kind}` } }));
+    if (line.kind)
+      builder.add(
+        position,
+        position,
+        Decoration.line({ attributes: { class: `diff-${line.kind}` } }),
+      );
     position += line.text.length + 1;
   }
   return EditorView.decorations.of(builder.finish());
@@ -189,59 +201,169 @@ function linkVerticalScroll(source: EditorView, target: EditorView) {
     if (syncingScroll || target.scrollDOM.scrollTop === source.scrollDOM.scrollTop) return;
     syncingScroll = true;
     target.scrollDOM.scrollTop = source.scrollDOM.scrollTop;
-    requestAnimationFrame(() => { syncingScroll = false; });
+    requestAnimationFrame(() => {
+      syncingScroll = false;
+    });
   });
 }
 
 function languageExtension(language: string): Extension {
   switch (language) {
-    case "javascript": return javascript({ jsx: true });
-    case "typescript": return javascript({ jsx: true, typescript: true });
-    case "json": return json();
-    case "xml": return xml();
-    case "css": case "scss": return css();
-    case "rust": return rust();
-    case "python": return python();
-    case "yaml": return yaml();
-    case "markdown": return markdown();
-    case "sql": return sql();
-    case "go": return go();
-    case "java": return java();
-    case "cpp": case "c": return cpp();
-    case "php": return php();
-    case "html": return html();
-    default: return [];
+    case "javascript":
+      return javascript({ jsx: true });
+    case "typescript":
+      return javascript({ jsx: true, typescript: true });
+    case "json":
+      return json();
+    case "xml":
+      return xml();
+    case "css":
+    case "scss":
+      return css();
+    case "rust":
+      return rust();
+    case "python":
+      return python();
+    case "yaml":
+      return yaml();
+    case "markdown":
+      return markdown();
+    case "sql":
+      return sql();
+    case "go":
+      return go();
+    case "java":
+      return java();
+    case "cpp":
+    case "c":
+      return cpp();
+    case "php":
+      return php();
+    case "html":
+      return html();
+    default:
+      return [];
   }
 }
 
 const diffHighlightStyle = HighlightStyle.define([
-  { tag: tags.comment, color: "var(--peek-syntax-comment, var(--peek-muted))" },
-  { tag: [tags.keyword, tags.operator, tags.controlKeyword], color: "var(--peek-syntax-keyword, var(--peek-accent))" },
-  { tag: [tags.string, tags.special(tags.string)], color: "var(--peek-syntax-string, var(--peek-code-fg, var(--peek-text)))" },
-  { tag: [tags.number, tags.bool, tags.null], color: "var(--peek-syntax-number, var(--peek-code-fg, var(--peek-text)))" },
-  { tag: [tags.function(tags.variableName), tags.labelName], color: "var(--peek-syntax-function, var(--peek-accent))" },
-  { tag: [tags.typeName, tags.className], color: "var(--peek-syntax-type, var(--peek-accent))" },
-  { tag: tags.variableName, color: "var(--peek-syntax-variable, var(--peek-code-fg, var(--peek-text)))" },
+  { tag: tags.comment, color: "var(--peek-syntax-comment)", fontStyle: "italic" },
+  { tag: tags.lineComment, color: "var(--peek-syntax-comment)", fontStyle: "italic" },
+  { tag: tags.blockComment, color: "var(--peek-syntax-comment)", fontStyle: "italic" },
+  {
+    tag: [tags.keyword, tags.controlKeyword, tags.moduleKeyword, tags.definitionKeyword],
+    color: "var(--peek-syntax-keyword)",
+  },
+  {
+    tag: [tags.operator, tags.operatorKeyword, tags.compareOperator, tags.logicOperator],
+    color: "var(--peek-syntax-operator)",
+  },
+  {
+    tag: [tags.string, tags.special(tags.string), tags.character, tags.regexp],
+    color: "var(--peek-syntax-string)",
+  },
+  { tag: [tags.number, tags.bool, tags.null, tags.atom], color: "var(--peek-syntax-number)" },
+  {
+    tag: [tags.function(tags.variableName), tags.function(tags.propertyName), tags.labelName],
+    color: "var(--peek-syntax-function)",
+  },
+  {
+    tag: [tags.typeName, tags.className, tags.namespace, tags.self],
+    color: "var(--peek-syntax-type)",
+  },
+  { tag: [tags.propertyName, tags.attributeName], color: "var(--peek-syntax-property)" },
+  {
+    tag: [tags.variableName, tags.local(tags.variableName), tags.definition(tags.variableName)],
+    color: "var(--peek-syntax-variable)",
+  },
+  {
+    tag: [
+      tags.punctuation,
+      tags.separator,
+      tags.bracket,
+      tags.angleBracket,
+      tags.paren,
+      tags.squareBracket,
+    ],
+    color: "var(--peek-syntax-punctuation)",
+  },
+  { tag: tags.meta, color: "var(--peek-syntax-comment)" },
+  { tag: tags.invalid, color: "var(--peek-danger)" },
 ]);
 
 const diffTheme = EditorView.theme({
-  "&": { height: "100%", backgroundColor: "transparent", color: "var(--peek-code-fg, var(--peek-text))" },
-  ".cm-scroller": { overflow: "auto", fontFamily: "var(--font-mono)", fontSize: "11px", lineHeight: "1.65" },
-  ".cm-content": { padding: "0 0 18px", minHeight: "100%", caretColor: "transparent" },
+  "&": {
+    height: "100%",
+    backgroundColor: "transparent",
+    color: "var(--peek-code-fg, var(--peek-text))",
+  },
+  ".cm-scroller": {
+    overflow: "auto",
+    fontFamily: "var(--font-mono)",
+    fontSize: "11px",
+    lineHeight: "1.65",
+  },
+  ".cm-content": {
+    padding: "0 0 18px",
+    minHeight: "100%",
+    caretColor: "transparent",
+    color: "var(--peek-code-fg, var(--peek-text))",
+  },
   ".cm-line": { padding: "0 12px", minHeight: "20px" },
-  ".cm-gutters": { border: "0", backgroundColor: "color-mix(in srgb, var(--peek-text) 1.8%, transparent)", color: "var(--peek-code-muted, var(--peek-faint))" },
+  ".cm-gutters": {
+    border: "0",
+    backgroundColor: "color-mix(in srgb, var(--peek-text) 1.8%, transparent)",
+    color: "var(--peek-code-muted, var(--peek-faint))",
+  },
   ".cm-gutterElement": { padding: "0 8px 0 4px", minWidth: "36px" },
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "transparent" },
-  ".cm-selectionBackground, ::selection": { backgroundColor: "var(--peek-code-selection, var(--peek-list-active)) !important" },
-  ".cm-line.diff-addition": { backgroundColor: "color-mix(in srgb, #2ea043 15%, transparent)", boxShadow: "inset 3px 0 0 #2ea043" },
-  ".cm-line.diff-deletion": { backgroundColor: "color-mix(in srgb, #f85149 14%, transparent)", boxShadow: "inset 3px 0 0 #f85149" },
+  ".cm-selectionBackground, ::selection": {
+    backgroundColor: "var(--peek-code-selection, var(--peek-list-active)) !important",
+  },
+  ".cm-line.diff-addition": {
+    backgroundColor: "color-mix(in srgb, #2ea043 15%, transparent)",
+    boxShadow: "inset 3px 0 0 #2ea043",
+  },
+  ".cm-line.diff-deletion": {
+    backgroundColor: "color-mix(in srgb, #f85149 14%, transparent)",
+    boxShadow: "inset 3px 0 0 #f85149",
+  },
 });
 </script>
 
 <style scoped>
-.code-diff-editor { flex: 1; min-height: 0; position: relative; overflow: hidden; background: transparent; }
-.split-editors { box-sizing: border-box; width: 100%; height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; padding: 0 6px 6px; }
-.editor-pane { min-width: 0; min-height: 0; overflow: hidden; border-radius: 5px; background: color-mix(in srgb, var(--peek-text) 1.2%, transparent); }
-.code-diff-loading { position: absolute; inset: 0; background: transparent; }
-.code-diff-error { padding: 16px; color: var(--peek-muted); font: 11px/1.5 var(--font-mono); white-space: pre-wrap; }
+.code-diff-editor {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: transparent;
+}
+.split-editors {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+  padding: 0 6px 6px;
+}
+.editor-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--peek-text) 1.2%, transparent);
+}
+.code-diff-loading {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+}
+.code-diff-error {
+  padding: 16px;
+  color: var(--peek-muted);
+  font: 11px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+}
 </style>

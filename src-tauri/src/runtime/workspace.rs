@@ -13,7 +13,7 @@ impl Tool for WorkspaceTool {
         "get_workspace"
     }
     fn description(&self) -> &str {
-        "Return the active workspace name, root, and project rules file when present."
+        "Return the active workspace name, root, and project rules file when present. Trust the injected workspace path when present; call this for a fresh workspace snapshot."
     }
     fn parameters_schema(&self) -> Value {
         json!({ "type": "object", "properties": {} })

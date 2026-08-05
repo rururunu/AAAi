@@ -24,11 +24,11 @@
         <p class="text-muted-foreground text-xs leading-relaxed">{{ item.description }}</p>
       </div>
 
-      <div class="pt-0.5" :class="{ 'collaboration-control': item.type === 'collaboration-models' }">
-        <Select
-          v-if="item.type === 'select-color'"
-          :model-value="selectedThemeValue"
-        >
+      <div
+        class="pt-0.5"
+        :class="{ 'collaboration-control': item.type === 'collaboration-models' }"
+      >
+        <Select v-if="item.type === 'select-color'" :model-value="selectedThemeValue">
           <SelectTrigger class="w-full">
             <SelectValue />
           </SelectTrigger>
@@ -134,10 +134,7 @@
                   :text-value="option.label"
                 >
                   <template v-if="option.icon" #leading>
-                    <component
-                      :is="option.icon"
-                      class="size-3.5 shrink-0 text-muted-foreground"
-                    />
+                    <component :is="option.icon" class="size-3.5 shrink-0 text-muted-foreground" />
                   </template>
                   {{ option.label }}
                 </SelectItem>
@@ -153,15 +150,14 @@
               :aria-label="refreshModelsLabel"
               @click="refreshModelList"
             >
-              <RefreshCw
-                class="size-3.5"
-                :class="{ 'animate-spin': chatModelStore.refreshing }"
-              />
+              <RefreshCw class="size-3.5" :class="{ 'animate-spin': chatModelStore.refreshing }" />
             </Button>
           </div>
           <Select
             v-if="selectedModelThinkingTierOptions(item.id).length > 1"
-            :model-value="item.id === 'multimodalModel' ? settingStore.multimodalModel : settingStore.chatModel"
+            :model-value="
+              item.id === 'multimodalModel' ? settingStore.multimodalModel : settingStore.chatModel
+            "
             :disabled="chatModelStore.loading"
             @update:model-value="(v) => handleThinkingTierSelection(item.id, v)"
           >
@@ -193,17 +189,30 @@
           >
             <span class="setting-toggle-knob"></span>
           </button>
-          <div v-if="settingStore.multiModelCollaboration" class="collaboration-model-list peek-scrollbar">
-            <label v-for="option in availableModelOptions" :key="option.value" class="collaboration-model-option">
+          <div
+            v-if="settingStore.multiModelCollaboration"
+            class="collaboration-model-list peek-scrollbar"
+          >
+            <label
+              v-for="option in availableModelOptions"
+              :key="option.value"
+              class="collaboration-model-option"
+            >
               <input
                 type="checkbox"
                 :checked="settingStore.collaborationModels.includes(option.value)"
                 @change="toggleCollaborationModel(option.value)"
               />
-              <component :is="option.icon" v-if="option.icon" class="size-3.5 shrink-0 text-muted-foreground" />
+              <component
+                :is="option.icon"
+                v-if="option.icon"
+                class="size-3.5 shrink-0 text-muted-foreground"
+              />
               <span :title="option.label">{{ option.label }}</span>
             </label>
-            <p v-if="!availableModelOptions.length" class="text-[10px] text-muted-foreground">{{ modelStatusText }}</p>
+            <p v-if="!availableModelOptions.length" class="text-[10px] text-muted-foreground">
+              {{ modelStatusText }}
+            </p>
           </div>
         </div>
 
@@ -342,25 +351,36 @@
             @input="(e) => onSliderChange(item.id, e)"
             class="setting-slider h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-border accent-primary focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
-          <span class="text-xs font-semibold tabular-nums min-w-[36px] text-right text-muted-foreground select-none">
+          <span
+            class="text-xs font-semibold tabular-nums min-w-[36px] text-right text-muted-foreground select-none"
+          >
             {{ getSettingValue(item.id) }}%
           </span>
         </div>
 
         <HotkeyRecordField
           v-else-if="item.type === 'hotkey-record'"
-          :model-value="item.id === 'primaryHotkey' ? settingStore.primaryHotkey : settingStore.secondaryHotkey"
+          :model-value="
+            item.id === 'primaryHotkey' ? settingStore.primaryHotkey : settingStore.secondaryHotkey
+          "
           :setting-key="item.id === 'primaryHotkey' ? 'primaryHotkey' : 'secondaryHotkey'"
           :mode="item.id === 'primaryHotkey' ? 'double-modifier' : 'chord'"
           :default-value="item.id === 'primaryHotkey' ? 'Alt' : 'Ctrl+Alt+Space'"
-          @update:model-value="(value) => item.id === 'primaryHotkey' ? (settingStore.primaryHotkey = value) : (settingStore.secondaryHotkey = value)"
+          @update:model-value="
+            (value) =>
+              item.id === 'primaryHotkey'
+                ? (settingStore.primaryHotkey = value)
+                : (settingStore.secondaryHotkey = value)
+          "
         />
 
         <span
           v-else
           class="text-sm"
           :class="{ 'font-mono text-xs break-all': item.id === 'appIdentifier' }"
-        >{{ item.value }}</span>
+        >
+          {{ item.value }}
+        </span>
       </div>
     </article>
   </section>
@@ -384,7 +404,12 @@ import {
 } from "@/components/ui/select";
 import { useSettingStore } from "@/stores/setting";
 import { useChatModelStore } from "@/stores/chatModel";
-import { getProviderIcon, getModelDisplayLabel, isDeepSeekProvider, isGeminiProvider } from "@/lib/providerIcons";
+import {
+  getProviderIcon,
+  getModelDisplayLabel,
+  isDeepSeekProvider,
+  isGeminiProvider,
+} from "@/lib/providerIcons";
 import {
   findModelEntry,
   isModelEntrySelected,
@@ -443,9 +468,7 @@ const emit = defineEmits<{
 const settingStore = useSettingStore();
 const chatModelStore = useChatModelStore();
 
-const selectedThemeValue = computed(() =>
-  `builtin:${settingStore.colorScheme}`,
-);
+const selectedThemeValue = computed(() => `builtin:${settingStore.colorScheme}`);
 
 function onThemeOptionSelect(value: string) {
   if (value !== selectedThemeValue.value) {
@@ -548,9 +571,7 @@ const availableModelOptions = computed(() => {
   return models.map((model) => {
     const name = getModelDisplayLabel(model);
     const showOwner =
-      !!model.ownedBy &&
-      !isDeepSeekProvider(model.provider) &&
-      !isGeminiProvider(model.provider);
+      !!model.ownedBy && !isDeepSeekProvider(model.provider) && !isGeminiProvider(model.provider);
     return {
       value: encodeModelSelection(model),
       label: showOwner ? `${name} · ${model.ownedBy}` : name,
@@ -601,9 +622,7 @@ function handleThinkingTierSelection(itemId: string, value: unknown) {
 
 function selectedModelThinkingTierOptions(itemId: string) {
   const selectedId =
-    itemId === "multimodalModel"
-      ? settingStore.multimodalModel
-      : settingStore.chatModel;
+    itemId === "multimodalModel" ? settingStore.multimodalModel : settingStore.chatModel;
   const provider = modelSelectionForItem(itemId).provider;
   const entry = findModelEntry(chatModelStore.models, selectedId, provider);
   if (!entry?.thinkingVariants?.length) {
@@ -617,9 +636,7 @@ function selectedModelThinkingTierOptions(itemId: string) {
 
 function selectedModelOption(itemId: string) {
   const selectedId =
-    itemId === "multimodalModel"
-      ? settingStore.multimodalModel
-      : settingStore.chatModel;
+    itemId === "multimodalModel" ? settingStore.multimodalModel : settingStore.chatModel;
   const provider = modelSelectionForItem(itemId).provider;
   const entry = findModelEntry(chatModelStore.models, selectedId, provider);
   const optionValue = encodeModelSelection({
@@ -636,9 +653,7 @@ const modelStatusText = computed(() => {
   return tr(settingStore.language, "noModels");
 });
 
-const refreshModelsLabel = computed(() =>
-  tr(settingStore.language, "refreshModels"),
-);
+const refreshModelsLabel = computed(() => tr(settingStore.language, "refreshModels"));
 
 async function refreshModelList() {
   await chatModelStore.reload();
@@ -668,6 +683,7 @@ function toggleActive(id: string) {
   if (id === "hardwareAccelerationEnabled") return settingStore.hardwareAccelerationEnabled;
   if (id === "pixpinPinAiEnabled") return settingStore.pixpinPinAiEnabled;
   if (id === "snipastePinAiEnabled") return settingStore.snipastePinAiEnabled;
+  if (id === "minimalCoding") return settingStore.minimalCoding;
   return false;
 }
 
@@ -727,7 +743,9 @@ function onSearchSecretInput(id: string, value: string | number) {
   border-radius: 999px;
   background: var(--muted);
   cursor: default;
-  transition: background 160ms ease, border-color 160ms ease;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease;
 }
 
 .setting-toggle.active {
@@ -751,21 +769,72 @@ function onSearchSecretInput(id: string, value: string | number) {
   transform: translateX(20px);
 }
 
-.collaboration-models { display: contents; }
-.collaboration-control { display: contents; }
-.collaboration-models > .setting-toggle { justify-self: end; }
-.collaboration-model-list { width: 100%; max-height: 216px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--background) 88%, var(--muted)); }
-.collaboration-setting .collaboration-model-list { grid-column: 1 / -1; }
-.collaboration-model-option { min-width: 0; min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); cursor: pointer; }
-.collaboration-model-option:nth-child(2n) { border-right: 0; }
-.collaboration-model-option:nth-last-child(-n + 2) { border-bottom: 0; }
-.collaboration-model-option:hover { background: var(--accent); }
-.collaboration-model-option input { flex: none; accent-color: var(--primary); }
-.collaboration-model-option span { min-width: 0; overflow: hidden; color: var(--foreground); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.collaboration-models {
+  display: contents;
+}
+.collaboration-control {
+  display: contents;
+}
+.collaboration-models > .setting-toggle {
+  justify-self: end;
+}
+.collaboration-model-list {
+  width: 100%;
+  max-height: 216px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--background) 88%, var(--muted));
+}
+.collaboration-setting .collaboration-model-list {
+  grid-column: 1 / -1;
+}
+.collaboration-model-option {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  cursor: pointer;
+}
+.collaboration-model-option:nth-child(2n) {
+  border-right: 0;
+}
+.collaboration-model-option:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+.collaboration-model-option:hover {
+  background: var(--accent);
+}
+.collaboration-model-option input {
+  flex: none;
+  accent-color: var(--primary);
+}
+.collaboration-model-option span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 @media (max-width: 520px) {
-  .collaboration-model-list { grid-template-columns: minmax(0, 1fr); }
-  .collaboration-model-option { border-right: 0; }
-  .collaboration-model-option:nth-last-child(-n + 2) { border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
-  .collaboration-model-option:last-child { border-bottom: 0; }
+  .collaboration-model-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .collaboration-model-option {
+    border-right: 0;
+  }
+  .collaboration-model-option:nth-last-child(-n + 2) {
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  }
+  .collaboration-model-option:last-child {
+    border-bottom: 0;
+  }
 }
 </style>

@@ -11,7 +11,6 @@ use super::error::ToolError;
 
 const WAIT_POLL: Duration = Duration::from_millis(100);
 const WAIT_TIMEOUT: Duration = Duration::from_secs(120);
-const FOREGROUND_TIMEOUT: Duration = Duration::from_secs(120);
 const BACKGROUND_OUTPUT_MAX_CHARS: usize = 256 * 1024;
 
 #[derive(Debug)]
@@ -54,8 +53,14 @@ impl ShellJobStore {
         if let Some(dir) = cwd {
             cmd.current_dir(dir);
         }
+        if crate::core::tools::sandbox::restricted_shell() {
+            crate::core::tools::sandbox::scrub_sensitive_env(&mut cmd);
+        }
         prepare_command(&mut cmd);
         let mut child = cmd.spawn()?;
+        if crate::core::tools::sandbox::restricted_shell() {
+            crate::core::tools::sandbox::assign_restricted_job(&mut child);
+        }
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
@@ -340,6 +345,8 @@ pub fn run_foreground(
     cwd: Option<&std::path::Path>,
     cancelled: &AtomicBool,
 ) -> Result<String, ToolError> {
+    let restricted = crate::core::tools::sandbox::restricted_shell();
+    let timeout = Duration::from_secs(crate::core::tools::sandbox::shell_timeout_secs());
     let mut cmd = Command::new("powershell");
     cmd.args(["-NoProfile", "-NonInteractive", "-Command", command])
         .stdout(Stdio::piped())
@@ -347,8 +354,14 @@ pub fn run_foreground(
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
+    if restricted {
+        crate::core::tools::sandbox::scrub_sensitive_env(&mut cmd);
+    }
     prepare_command(&mut cmd);
     let mut child = cmd.spawn()?;
+    if restricted {
+        crate::core::tools::sandbox::assign_restricted_job(&mut child);
+    }
 
     let started = Instant::now();
     loop {
@@ -372,12 +385,12 @@ pub fn run_foreground(
                     tracing::debug!(pid = child.id(), "foreground shell command cancelled");
                     return Err(ToolError::cancelled());
                 }
-                if started.elapsed() >= FOREGROUND_TIMEOUT {
+                if started.elapsed() >= timeout {
                     terminate_process_tree(&mut child);
                     let (stdout, stderr, exit_code) = collect_child_output(&mut child);
                     let result = format!(
                         "command timed out after {}s (exit_code: {:?})\n{}",
-                        FOREGROUND_TIMEOUT.as_secs(),
+                        timeout.as_secs(),
                         exit_code,
                         format_streams(&stdout, &stderr)
                     );

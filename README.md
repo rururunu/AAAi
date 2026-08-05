@@ -17,7 +17,7 @@
 
 <p align="center">
   <img alt="platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" />
-  <img alt="release" src="https://img.shields.io/badge/version-v0.1.3-4D6BFE?style=flat-square" />
+  <img alt="release" src="https://img.shields.io/badge/version-v0.1.4-4D6BFE?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-Unlicense-3DA639?style=flat-square" />
 </p>
 
@@ -86,13 +86,13 @@ The input shows context usage. You can choose a model and thinking level, and in
 2. Open **Settings** from the AAAi system tray icon and configure a model provider.
 3. Return to any app, double-tap <kbd>Alt</kbd>, then type and press <kbd>Enter</kbd>.
 
-| Shortcut | Action |
-| --- | --- |
-| Double-tap <kbd>Alt</kbd> | Show or hide the overlay |
-| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> | Fallback summon shortcut |
-| <kbd>Enter</kbd> | Send a message |
-| <kbd>/</kbd> | Open slash commands |
-| <kbd>Esc</kbd> | Clear input; closes the window in some contexts |
+| Shortcut                                            | Action                                          |
+| --------------------------------------------------- | ----------------------------------------------- |
+| Double-tap <kbd>Alt</kbd>                           | Show or hide the overlay                        |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> | Fallback summon shortcut                        |
+| <kbd>Enter</kbd>                                    | Send a message                                  |
+| <kbd>/</kbd>                                        | Open slash commands                             |
+| <kbd>Esc</kbd>                                      | Clear input; closes the window in some contexts |
 
 ## Data and privacy
 
@@ -109,13 +109,20 @@ pnpm install
 pnpm tauri dev
 ```
 
+Frontend architecture and local gates: [docs/frontend-architecture.md](./docs/frontend-architecture.md). Rust backend: [docs/rust-architecture.md](./docs/rust-architecture.md).
+
+```bash
+pnpm check   # typecheck + lint + test
+```
+
 Build an MSI:
 
 ```bash
-pnpm tauri build
+pnpm tauri:build
 ```
 
 The installer is written to `src-tauri/target/release/bundle/msi/`.
+The generated filename is `AAAi_0.1.4_x64.msi` without the `_en-US` suffix.
 
 ## License
 

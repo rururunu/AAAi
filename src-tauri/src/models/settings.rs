@@ -254,6 +254,19 @@ pub struct AppSettings {
     pub multi_model_collaboration: bool,
     #[serde(default)]
     pub collaboration_models: Vec<String>,
+    /// Inject the optional minimal-coding ladder into each agent turn.
+    #[serde(default)]
+    pub minimal_coding: bool,
+    /// When true, file writes outside the workspace may be approved via path permission.
+    /// Default false = hard deny (sandbox).
+    #[serde(default)]
+    pub allow_outside_workspace_writes: bool,
+    /// When true, shell runs under restricted limits (Job Object, scrubbed env, shorter timeout).
+    #[serde(default)]
+    pub restricted_shell: bool,
+    /// Foreground shell timeout in seconds (min 5). Used always; restricted mode may use this too.
+    #[serde(default = "default_shell_timeout_secs")]
+    pub shell_timeout_secs: u64,
     #[serde(default = "default_true")]
     pub multimodal_split_analysis: bool,
     /// When true, use a 1M-token context window for compaction / turn budgets.
@@ -314,6 +327,10 @@ fn default_mem0_base_url() -> String {
     "https://api.mem0.ai/v1".to_string()
 }
 
+fn default_shell_timeout_secs() -> u64 {
+    120
+}
+
 fn default_secondary_hotkey() -> String {
     crate::services::hotkey::DEFAULT_SECONDARY_HOTKEY.to_string()
 }
@@ -354,6 +371,10 @@ pub struct AppSettingsPatch {
     pub agent_work_display: Option<AgentWorkDisplay>,
     pub multi_model_collaboration: Option<bool>,
     pub collaboration_models: Option<Vec<String>>,
+    pub minimal_coding: Option<bool>,
+    pub allow_outside_workspace_writes: Option<bool>,
+    pub restricted_shell: Option<bool>,
+    pub shell_timeout_secs: Option<u64>,
     pub multimodal_split_analysis: Option<bool>,
     pub large_context_enabled: Option<bool>,
     pub zoom: Option<u32>,
@@ -369,7 +390,7 @@ pub struct AppSettingsPatch {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            color_scheme: ColorScheme::Light,
+            color_scheme: ColorScheme::Dark,
             language: AppLanguage::ZhCn,
             deepseek_api_key: String::new(),
             gemini_oauth: GeminiOAuthSettings::default(),
@@ -398,6 +419,10 @@ impl Default for AppSettings {
             agent_work_display: AgentWorkDisplay::default(),
             multi_model_collaboration: false,
             collaboration_models: Vec::new(),
+            minimal_coding: false,
+            allow_outside_workspace_writes: false,
+            restricted_shell: false,
+            shell_timeout_secs: default_shell_timeout_secs(),
             multimodal_split_analysis: true,
             large_context_enabled: true,
             zoom: 100,
@@ -502,6 +527,15 @@ impl AppSettings {
             collaboration_models: patch
                 .collaboration_models
                 .unwrap_or_else(|| self.collaboration_models.clone()),
+            minimal_coding: patch.minimal_coding.unwrap_or(self.minimal_coding),
+            allow_outside_workspace_writes: patch
+                .allow_outside_workspace_writes
+                .unwrap_or(self.allow_outside_workspace_writes),
+            restricted_shell: patch.restricted_shell.unwrap_or(self.restricted_shell),
+            shell_timeout_secs: patch
+                .shell_timeout_secs
+                .unwrap_or(self.shell_timeout_secs)
+                .max(5),
             multimodal_split_analysis: patch
                 .multimodal_split_analysis
                 .unwrap_or(self.multimodal_split_analysis),
@@ -552,6 +586,7 @@ mod tests {
         assert!(settings.show_reasoning);
         assert!(!settings.multi_model_collaboration);
         assert!(settings.collaboration_models.is_empty());
+        assert!(!settings.minimal_coding);
         assert!(settings.chat_model_provider.is_empty());
         assert!(settings.multimodal_model_provider.is_empty());
         assert!(settings.hardware_acceleration_enabled);

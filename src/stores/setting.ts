@@ -5,211 +5,222 @@ import { DEFAULT_CHAT_MODEL } from "@/constants/chat";
 import { getAppSettings, setAppSettings } from "@/services/ipc";
 import { applyOpacity } from "@/services/overlay/appearance";
 import {
-    normalizeColorScheme,
-    type AppLanguage,
-    type AppSettings,
-    type AppSettingsPatch,
-    type ColorScheme,
-    defaultGeminiOAuthSettings,
+  normalizeColorScheme,
+  type AppLanguage,
+  type AppSettings,
+  type AppSettingsPatch,
+  type ColorScheme,
+  defaultGeminiOAuthSettings,
 } from "@/types/setting";
 
 const LEGACY_STORAGE_KEY = "peek.settings";
 let settingsUpdateSequence = 0;
 
 const defaultSettings: AppSettings = {
-    colorScheme: "light",
-    language: "zh-CN",
-    deepseekApiKey: "",
-    geminiOauth: defaultGeminiOAuthSettings(),
-    memoryEnabled: true,
-    mem0ApiKey: "",
-    mem0UserId: "peek-user",
-    mem0BaseUrl: "https://api.mem0.ai/v1",
-    webSearchEnabled: false,
-    webSearchProvider: "serper",
-    serperApiKey: "",
-    tavilyApiKey: "",
-    toolApprovalMode: "ask",
-    chatMode: "agent",
-    lspEnabled: false,
-    lspServers: [],
-    mcpServers: [],
-    opacity: 100,
-    chatModel: DEFAULT_CHAT_MODEL,
-    chatModelProvider: "",
-    multimodalModel: "gpt-4o",
-    multimodalModelProvider: "",
-    multimodalSplitAnalysis: true,
-    largeContextEnabled: true,
-    reasoningEffort: "disabled",
-    reasoningLanguage: "auto",
-    passToolReasoning: true,
-    showReasoning: true,
-    agentWorkDisplay: "detailed",
-    multiModelCollaboration: false,
-    collaborationModels: [],
-    zoom: 100,
-    hardwareAccelerationEnabled: true,
-    primaryHotkey: "Alt",
-    secondaryHotkey: "Ctrl+Alt+Space",
-    customProviders: [],
-    pixpinPinAiEnabled: true,
-    snipastePinAiEnabled: true,
-    onboardingCompleted: false,
+  colorScheme: "dark",
+  language: "zh-CN",
+  deepseekApiKey: "",
+  geminiOauth: defaultGeminiOAuthSettings(),
+  memoryEnabled: true,
+  mem0ApiKey: "",
+  mem0UserId: "peek-user",
+  mem0BaseUrl: "https://api.mem0.ai/v1",
+  webSearchEnabled: false,
+  webSearchProvider: "serper",
+  serperApiKey: "",
+  tavilyApiKey: "",
+  toolApprovalMode: "ask",
+  chatMode: "agent",
+  lspEnabled: false,
+  lspServers: [],
+  mcpServers: [],
+  opacity: 100,
+  chatModel: DEFAULT_CHAT_MODEL,
+  chatModelProvider: "",
+  multimodalModel: "gpt-4o",
+  multimodalModelProvider: "",
+  multimodalSplitAnalysis: true,
+  largeContextEnabled: true,
+  reasoningEffort: "disabled",
+  reasoningLanguage: "auto",
+  passToolReasoning: true,
+  showReasoning: true,
+  agentWorkDisplay: "detailed",
+  multiModelCollaboration: false,
+  collaborationModels: [],
+  minimalCoding: false,
+  zoom: 100,
+  hardwareAccelerationEnabled: true,
+  primaryHotkey: "Alt",
+  secondaryHotkey: "Ctrl+Alt+Space",
+  customProviders: [],
+  pixpinPinAiEnabled: true,
+  snipastePinAiEnabled: true,
+  onboardingCompleted: false,
 };
 
 export function applyTheme(settings: Pick<AppSettings, "colorScheme" | "language">) {
-    const colorScheme = normalizeColorScheme(settings.colorScheme);
-    const root = document.documentElement;
-    root.lang = settings.language;
-    root.dataset.theme = colorScheme;
-    root.classList.toggle("dark", colorScheme === "dark");
-    root.style.colorScheme = colorScheme;
+  const colorScheme = normalizeColorScheme(settings.colorScheme);
+  const root = document.documentElement;
+  const nextDark = colorScheme === "dark";
+  const sameTheme =
+    root.dataset.theme === colorScheme &&
+    root.classList.contains("dark") === nextDark &&
+    root.style.colorScheme === colorScheme &&
+    root.lang === settings.language;
+  if (sameTheme) {
+    return;
+  }
+  root.lang = settings.language;
+  root.dataset.theme = colorScheme;
+  root.classList.toggle("dark", nextDark);
+  root.style.colorScheme = colorScheme;
 }
 
 export function applyZoom(zoom: number) {
-    const normalized = Math.max(zoom, 1) / 100;
-    const root = document.documentElement;
-    root.style.setProperty("--ui-zoom", String(normalized));
+  const normalized = Math.max(zoom, 1) / 100;
+  const root = document.documentElement;
+  root.style.setProperty("--ui-zoom", String(normalized));
 
-    // Workbench uses transform:scale on `.workbench` (see Main.vue).
-    // Overlay/Settings keep document zoom paired with window resize.
-    let isWorkbench = false;
-    try {
-        isWorkbench = getCurrentWebviewWindow().label === "workbench";
-    } catch {
-        isWorkbench = false;
-    }
+  // Workbench uses transform:scale on `.workbench` (see Main.vue).
+  // Overlay/Settings keep document zoom paired with window resize.
+  let isWorkbench = false;
+  try {
+    isWorkbench = getCurrentWebviewWindow().label === "workbench";
+  } catch {
+    isWorkbench = false;
+  }
 
-    if (isWorkbench) {
-        root.style.removeProperty("zoom");
-        root.dataset.zoomShell = "workbench";
-    } else {
-        root.style.zoom = String(normalized);
-        root.dataset.zoomShell = "window";
-    }
+  if (isWorkbench) {
+    root.style.removeProperty("zoom");
+    root.dataset.zoomShell = "workbench";
+  } else {
+    root.style.zoom = String(normalized);
+    root.dataset.zoomShell = "window";
+  }
 }
 
 function normalizeOpacityValue(settings: AppSettings): number {
-    let opacityVal = settings.opacity;
-    if (opacityVal === undefined && (settings as any).frostedGlass !== undefined) {
-        opacityVal = (settings as any).frostedGlass ? 80 : 100;
-    }
-    return opacityVal ?? 100;
+  let opacityVal = settings.opacity;
+  if (opacityVal === undefined && (settings as any).frostedGlass !== undefined) {
+    opacityVal = (settings as any).frostedGlass ? 80 : 100;
+  }
+  return opacityVal ?? 100;
 }
 
 function normalizeZoomValue(settings: AppSettings): number {
-    let zoomVal = settings.zoom;
-    if (zoomVal !== undefined && zoomVal <= 2.0) {
-        zoomVal = Math.round(zoomVal * 100);
-    }
-    return zoomVal ?? 100;
+  let zoomVal = settings.zoom;
+  if (zoomVal !== undefined && zoomVal <= 2.0) {
+    zoomVal = Math.round(zoomVal * 100);
+  }
+  return zoomVal ?? 100;
 }
 
 function applyCommonSettings(target: AppSettings, settings: AppSettings) {
-    target.colorScheme = normalizeColorScheme(settings.colorScheme);
-    target.language = settings.language;
-    target.opacity = normalizeOpacityValue(settings);
-    target.chatModel = settings.chatModel ?? DEFAULT_CHAT_MODEL;
-    target.chatModelProvider = settings.chatModelProvider ?? "";
-    target.multimodalModel = settings.multimodalModel ?? "gpt-4o";
-    target.multimodalModelProvider = settings.multimodalModelProvider ?? "";
-    target.multimodalSplitAnalysis = settings.multimodalSplitAnalysis ?? true;
-    target.largeContextEnabled = settings.largeContextEnabled ?? true;
-    target.reasoningEffort = settings.reasoningEffort ?? "disabled";
-    target.reasoningLanguage = settings.reasoningLanguage ?? "auto";
-    target.passToolReasoning = settings.passToolReasoning ?? true;
-    target.showReasoning = settings.showReasoning ?? true;
-    target.agentWorkDisplay = settings.agentWorkDisplay === "compact" ? "compact" : "detailed";
-    target.multiModelCollaboration = settings.multiModelCollaboration ?? false;
-    target.collaborationModels = settings.collaborationModels ?? [];
-    target.memoryEnabled = settings.memoryEnabled ?? true;
-    target.mem0UserId = settings.mem0UserId ?? "peek-user";
-    target.mem0BaseUrl = settings.mem0BaseUrl ?? "https://api.mem0.ai/v1";
-    target.webSearchEnabled = settings.webSearchEnabled ?? false;
-    target.webSearchProvider = settings.webSearchProvider ?? "serper";
-    target.toolApprovalMode = settings.toolApprovalMode ?? "ask";
-    target.chatMode = settings.chatMode ?? "agent";
-    target.lspEnabled = settings.lspEnabled ?? false;
-    target.lspServers = settings.lspServers ?? [];
-    target.mcpServers = settings.mcpServers ?? [];
-    target.zoom = normalizeZoomValue(settings);
-    target.hardwareAccelerationEnabled = settings.hardwareAccelerationEnabled ?? true;
-    target.primaryHotkey = settings.primaryHotkey ?? "Alt";
-    target.secondaryHotkey = settings.secondaryHotkey ?? "Ctrl+Alt+Space";
-    target.customProviders = settings.customProviders ?? [];
-    target.pixpinPinAiEnabled = settings.pixpinPinAiEnabled ?? true;
-    target.snipastePinAiEnabled = settings.snipastePinAiEnabled ?? true;
-    target.onboardingCompleted = settings.onboardingCompleted ?? true;
+  target.colorScheme = normalizeColorScheme(settings.colorScheme);
+  target.language = settings.language;
+  target.opacity = normalizeOpacityValue(settings);
+  target.chatModel = settings.chatModel ?? DEFAULT_CHAT_MODEL;
+  target.chatModelProvider = settings.chatModelProvider ?? "";
+  target.multimodalModel = settings.multimodalModel ?? "gpt-4o";
+  target.multimodalModelProvider = settings.multimodalModelProvider ?? "";
+  target.multimodalSplitAnalysis = settings.multimodalSplitAnalysis ?? true;
+  target.largeContextEnabled = settings.largeContextEnabled ?? true;
+  target.reasoningEffort = settings.reasoningEffort ?? "disabled";
+  target.reasoningLanguage = settings.reasoningLanguage ?? "auto";
+  target.passToolReasoning = settings.passToolReasoning ?? true;
+  target.showReasoning = settings.showReasoning ?? true;
+  target.agentWorkDisplay = settings.agentWorkDisplay === "compact" ? "compact" : "detailed";
+  target.multiModelCollaboration = settings.multiModelCollaboration ?? false;
+  target.collaborationModels = settings.collaborationModels ?? [];
+  target.minimalCoding = settings.minimalCoding ?? false;
+  target.memoryEnabled = settings.memoryEnabled ?? true;
+  target.mem0UserId = settings.mem0UserId ?? "peek-user";
+  target.mem0BaseUrl = settings.mem0BaseUrl ?? "https://api.mem0.ai/v1";
+  target.webSearchEnabled = settings.webSearchEnabled ?? false;
+  target.webSearchProvider = settings.webSearchProvider ?? "serper";
+  target.toolApprovalMode = settings.toolApprovalMode ?? "ask";
+  target.chatMode = settings.chatMode ?? "agent";
+  target.lspEnabled = settings.lspEnabled ?? false;
+  target.lspServers = settings.lspServers ?? [];
+  target.mcpServers = settings.mcpServers ?? [];
+  target.zoom = normalizeZoomValue(settings);
+  target.hardwareAccelerationEnabled = settings.hardwareAccelerationEnabled ?? true;
+  target.primaryHotkey = settings.primaryHotkey ?? "Alt";
+  target.secondaryHotkey = settings.secondaryHotkey ?? "Ctrl+Alt+Space";
+  target.customProviders = settings.customProviders ?? [];
+  target.pixpinPinAiEnabled = settings.pixpinPinAiEnabled ?? true;
+  target.snipastePinAiEnabled = settings.snipastePinAiEnabled ?? true;
+  target.onboardingCompleted = settings.onboardingCompleted ?? true;
 }
 
 function applySecretSettings(target: AppSettings, settings: AppSettings) {
-    target.deepseekApiKey = settings.deepseekApiKey ?? "";
-    target.geminiOauth = settings.geminiOauth ?? defaultGeminiOAuthSettings();
-    target.mem0ApiKey = settings.mem0ApiKey ?? "";
-    target.serperApiKey = settings.serperApiKey ?? "";
-    target.tavilyApiKey = settings.tavilyApiKey ?? "";
+  target.deepseekApiKey = settings.deepseekApiKey ?? "";
+  target.geminiOauth = settings.geminiOauth ?? defaultGeminiOAuthSettings();
+  target.mem0ApiKey = settings.mem0ApiKey ?? "";
+  target.serperApiKey = settings.serperApiKey ?? "";
+  target.tavilyApiKey = settings.tavilyApiKey ?? "";
 }
 
 export const useSettingStore = defineStore("setting", {
-    state: (): AppSettings => ({ ...defaultSettings }),
-    actions: {
-        applyPublicSettings(settings: AppSettings) {
-            applyCommonSettings(this, settings);
-            applyTheme(settings);
-            applyZoom(this.zoom);
-            void applyOpacity(this.opacity);
-        },
-        applySettings(settings: AppSettings) {
-            applyCommonSettings(this, settings);
-            applySecretSettings(this, settings);
-            applyTheme(settings);
-            applyZoom(this.zoom);
-            void applyOpacity(this.opacity);
-        },
-        async load() {
-            try {
-                const settings = await getAppSettings();
-                this.applySettings(settings);
-            } catch (error) {
-                console.error("get_app_settings failed:", error);
-                this.applySettings(defaultSettings);
-            }
-
-            const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
-            if (!legacy) {
-                return;
-            }
-
-            try {
-                const parsed = JSON.parse(legacy) as AppSettingsPatch;
-                const settings = await setAppSettings(parsed);
-                this.applySettings(settings);
-            } catch (error) {
-                console.error("legacy settings migration failed:", error);
-            } finally {
-                localStorage.removeItem(LEGACY_STORAGE_KEY);
-            }
-        },
-        async update(partial: AppSettingsPatch) {
-            const sequence = ++settingsUpdateSequence;
-            const previous = { ...this.$state } as AppSettings;
-            const optimistic = { ...previous, ...partial } as AppSettings;
-            this.applySettings(optimistic);
-
-            try {
-                const settings = await setAppSettings(partial);
-                if (sequence === settingsUpdateSequence) {
-                    this.applySettings(settings);
-                }
-            } catch (error) {
-                if (sequence === settingsUpdateSequence) {
-                    this.applySettings(previous);
-                }
-                throw error;
-            }
-        },
+  state: (): AppSettings => ({ ...defaultSettings }),
+  actions: {
+    applyPublicSettings(settings: AppSettings) {
+      applyCommonSettings(this, settings);
+      applyTheme(settings);
+      applyZoom(this.zoom);
+      void applyOpacity(this.opacity);
     },
+    applySettings(settings: AppSettings) {
+      applyCommonSettings(this, settings);
+      applySecretSettings(this, settings);
+      applyTheme(settings);
+      applyZoom(this.zoom);
+      void applyOpacity(this.opacity);
+    },
+    async load() {
+      try {
+        const settings = await getAppSettings();
+        this.applySettings(settings);
+      } catch (error) {
+        console.error("get_app_settings failed:", error);
+        this.applySettings(defaultSettings);
+      }
+
+      const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (!legacy) {
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(legacy) as AppSettingsPatch;
+        const settings = await setAppSettings(parsed);
+        this.applySettings(settings);
+      } catch (error) {
+        console.error("legacy settings migration failed:", error);
+      } finally {
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
+    },
+    async update(partial: AppSettingsPatch) {
+      const sequence = ++settingsUpdateSequence;
+      const previous = { ...this.$state } as AppSettings;
+      const optimistic = { ...previous, ...partial } as AppSettings;
+      this.applySettings(optimistic);
+
+      try {
+        const settings = await setAppSettings(partial);
+        if (sequence === settingsUpdateSequence) {
+          this.applySettings(settings);
+        }
+      } catch (error) {
+        if (sequence === settingsUpdateSequence) {
+          this.applySettings(previous);
+        }
+        throw error;
+      }
+    },
+  },
 });
 
 export type { AppLanguage, AppSettings, AppSettingsPatch, ColorScheme };

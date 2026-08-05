@@ -6,7 +6,12 @@
       :aria-expanded="expanded"
       @click="expanded = !expanded"
     >
-      <ChevronRight class="file-diff-chevron" :class="{ open: expanded }" :size="12" aria-hidden="true" />
+      <ChevronRight
+        class="file-diff-chevron"
+        :class="{ open: expanded }"
+        :size="12"
+        aria-hidden="true"
+      />
       <img v-if="fileIcon" class="file-diff-icon-img" :src="fileIcon" alt="" />
       <span v-else class="file-diff-icon" aria-hidden="true">
         <component :is="fallbackIcon" :size="13" />
@@ -46,15 +51,18 @@ import { fileBasename } from "@/services/chat/toolDiff";
 import { useSettingStore } from "@/stores/setting";
 import { tr } from "@/services/i18n";
 
-const props = withDefaults(defineProps<{
-  path: string;
-  hunk: DiffHunk;
-  kind?: string;
-  status?: "running" | "done" | "error" | string;
-  startCollapsed?: boolean;
-}>(), {
-  startCollapsed: false,
-});
+const props = withDefaults(
+  defineProps<{
+    path: string;
+    hunk: DiffHunk;
+    kind?: string;
+    status?: "running" | "done" | "error" | string;
+    startCollapsed?: boolean;
+  }>(),
+  {
+    startCollapsed: false,
+  },
+);
 
 const settingStore = useSettingStore();
 const expanded = ref(!props.startCollapsed || props.status === "running");
@@ -113,10 +121,7 @@ function highlightLine(text: string, languageId: string): string {
 }
 
 function escapeHtml(text: string) {
-  return text
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 </script>
 
@@ -176,9 +181,15 @@ function escapeHtml(text: string) {
   display: inline-flex;
   color: var(--peek-muted);
 }
-.file-diff-card.create .file-diff-icon { color: #22c55e; }
-.file-diff-card.edit .file-diff-icon { color: #eab308; }
-.file-diff-card.delete .file-diff-icon { color: var(--destructive); }
+.file-diff-card.create .file-diff-icon {
+  color: #22c55e;
+}
+.file-diff-card.edit .file-diff-icon {
+  color: #eab308;
+}
+.file-diff-card.delete .file-diff-icon {
+  color: var(--destructive);
+}
 .file-diff-name {
   flex: 1;
   min-width: 0;
@@ -198,14 +209,20 @@ function escapeHtml(text: string) {
   font-size: 11px;
   font-weight: 650;
 }
-.change-stats .added { color: #22c55e; }
-.change-stats .removed { color: var(--destructive); }
+.change-stats .added {
+  color: #22c55e;
+}
+.change-stats .removed {
+  color: var(--destructive);
+}
 .file-diff-status {
   flex: none;
   font-size: 10px;
   color: var(--peek-muted);
 }
-.file-diff-status.error { color: var(--destructive); }
+.file-diff-status.error {
+  color: var(--destructive);
+}
 .file-diff-body {
   max-height: var(--agent-card-max-height, 240px);
   overflow: auto;
@@ -247,24 +264,41 @@ function escapeHtml(text: string) {
   color: color-mix(in srgb, #bbf7d0 88%, var(--peek-text));
 }
 :global([data-theme="light"]) .diff-line.deletion .diff-marker,
-:global([data-theme="cream"]) .diff-line.deletion .diff-marker { color: #991b1b; }
+:global([data-theme="cream"]) .diff-line.deletion .diff-marker {
+  color: #991b1b;
+}
 :global([data-theme="light"]) .diff-line.addition .diff-marker,
-:global([data-theme="cream"]) .diff-line.addition .diff-marker { color: #166534; }
+:global([data-theme="cream"]) .diff-line.addition .diff-marker {
+  color: #166534;
+}
 
 .file-diff-body :deep(.hljs-comment),
-.file-diff-body :deep(.hljs-quote) { color: #7f8c98; font-style: italic; }
+.file-diff-body :deep(.hljs-quote) {
+  color: #7f8c98;
+  font-style: italic;
+}
 .file-diff-body :deep(.hljs-keyword),
 .file-diff-body :deep(.hljs-selector-tag),
 .file-diff-body :deep(.hljs-type),
-.file-diff-body :deep(.hljs-literal) { color: #c792ea; }
+.file-diff-body :deep(.hljs-literal) {
+  color: #c792ea;
+}
 .file-diff-body :deep(.hljs-string),
 .file-diff-body :deep(.hljs-regexp),
-.file-diff-body :deep(.hljs-attribute) { color: #addb67; }
+.file-diff-body :deep(.hljs-attribute) {
+  color: #addb67;
+}
 .file-diff-body :deep(.hljs-number),
-.file-diff-body :deep(.hljs-symbol) { color: #f78c6c; }
+.file-diff-body :deep(.hljs-symbol) {
+  color: #f78c6c;
+}
 .file-diff-body :deep(.hljs-title),
 .file-diff-body :deep(.hljs-section),
-.file-diff-body :deep(.hljs-built_in) { color: #82aaff; }
+.file-diff-body :deep(.hljs-built_in) {
+  color: #82aaff;
+}
 .file-diff-body :deep(.hljs-variable),
-.file-diff-body :deep(.hljs-params) { color: #f07178; }
+.file-diff-body :deep(.hljs-params) {
+  color: #f07178;
+}
 </style>

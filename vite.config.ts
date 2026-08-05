@@ -8,14 +8,13 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [
-    vue(),
-    tailwindcss(),
-  ],
+  plugins: [vue(), tailwindcss()],
 
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@/services": path.resolve(__dirname, "./src/services"),
+      "@/stores": path.resolve(__dirname, "./src/stores"),
     },
   },
 
@@ -23,10 +22,7 @@ export default defineConfig(async () => ({
     rollupOptions: {
       onwarn(warning, warn) {
         const id = warning.id?.replaceAll("\\", "/") ?? "";
-        if (
-          warning.code === "INVALID_ANNOTATION"
-          && id.includes("/node_modules/@vueuse/core/")
-        ) {
+        if (warning.code === "INVALID_ANNOTATION" && id.includes("/node_modules/@vueuse/core/")) {
           return;
         }
         warn(warning);
@@ -39,9 +35,7 @@ export default defineConfig(async () => ({
           if (!modulePath) return undefined;
 
           const parts = modulePath.split("/");
-          const packageName = parts[0]?.startsWith("@")
-            ? `${parts[0]}/${parts[1]}`
-            : parts[0];
+          const packageName = parts[0]?.startsWith("@") ? `${parts[0]}/${parts[1]}` : parts[0];
 
           if (packageName === "katex") return "vendor-katex";
           if (packageName === "highlight.js") return "vendor-highlight";
@@ -65,10 +59,10 @@ export default defineConfig(async () => ({
     host: host || false,
     hmr: host
       ? {
-        protocol: "ws",
-        host,
-        port: 13331,
-      }
+          protocol: "ws",
+          host,
+          port: 13331,
+        }
       : undefined,
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`

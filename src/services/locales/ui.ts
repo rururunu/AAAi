@@ -51,7 +51,8 @@ export const uiEn = {
   "about.runtime": "Runtime",
   "about.runtimeValue": "Windows desktop · Tauri",
   "about.privacy": "Local by design",
-  "about.privacyDescription": "Settings and conversation data stay on this device unless a configured provider is called.",
+  "about.privacyDescription":
+    "Settings and conversation data stay on this device unless a configured provider is called.",
   "history.summary": "{count} conversations across {groups} spaces",
   "history.openError": "Could not open conversation",
   "chat.openInWorkbench": "Open conversation in workbench",
@@ -84,8 +85,7 @@ export const uiEn = {
   "image.empty": "No image",
   "image.pasted": "Pasted image",
   "tokens.estimated": "Approximately {count} tokens",
-  "tokens.sessionEstimated":
-    "Approximately {count} tokens in this conversation",
+  "tokens.sessionEstimated": "Approximately {count} tokens in this conversation",
   "runtime.title": "Agent Runtime",
   "runtime.copyRun": "Copy selected run",
   "runtime.clear": "Clear events",
@@ -97,6 +97,8 @@ export const uiEn = {
   "runtime.subagents": "Sub-agents",
   "runtime.tokens": "Tokens",
   "runtime.context": "Context",
+  "runtime.logs": "Logs",
+  "runtime.noLogs": "No frontend logs yet.",
   "runtime.model": "Model",
   "runtime.accuracy": "Accuracy",
   "runtime.accuracy.exact": "Exact",
@@ -238,6 +240,8 @@ const zhCN: UiLocale = {
   "runtime.subagents": "子 Agent",
   "runtime.tokens": "Token",
   "runtime.context": "上下文",
+  "runtime.logs": "日志",
+  "runtime.noLogs": "暂无前端日志。",
   "runtime.model": "模型",
   "runtime.accuracy": "准确度",
   "runtime.accuracy.exact": "精确",
@@ -383,14 +387,7 @@ const translations: Record<
   },
   "ko-KR": {
     sections: ["일반", "AI 및 Agent", "확장", "데이터", "시스템"],
-    sidebar: [
-      "작업 영역 보기",
-      "차이",
-      "하위 Agent",
-      "이미지",
-      "런타임",
-      "사이드바 닫기",
-    ],
+    sidebar: ["작업 영역 보기", "차이", "하위 Agent", "이미지", "런타임", "사이드바 닫기"],
     status: ["실행 중", "완료", "실패"],
   },
 };

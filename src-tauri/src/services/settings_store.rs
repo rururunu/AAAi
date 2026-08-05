@@ -147,6 +147,11 @@ pub fn apply_runtime_settings(settings: &AppSettings) {
     crate::services::hotkey::configure_secondary_hotkey(&settings.secondary_hotkey);
     crate::core::tools::tool_approval::shared_tool_approval_store()
         .configure(settings.tool_approval_mode);
+    crate::core::tools::sandbox::configure(
+        settings.allow_outside_workspace_writes,
+        settings.restricted_shell,
+        settings.shell_timeout_secs,
+    );
     crate::core::lsp::shared_lsp_manager().configure(settings);
     crate::core::mcp::shared_mcp_manager().configure(settings);
     crate::services::pin_badge::configure_from_settings(settings);

@@ -11,6 +11,10 @@ use crate::core::tools::error::ToolError;
 use crate::core::tools::registry::ToolRegistry;
 
 const SUBAGENT_PROMPT: &str = include_str!("../../../../prompts/subagent.md");
+/// Hard cap on concurrent parallel sub-agents.
+const MAX_PARALLEL_SUBAGENTS: usize = 3;
+/// Parent-facing return budget; longer results spill to a workspace sidecar file.
+const SUBAGENT_RETURN_MAX_CHARS: usize = 6_000;
 
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Arc::new(RunSubagentTool));
@@ -123,6 +127,13 @@ pub async fn run_parallel_subagents(
 ) -> Result<String, ToolError> {
     use futures_util::future::join_all;
 
+    if tasks.len() > MAX_PARALLEL_SUBAGENTS {
+        return Err(ToolError::new(format!(
+            "parallel subagent limit is {MAX_PARALLEL_SUBAGENTS}; got {}",
+            tasks.len()
+        )));
+    }
+
     let mut jobs = Vec::with_capacity(tasks.len());
     let parent_subagent_id = ctx.subagent_id.clone();
     for (idx, task) in tasks.into_iter().enumerate() {
@@ -160,8 +171,14 @@ pub async fn run_parallel_subagents(
 
     let mut formatted = Vec::new();
     for (idx, result) in ordered {
-        let result = result?;
-        formatted.push(format!("### Task {}\n{result}", idx + 1));
+        match result {
+            Ok(body) => formatted.push(format!("### Task {}\n{body}", idx + 1)),
+            Err(error) => formatted.push(format!(
+                "### Task {}\n### Conclusion\nFailed: {}\n\n### Evidence\n- (none)",
+                idx + 1,
+                error
+            )),
+        }
     }
     Ok(formatted.join("\n\n"))
 }
@@ -180,6 +197,8 @@ async fn execute_child(
         .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let event_bus = Arc::clone(&child.event_bus);
+    let workspace = child.workspace_root.clone();
+    let session_id = child.session_id.clone();
     event_bus.emit(BusEvent::SubagentStarted {
         subagent_id: subagent_id.clone(),
         parent_subagent_id,
@@ -195,12 +214,48 @@ async fn execute_child(
         Err(error) => (false, truncate_debug_text(&error.to_string(), 1_200)),
     };
     event_bus.emit(BusEvent::SubagentFinished {
-        subagent_id,
+        subagent_id: subagent_id.clone(),
         success,
         summary,
         timestamp_ms: now_millis(),
     });
-    result
+
+    match result {
+        Ok(answer) => Ok(format_subagent_return(&workspace, &session_id, &subagent_id, &answer)),
+        Err(error) => Err(ToolError::new(format!(
+            "subagent failed: {error}\n\n### Conclusion\nFailed.\n\n### Evidence\n- See error above."
+        ))),
+    }
+}
+
+fn format_subagent_return(
+    workspace: &std::path::Path,
+    session_id: &str,
+    subagent_id: &str,
+    answer: &str,
+) -> String {
+    let trimmed = answer.trim();
+    let body = if trimmed.is_empty() {
+        "### Conclusion\n(empty — no result produced)\n\n### Evidence\n- (none)".to_string()
+    } else if trimmed.contains("### Conclusion") {
+        trimmed.to_string()
+    } else {
+        format!("### Conclusion\n{trimmed}\n\n### Evidence\n- (see conclusion)")
+    };
+
+    if body.chars().count() <= SUBAGENT_RETURN_MAX_CHARS {
+        return body;
+    }
+
+    let dir = workspace.join(".aaai").join("subagent");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join(format!("{session_id}-{subagent_id}.md"));
+    let _ = std::fs::write(&path, &body);
+    let preview: String = body.chars().take(SUBAGENT_RETURN_MAX_CHARS).collect();
+    format!(
+        "{preview}…\n\n[subagent full result spilled to {}]",
+        path.display()
+    )
 }
 
 fn truncate_debug_text(value: &str, max_chars: usize) -> String {
@@ -305,7 +360,12 @@ impl Tool for RunSubagentTool {
         "run_subagent"
     }
     fn description(&self) -> &str {
-        "Run one bounded child task after judging that delegation fits its difficulty and scope; only the final answer returns. With read_only=true the child is restricted to read-only tools (research, exploration, review, verification)."
+        "Run one bounded child task when delegation fits (difficulty, coupling, expertise). Only the child's final answer returns.
+
+Usage:
+- Delegate bounded work that benefits from isolation; keep tightly coupled edits on the parent.
+- Set read_only=true for research, exploration, review, or verification.
+- Prefer run_subagents_parallel when up to 3 independent read-only tasks can run concurrently."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -333,7 +393,7 @@ impl Tool for RunParallelSubagentsTool {
         "run_parallel_subagents"
     }
     fn description(&self) -> &str {
-        "Run independent bounded read-only tasks concurrently when parallel delegation fits the task."
+        "Run up to 3 independent bounded read-only tasks concurrently when parallelism helps. Use for independent research/review slices; keep sequential or write-heavy work on the parent or run_subagent. Failures surface per-task with Conclusion/Evidence."
     }
     fn parameters_schema(&self) -> Value {
         json!({

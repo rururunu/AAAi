@@ -6,22 +6,9 @@ import {
   type SettingFieldId,
   type SettingsI18nKey,
 } from "@/services/locales/settings";
-import type { AppLanguage } from "@/types/setting";
+import type { AppLanguage, CategoryId } from "@/types/setting";
 
-export type CategoryId =
-  | "appearance"
-  | "ai"
-  | "memory"
-  | "search"
-  | "agent"
-  | "mcp"
-  | "skills"
-  | "plugins"
-  | "workspace"
-  | "history"
-  | "usage"
-  | "about"
-  | "provider";
+export type { CategoryId };
 
 export type SettingType =
   | "select-color"
@@ -71,19 +58,11 @@ interface FieldCopy {
   keywords: string[];
 }
 
-function buildFieldCopy(
-  language: AppLanguage,
-): Record<SettingFieldId, FieldCopy> {
+function buildFieldCopy(language: AppLanguage): Record<SettingFieldId, FieldCopy> {
   return Object.fromEntries(
     settingsFieldIds.map((id) => {
-      const title = tr(
-        language,
-        `settings.fields.${id}.title` as SettingsI18nKey,
-      );
-      const description = tr(
-        language,
-        `settings.fields.${id}.description` as SettingsI18nKey,
-      );
+      const title = tr(language, `settings.fields.${id}.title` as SettingsI18nKey);
+      const description = tr(language, `settings.fields.${id}.description` as SettingsI18nKey);
       const entry: FieldCopy = {
         title,
         description,
@@ -383,6 +362,16 @@ export function buildSettingDefinitions(
       description: m.multiModelCollaboration.description,
       type: "collaboration-models",
       keywords: [...m.multiModelCollaboration.keywords],
+    },
+    {
+      id: "minimalCoding",
+      category: "agent",
+      group: groups.agent,
+      path: m.minimalCoding.path,
+      title: m.minimalCoding.title,
+      description: m.minimalCoding.description,
+      type: "toggle",
+      keywords: [...m.minimalCoding.keywords],
     },
     {
       id: "pixpinPinAiEnabled",

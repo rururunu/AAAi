@@ -7,9 +7,10 @@ use crate::app_state::AppState;
 use crate::core::context::store::capture_now;
 use crate::core::runtime::RequestContext;
 use crate::services::overlay_native::{
-    clear_minimize_pending, clear_overlay_native_minimized, is_minimize_pending,
-    is_overlay_native_minimized, mark_minimize_pending, mark_overlay_native_minimized,
-    minimize_window, reapply_toolwindow_style,
+    clear_minimize_pending, clear_overlay_native_minimized, hide_overlay_without_flash,
+    is_minimize_pending, is_overlay_native_minimized, mark_minimize_pending,
+    mark_overlay_native_minimized, minimize_window, reapply_toolwindow_style,
+    show_overlay_without_flash,
 };
 use tauri::WebviewUrl;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindowBuilder};
@@ -183,7 +184,9 @@ pub fn hide_overlay(app: &AppHandle, label: &str) {
 
     set_overlay_chat_mode(label, false);
     set_overlay_popup_open(label, false);
-    let _ = window.hide();
+    if hide_overlay_without_flash(&window).is_err() {
+        let _ = window.hide();
+    }
     let _ = window.emit_to(label, "overlay-hidden", ());
 }
 
@@ -205,6 +208,16 @@ pub fn configure_overlay_window(window: &tauri::WebviewWindow) {
     let _ = window.set_skip_taskbar(true);
 
     reapply_toolwindow_style(window);
+    // Re-assert after style changes — some Windows builds re-enable DWM shadow.
+    let _ = window.set_shadow(false);
+}
+
+fn show_and_focus_overlay(window: &tauri::WebviewWindow) {
+    configure_overlay_window(window);
+    if show_overlay_without_flash(window).is_err() {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }
 
 fn next_overlay_label(app: &AppHandle) -> String {
@@ -232,17 +245,15 @@ fn create_new_overlay(app: &AppHandle, context: &RequestContext) {
         .visible(false)
         .skip_taskbar(true)
         .center()
-        .focused(true)
+        .focused(false)
         .resizable(false)
         .maximizable(false)
         .build()
     {
         Ok(window) => {
-            configure_overlay_window(&window);
             let _ = window.center();
             tracing::debug!(label = %label, source = "toggle_overlay", "overlay interactive ready");
-            let _ = window.show();
-            let _ = window.set_focus();
+            show_and_focus_overlay(&window);
             // 不在这里发 overlay-shown，前端 onMounted 检测 isVisible() 后自行初始化
             mark_blur_guard();
         }
@@ -331,7 +342,6 @@ pub fn toggle_overlay(app: &AppHandle, mouse_pos: Option<(i32, i32)>) {
                 hide_overlay(app, label);
             } else {
                 let context = resolve_environment_context(app, capture_now());
-                configure_overlay_window(&window);
                 if let Some((mx, my)) = mouse_pos.filter(|_| has_selected_context(&context)) {
                     const WIN_W: f64 = 640.0;
                     const WIN_H: f64 = 82.0;
@@ -343,8 +353,7 @@ pub fn toggle_overlay(app: &AppHandle, mouse_pos: Option<(i32, i32)>) {
                 }
                 emit_context_captured(app, label, &context);
                 tracing::debug!(label = %label, source = "toggle_overlay", "overlay interactive ready");
-                let _ = window.show();
-                let _ = window.set_focus();
+                show_and_focus_overlay(&window);
                 let _ = window.emit_to(label, "overlay-shown", ());
                 mark_blur_guard();
             }
@@ -441,13 +450,11 @@ fn place_and_show_overlay_at_mouse(
     if let Some(label) = input_label {
         if let Some(window) = app.get_webview_window(label) {
             let (x, y) = calc_position_near_mouse(&window, mouse_x, mouse_y, WIN_W, WIN_H, OFFSET);
-            configure_overlay_window(&window);
             let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
             let label_str = label.clone();
             let _ = window.emit_to(&label_str, "context-captured", context);
             tracing::debug!(label = %label_str, source = "toggle_overlay", "overlay interactive ready");
-            let _ = window.show();
-            let _ = window.set_focus();
+            show_and_focus_overlay(&window);
             let _ = window.emit_to(&label_str, "overlay-shown", ());
             mark_blur_guard();
         }
@@ -465,19 +472,17 @@ fn place_and_show_overlay_at_mouse(
             .visible(false)
             .skip_taskbar(true)
             .center()
-            .focused(true)
+            .focused(false)
             .resizable(false)
             .maximizable(false)
             .build()
         {
             Ok(window) => {
-                configure_overlay_window(&window);
                 let (x, y) =
                     calc_position_near_mouse(&window, mouse_x, mouse_y, WIN_W, WIN_H, OFFSET);
                 let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
                 tracing::debug!(label = %label, source = "toggle_overlay", "overlay interactive ready");
-                let _ = window.show();
-                let _ = window.set_focus();
+                show_and_focus_overlay(&window);
                 mark_blur_guard();
             }
             Err(e) => {
@@ -543,7 +548,6 @@ pub fn open_overlay_with_images(app: &AppHandle, images: Vec<String>) {
 
     if let Some(label) = input_label {
         if let Some(window) = app.get_webview_window(&label) {
-            configure_overlay_window(&window);
             let _ = window.center();
             emit_context_captured(app, &label, &context);
             tracing::debug!(
@@ -552,8 +556,7 @@ pub fn open_overlay_with_images(app: &AppHandle, images: Vec<String>) {
                 source = "open_overlay_with_images",
                 "overlay interactive ready"
             );
-            let _ = window.show();
-            let _ = window.set_focus();
+            show_and_focus_overlay(&window);
             let _ = window.emit_to(&label, "overlay-shown", ());
             mark_blur_guard();
             return;

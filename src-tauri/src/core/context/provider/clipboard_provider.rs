@@ -1,3 +1,8 @@
+//! Capture selected text/images from the foreground window via clipboard or UI Automation.
+//!
+//! Prefer UI Automation when the target exposes a text pattern; otherwise simulate a
+//! copy into a temporary clipboard snapshot and restore the user's clipboard afterwards.
+
 use std::mem::size_of;
 use std::sync::mpsc;
 use std::thread;
@@ -5,13 +10,15 @@ use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND, LPARAM, WPARAM};
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+    CoCreateInstance, CoInitializeEx, CoUninitialize, IDataObject, CLSCTX_INPROC_SERVER,
+    COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
 };
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardSequenceNumber,
     IsClipboardFormatAvailable, OpenClipboard, SetClipboardData,
 };
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+use windows::Win32::System::Ole::{OleGetClipboard, OleSetClipboard};
 use windows::Win32::System::Threading::AttachThreadInput;
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern, UIA_TextPatternId,
@@ -78,9 +85,9 @@ impl CaptureProvider for ClipboardProvider {
 }
 
 fn should_try_ui_automation(window: &WindowInfo) -> bool {
-    // Monaco-based Electron editors do not expose their selection through
-    // UI Automation. Going directly to the clipboard path saves a guaranteed
-    // timeout on the primary Alt+Alt workflow.
+    // Monaco / Chromium editors often do not expose selection through UI
+    // Automation. Skipping them avoids a guaranteed timeout on the primary
+    // double-Alt capture path.
     !matches!(
         window.process_name.to_ascii_lowercase().as_str(),
         "code.exe" | "code - insiders.exe" | "cursor.exe" | "vscodium.exe" | "windsurf.exe"
@@ -168,29 +175,49 @@ unsafe fn read_text_pattern_selection(element: &IUIAutomationElement) -> Option<
 }
 
 fn capture_selected_content(window: &WindowInfo) -> Result<CapturedClipboardContent, CaptureError> {
+    let com_initialized = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok() };
+    let result = capture_selected_content_inner(window);
+    if com_initialized {
+        unsafe {
+            CoUninitialize();
+        }
+    }
+    result
+}
+
+fn capture_selected_content_inner(
+    window: &WindowInfo,
+) -> Result<CapturedClipboardContent, CaptureError> {
     let backup = read_clipboard_text()?;
+    let clipboard_data_object = capture_clipboard_data_object();
     let start_seq = unsafe { GetClipboardSequenceNumber() };
 
-    with_target_focus(window, |target, target_thread| {
-        let focus = unsafe { focused_control(target, target_thread) };
-        copy_via_wm_message(focus)?;
-        if !clipboard_changed(start_seq) && focus != target {
-            copy_via_wm_message(target)?;
-        }
-        if !clipboard_changed(start_seq) {
-            let _ = simulate_copy_ctrl_insert();
-            thread::sleep(KEY_SETTLE);
-        }
-        Ok(())
-    })?;
+    // Reading the temporary clipboard can fail after the target has already
+    // processed WM_COPY, so keep capture and restore as separate steps.
+    let capture_result = (|| {
+        with_target_focus(window, |target, target_thread| {
+            let focus = unsafe { focused_control(target, target_thread) };
+            copy_via_wm_message(focus)?;
+            if !clipboard_changed(start_seq) && focus != target {
+                copy_via_wm_message(target)?;
+            }
+            if !clipboard_changed(start_seq) {
+                let _ = simulate_copy_ctrl_insert();
+                thread::sleep(KEY_SETTLE);
+            }
+            Ok(())
+        })?;
 
-    wait_for_clipboard_update(start_seq);
+        wait_for_clipboard_update(start_seq);
+        let captured_image = read_clipboard_image_data_url();
+        let captured = read_clipboard_text()?;
+        let end_seq = unsafe { GetClipboardSequenceNumber() };
+        Ok((captured_image, captured, end_seq))
+    })();
 
-    let end_seq = unsafe { GetClipboardSequenceNumber() };
-    let captured_image = read_clipboard_image_data_url();
-    let captured = read_clipboard_text()?;
     let backup_for_compare = backup.clone();
-    restore_clipboard_text(backup)?;
+    restore_clipboard(clipboard_data_object, backup)?;
+    let (captured_image, captured, end_seq) = capture_result?;
 
     let selected_text = select_captured_text(backup_for_compare, captured, start_seq != end_seq);
     Ok(CapturedClipboardContent {
@@ -198,6 +225,27 @@ fn capture_selected_content(window: &WindowInfo) -> Result<CapturedClipboardCont
         selected_images: captured_image.into_iter().collect(),
         source: CaptureSource::Clipboard,
     })
+}
+
+fn capture_clipboard_data_object() -> Option<IDataObject> {
+    unsafe { OleGetClipboard().ok() }
+}
+
+fn restore_clipboard(
+    data_object: Option<IDataObject>,
+    backup_text: Option<String>,
+) -> Result<(), CaptureError> {
+    if let Some(data_object) = data_object {
+        if unsafe { OleSetClipboard(&data_object) }.is_ok() {
+            return Ok(());
+        }
+    }
+
+    if backup_text.is_some() {
+        return restore_clipboard_text(backup_text);
+    }
+
+    Ok(())
 }
 
 fn select_captured_text(
@@ -441,6 +489,9 @@ unsafe fn read_wide_string(ptr: *const u16) -> String {
 }
 
 fn restore_clipboard_text(backup: Option<String>) -> Result<(), CaptureError> {
+    let Some(backup_text) = backup else {
+        return Ok(());
+    };
     unsafe {
         open_clipboard_with_retry()?;
 
@@ -449,9 +500,7 @@ fn restore_clipboard_text(backup: Option<String>) -> Result<(), CaptureError> {
                 CaptureError::Clipboard(format!("EmptyClipboard failed: {error}"))
             })?;
 
-            if let Some(text) = backup {
-                write_clipboard_text(&text)?;
-            }
+            write_clipboard_text(&backup_text)?;
 
             Ok(())
         })();

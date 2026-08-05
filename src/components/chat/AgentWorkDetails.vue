@@ -1,5 +1,9 @@
 <template>
-  <div v-if="segments.length" class="agent-work" :class="{ 'has-running-subagent': hasRunningSubagent }">
+  <div
+    v-if="segments.length"
+    class="agent-work"
+    :class="{ 'has-running-subagent': hasRunningSubagent }"
+  >
     <template v-for="segment in segments" :key="segment.id">
       <ReasoningBlock
         v-if="segment.type === 'reasoning'"
@@ -18,7 +22,7 @@
         @inspect-subagent="emit('inspectSubagent', $event)"
       />
 
-      <!-- Process details follow the timeline (Cursor-style), not dumped at the end. -->
+      <!-- Process details stay on the timeline, not dumped at the end. -->
       <section v-else class="agent-work-details">
         <button
           type="button"
@@ -55,39 +59,29 @@ import ToolActivityList from "@/components/chat/ToolActivityList.vue";
 import type { ChatMessage, ToolActivity } from "@/types/chat";
 import type { AgentWorkDisplay, AppLanguage } from "@/types/setting";
 import { tr } from "@/services/i18n";
+import { SUBAGENT_TOOLS } from "@/services/chat/subagentTools";
 
-const props = withDefaults(defineProps<{
-  message: ChatMessage;
-  language?: AppLanguage;
-  showReasoning?: boolean;
-  /** detailed = shell/diff inline; compact = fold into process details. */
-  displayMode?: AgentWorkDisplay;
-}>(), {
-  displayMode: "detailed",
-});
+const props = withDefaults(
+  defineProps<{
+    message: ChatMessage;
+    language?: AppLanguage;
+    showReasoning?: boolean;
+    /** detailed = shell/diff inline; compact = fold into process details. */
+    displayMode?: AgentWorkDisplay;
+  }>(),
+  {
+    displayMode: "detailed",
+  },
+);
 const emit = defineEmits<{ inspectSubagent: [activityId: string] }>();
 
 type TimelineSegment =
   | { type: "reasoning"; id: string; content: string }
-  | {
-      type: "inline" | "process";
-      id: string;
-      activities: ToolActivity[];
-      operations: boolean;
-    };
+  | { type: "inline"; id: string; activities: ToolActivity[]; operations: boolean }
+  | { type: "process"; id: string; activities: ToolActivity[]; operations: boolean };
 
 const SHOWCASE_KINDS = new Set(["shell", "create", "edit", "delete", "move"]);
 const TASK_LIST_TOOLS = new Set(["update_tasks", "todo_write"]);
-const SUBAGENT_TOOLS = new Set([
-  "run_subagent",
-  "run_parallel_subagents",
-  "run_skill",
-  "explore_codebase",
-  "research_topic",
-  "review_code",
-  "review_security",
-  "generate_word",
-]);
 
 const processOpen = reactive(new Map<string, boolean>());
 const userToggledProcess = reactive(new Set<string>());
@@ -120,8 +114,7 @@ const topLevelActivities = computed(() =>
 
 const hasRunningSubagent = computed(() =>
   topLevelActivities.value.some(
-    (activity) =>
-      activity.status === "running" && SUBAGENT_TOOLS.has(activity.toolName),
+    (activity) => activity.status === "running" && SUBAGENT_TOOLS.has(activity.toolName),
   ),
 );
 
@@ -144,23 +137,19 @@ function pushActivity(segments: TimelineSegment[], activity: ToolActivity) {
   const kind = segmentKind(activity);
   const operations = isOperationsActivity(activity);
   const last = segments[segments.length - 1];
-  if (
-    last &&
-    last.type === kind &&
-    last.operations === operations
-  ) {
+  if (last && last.type === kind && last.operations === operations) {
     last.activities.push(activity);
     return;
   }
-  segments.push({
-    type: kind,
+  const base = {
     id: `${kind}-${activity.id}`,
     activities: [activity],
     operations,
-  });
+  };
+  segments.push(kind === "inline" ? { type: "inline", ...base } : { type: "process", ...base });
 }
 
-/** Single chronological stream — process-detail chunks interleaved like Cursor. */
+/** Single chronological stream with process-detail chunks interleaved. */
 const segments = computed<TimelineSegment[]>(() => {
   const out: TimelineSegment[] = [];
   const timeline = props.message.workTimeline ?? [];
@@ -294,7 +283,9 @@ watch(
   line-height: 1.35;
   cursor: pointer;
   text-align: left;
-  transition: color 140ms ease, background 140ms ease;
+  transition:
+    color 140ms ease,
+    background 140ms ease;
 }
 
 .agent-work-toggle:hover {

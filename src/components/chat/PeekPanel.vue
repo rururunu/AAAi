@@ -1,7 +1,11 @@
 <template>
   <div
     class="peek-panel"
-    :class="{ chat: mode === 'chat', 'sidebar-open': sidebarOpen, 'minimize-preview': isMinimizePreview }"
+    :class="{
+      chat: mode === 'chat',
+      'sidebar-open': sidebarOpen,
+      'minimize-preview': isMinimizePreview,
+    }"
     :style="panelStyle"
     data-tauri-drag-region
     @mousedown="onWindowDragMouseDown"
@@ -16,101 +20,98 @@
     </div>
 
     <div class="chat-main">
-    <section
-      v-if="mode === 'chat'"
-      key="thread"
-      class="thread-panel peek-surface"
-      :class="{
-        glass: isGlass,
-        'has-messages': hasVisibleMessages,
-      }"
-      data-tauri-drag-region
-    >
-      <header class="thread-header" data-tauri-drag-region @mousedown="onWindowDragMouseDown">
-        <div class="header-tools" data-tauri-drag-region="false">
-        <button
-          type="button"
-          class="window-btn"
-          :disabled="!activeSessionId"
-          :aria-label="tr(settingStore.language, 'chat.openInWorkbench')"
-          :title="tr(settingStore.language, 'chat.openInWorkbench')"
-          data-tauri-drag-region="false"
-          @mousedown.stop.prevent="openInWorkbench"
-        >
-          <AppWindow :size="13" :stroke-width="1.8" />
-        </button>
-        <button
-          type="button"
-          class="window-btn sidebar-toggle-btn"
-          :class="{ active: sidebarOpen }"
-          :aria-label="sidebarViewsLabel"
-          :title="sidebarViewsLabel"
-          data-tauri-drag-region="false"
-          @mousedown.stop.prevent="toggleSidebar"
-        >
-          <PanelRight :size="13" :stroke-width="1.8" />
-          <span v-if="runningSubagentCount" class="running-dot" aria-hidden="true" />
-        </button>
-        </div>
-        <div
-          class="window-controls"
-          data-tauri-drag-region="false"
-        >
-          <button
-            type="button"
-            class="window-btn btn-minimize"
-            :aria-label="tr(settingStore.language, 'minimize')"
-            data-tauri-drag-region="false"
-            @mousedown.stop.prevent="minimize"
-          >
-            <Minus :size="12" />
-          </button>
-          <button
-            type="button"
-            class="window-btn"
-            :class="{ active: isAlwaysOnTop }"
-            :aria-pressed="isAlwaysOnTop"
-            :aria-label="tr(settingStore.language, isAlwaysOnTop ? 'unpinWindow' : 'pinWindow')"
-            :title="tr(settingStore.language, isAlwaysOnTop ? 'unpinWindow' : 'pinWindow')"
-            data-tauri-drag-region="false"
-            @mousedown.stop.prevent="toggleAlwaysOnTop"
-          >
-            <PinOff v-if="isAlwaysOnTop" :size="12" />
-            <Pin v-else :size="12" />
-          </button>
-          <button
-            type="button"
-            class="window-btn close"
-            :aria-label="tr(settingStore.language, 'close')"
-            data-tauri-drag-region="false"
-            @mousedown.stop.prevent="close"
-          >
-            <X :size="12" />
-          </button>
-        </div>
-      </header>
-
-      <div
-        v-if="contextNotice"
-        class="context-notice"
-        role="status"
-        data-tauri-drag-region="false"
+      <section
+        v-if="mode === 'chat'"
+        key="thread"
+        class="thread-panel peek-surface"
+        :class="{
+          glass: isGlass,
+          'has-messages': hasVisibleMessages,
+        }"
+        data-tauri-drag-region
       >
-        <CircleAlert :size="14" :stroke-width="1.8" aria-hidden="true" />
-        <span>{{ contextNotice }}</span>
-      </div>
+        <header class="thread-header" data-tauri-drag-region @mousedown="onWindowDragMouseDown">
+          <div class="header-tools" data-tauri-drag-region="false">
+            <button
+              type="button"
+              class="window-btn"
+              :disabled="!activeSessionId"
+              :aria-label="tr(settingStore.language, 'chat.openInWorkbench')"
+              :title="tr(settingStore.language, 'chat.openInWorkbench')"
+              data-tauri-drag-region="false"
+              @mousedown.stop.prevent="openInWorkbench"
+            >
+              <AppWindow :size="13" :stroke-width="1.8" />
+            </button>
+            <button
+              type="button"
+              class="window-btn sidebar-toggle-btn"
+              :class="{ active: sidebarOpen }"
+              :aria-label="sidebarViewsLabel"
+              :title="sidebarViewsLabel"
+              data-tauri-drag-region="false"
+              @mousedown.stop.prevent="toggleSidebar"
+            >
+              <PanelRight :size="13" :stroke-width="1.8" />
+              <span v-if="runningSubagentCount" class="running-dot" aria-hidden="true" />
+            </button>
+          </div>
+          <div class="window-controls" data-tauri-drag-region="false">
+            <button
+              type="button"
+              class="window-btn btn-minimize"
+              :aria-label="tr(settingStore.language, 'minimize')"
+              data-tauri-drag-region="false"
+              @mousedown.stop.prevent="minimize"
+            >
+              <Minus :size="12" />
+            </button>
+            <button
+              type="button"
+              class="window-btn"
+              :class="{ active: isAlwaysOnTop }"
+              :aria-pressed="isAlwaysOnTop"
+              :aria-label="tr(settingStore.language, isAlwaysOnTop ? 'unpinWindow' : 'pinWindow')"
+              :title="tr(settingStore.language, isAlwaysOnTop ? 'unpinWindow' : 'pinWindow')"
+              data-tauri-drag-region="false"
+              @mousedown.stop.prevent="toggleAlwaysOnTop"
+            >
+              <PinOff v-if="isAlwaysOnTop" :size="12" />
+              <Pin v-else :size="12" />
+            </button>
+            <button
+              type="button"
+              class="window-btn close"
+              :aria-label="tr(settingStore.language, 'close')"
+              data-tauri-drag-region="false"
+              @mousedown.stop.prevent="close"
+            >
+              <X :size="12" />
+            </button>
+          </div>
+        </header>
 
-      <div class="thread-content">
-        <MessageList
-          :messages="messages"
-          :session-id="activeSessionId"
-          :workspace-name="workspaceDisplayName"
-          :checkpoints="checkpoints"
-          @rewound="handleRewound"
-          @review-changes="openDiffSidebar"
-          @inspect-subagent="openSubagentSidebar"
-          @preview-image="handlePreviewImage"
-        />
+        <div
+          v-if="contextNotice"
+          class="context-notice"
+          role="status"
+          data-tauri-drag-region="false"
+        >
+          <CircleAlert :size="14" :stroke-width="1.8" aria-hidden="true" />
+          <span>{{ contextNotice }}</span>
+        </div>
+
+        <div class="thread-content">
+          <MessageList
+            :messages="messages"
+            :session-id="activeSessionId"
+            :workspace-name="workspaceDisplayName"
+            :checkpoints="checkpoints"
+            @rewound="handleRewound"
+            @review-changes="openDiffSidebar"
+            @inspect-subagent="openSubagentSidebar"
+            @preview-image="handlePreviewImage"
+          />
           <Transition name="workspace-sidebar" @after-leave="emitComposerLayout">
             <div
               v-show="sidebarOpen"
@@ -128,118 +129,163 @@
                 :aria-valuemax="DIFF_SIDEBAR_MAX_WIDTH"
                 :aria-valuenow="Math.round(diffSidebarWidth)"
                 tabindex="0"
+                data-tauri-drag-region="false"
                 @pointerdown="startDiffSidebarResize"
                 @keydown="handleDiffSidebarResizeKey"
                 @dblclick="resetDiffSidebarWidth"
               />
-              <aside class="workspace-sidebar" :style="{ width: `${diffSidebarWidth}px` }" data-tauri-drag-region="false">
-            <nav class="workspace-sidebar-tabs peek-card-tabs" :aria-label="sidebarViewsLabel">
-              <button type="button" class="workspace-view-tab peek-card-tab" :class="{ active: sidebarTab === 'diff' }" :title="diffTabLabel" @click="selectSidebarTab('diff')">
-                <FileDiff :size="13" />
-                <span>{{ diffTabLabel }}</span>
-              </button>
-              <button type="button" class="workspace-view-tab peek-card-tab" :class="{ active: sidebarTab === 'subagents' }" :title="subagentTabLabel" @click="selectSidebarTab('subagents')">
-                <SubagentIcon :status="runningSubagentCount ? 'running' : 'idle'" :size="13" />
-                <span>{{ subagentTabLabel }}</span>
-              </button>
-              <button v-if="openedImageSources.length" type="button" class="workspace-view-tab peek-card-tab" :class="{ active: sidebarTab === 'image' }" :title="imageTabLabel" @click="selectSidebarTab('image')">
-                <ImageIcon :size="13" />
-                <span>{{ imageTabLabel }}</span>
-              </button>
-              <button v-if="runtimeDebugEnabled" type="button" class="workspace-view-tab peek-card-tab" :class="{ active: sidebarTab === 'runtime' }" :title="runtimeTabLabel" @click="selectSidebarTab('runtime')">
-                <Bug :size="13" />
-                <span>{{ runtimeTabLabel }}</span>
-              </button>
-              <button type="button" class="sidebar-close-button" :aria-label="sidebarCloseLabel" :title="sidebarCloseLabel" @click="closeSidebar">
-                <X :size="13" />
-              </button>
-            </nav>
-            <div class="workspace-sidebar-content">
-              <CodeDiffSidebar
-                v-show="sidebarTab === 'diff'"
-                :messages="messages"
-                :width="diffSidebarWidth"
-                embedded
-              />
-              <SubagentSidebar
-                v-show="sidebarTab === 'subagents'"
-                :activities="subagentActivities"
-                :all-activities="allToolActivities"
-                :opened-entry-ids="openedSubagentIds"
-                :selected-entry-id="selectedSubagentId"
-                embedded
-                @close-entry="closeSubagentTab"
-              />
-              <AgentDebugPanel
-                v-if="runtimeDebugEnabled"
-                v-show="sidebarTab === 'runtime'"
-                embedded
-              />
-              <ImagePreviewSidebar
-                v-show="sidebarTab === 'image'"
-                :sources="openedImageSources"
-                :selected-source="selectedImageSource"
-                @select="selectedImageSource = $event"
-                @close="closeImageTab"
-              />
-            </div>
+              <aside
+                class="workspace-sidebar"
+                :style="{ width: `${diffSidebarWidth}px` }"
+                data-tauri-drag-region="false"
+              >
+                <nav class="workspace-sidebar-tabs peek-card-tabs" :aria-label="sidebarViewsLabel">
+                  <button
+                    type="button"
+                    class="workspace-view-tab peek-card-tab"
+                    :class="{ active: sidebarTab === 'diff' }"
+                    :title="diffTabLabel"
+                    @click="selectSidebarTab('diff')"
+                  >
+                    <FileDiff :size="13" />
+                    <span>{{ diffTabLabel }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="workspace-view-tab peek-card-tab"
+                    :class="{ active: sidebarTab === 'subagents' }"
+                    :title="subagentTabLabel"
+                    @click="selectSidebarTab('subagents')"
+                  >
+                    <SubagentIcon :status="runningSubagentCount ? 'running' : 'idle'" :size="13" />
+                    <span>{{ subagentTabLabel }}</span>
+                  </button>
+                  <button
+                    v-if="openedImageSources.length"
+                    type="button"
+                    class="workspace-view-tab peek-card-tab"
+                    :class="{ active: sidebarTab === 'image' }"
+                    :title="imageTabLabel"
+                    @click="selectSidebarTab('image')"
+                  >
+                    <ImageIcon :size="13" />
+                    <span>{{ imageTabLabel }}</span>
+                  </button>
+                  <button
+                    v-if="runtimeDebugEnabled"
+                    type="button"
+                    class="workspace-view-tab peek-card-tab"
+                    :class="{ active: sidebarTab === 'runtime' }"
+                    :title="runtimeTabLabel"
+                    @click="selectSidebarTab('runtime')"
+                  >
+                    <Bug :size="13" />
+                    <span>{{ runtimeTabLabel }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="sidebar-close-button"
+                    :aria-label="sidebarCloseLabel"
+                    :title="sidebarCloseLabel"
+                    @click="closeSidebar"
+                  >
+                    <X :size="13" />
+                  </button>
+                </nav>
+                <div class="workspace-sidebar-content">
+                  <CodeDiffSidebar
+                    v-show="sidebarTab === 'diff'"
+                    :messages="messages"
+                    :width="diffSidebarWidth"
+                    embedded
+                  />
+                  <SubagentSidebar
+                    v-show="sidebarTab === 'subagents'"
+                    :activities="subagentActivities"
+                    :all-activities="allToolActivities"
+                    :opened-entry-ids="openedSubagentIds"
+                    :selected-entry-id="selectedSubagentId"
+                    embedded
+                    @close-entry="closeSubagentTab"
+                  />
+                  <AgentDebugPanel
+                    v-if="runtimeDebugEnabled"
+                    v-show="sidebarTab === 'runtime'"
+                    embedded
+                  />
+                  <ImagePreviewSidebar
+                    v-show="sidebarTab === 'image'"
+                    :sources="openedImageSources"
+                    :selected-source="selectedImageSource"
+                    @select="selectedImageSource = $event"
+                    @close="closeImageTab"
+                  />
+                </div>
               </aside>
             </div>
           </Transition>
-      </div>
-    </section>
+        </div>
+      </section>
 
-    <div
-      ref="dockRef"
-      class="composer-dock peek-surface"
-      :class="{ expanded: mode === 'chat', glass: isGlass && mode !== 'chat' }"
-    >
-      <p
-        v-if="contextPreview"
-        class="captured-context-preview"
-        data-tauri-drag-region="false"
+      <div
+        ref="dockRef"
+        class="composer-dock peek-surface"
+        :class="{ expanded: mode === 'chat', glass: isGlass && mode !== 'chat' }"
       >
-        {{ contextPreview }}
-      </p>
-      <ChatInputBar
-        ref="inputRef"
-        :sending="sending"
-        :session-id="activeSessionId"
-        :captured-context="capturedContext"
-        :context-ready="contextReady"
-        :overlay-pickers="mode === 'chat'"
-        :placeholder="tr(settingStore.language, mode === 'chat' ? 'continueQuestion' : 'askAnything')"
-        :close-on-escape="mode === 'input'"
-        :ask-user="askUserSession"
-        :path-permission="pathPermissionSession"
-        :tool-approval="toolApprovalSession"
-        :history-sessions="historySessions"
-        :show-workspace-button="mode === 'input'"
-        :selection-lines="selectionLines"
-        @submit="handleSubmit"
-        @pause="handlePause"
-        @close="emit('close')"
-        @layout-change="handleLayoutChange"
-        @ask-user-complete="handleAskUserComplete"
-        @path-permission-complete="handlePathPermissionComplete"
-        @tool-approval-complete="handleToolApprovalComplete"
-        @open-history="handleOpenHistory"
-        @history-select="handleHistorySelect"
-        @history-close="handleHistoryClose"
-        @remove-selection="emit('selectionRemoved')"
-        @show-context="handleShowContext"
-        @preview-image="handlePreviewImage"
-      />
+        <p v-if="contextPreview" class="captured-context-preview" data-tauri-drag-region="false">
+          {{ contextPreview }}
+        </p>
+        <ChatInputBar
+          ref="inputRef"
+          :sending="sending"
+          :session-id="activeSessionId"
+          :captured-context="capturedContext"
+          :context-ready="contextReady"
+          :overlay-pickers="mode === 'chat'"
+          :placeholder="
+            tr(settingStore.language, mode === 'chat' ? 'continueQuestion' : 'askAnything')
+          "
+          :close-on-escape="mode === 'input'"
+          :ask-user="askUserSession"
+          :path-permission="pathPermissionSession"
+          :tool-approval="toolApprovalSession"
+          :history-sessions="historySessions"
+          :show-workspace-button="mode === 'input'"
+          :selection-lines="selectionLines"
+          @submit="handleSubmit"
+          @pause="handlePause"
+          @close="emit('close')"
+          @layout-change="handleLayoutChange"
+          @ask-user-complete="handleAskUserComplete"
+          @path-permission-complete="handlePathPermissionComplete"
+          @tool-approval-complete="handleToolApprovalComplete"
+          @open-history="handleOpenHistory"
+          @history-select="handleHistorySelect"
+          @history-close="handleHistoryClose"
+          @remove-selection="emit('selectionRemoved')"
+          @show-context="handleShowContext"
+          @preview-image="handlePreviewImage"
+        />
+      </div>
     </div>
-    </div>
-
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { AppWindow, Bug, CircleAlert, FileDiff, Image as ImageIcon, Minus, PanelRight, Pin, PinOff, X } from "@lucide/vue";
+import {
+  AppWindow,
+  Bug,
+  CircleAlert,
+  FileDiff,
+  Image as ImageIcon,
+  Minus,
+  PanelRight,
+  Pin,
+  PinOff,
+  X,
+} from "@lucide/vue";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import ChatInputBar, {
@@ -252,9 +298,7 @@ import SubagentSidebar from "@/components/chat/SubagentSidebar.vue";
 import SubagentIcon from "@/components/chat/SubagentIcon.vue";
 import ImagePreviewSidebar from "@/components/chat/ImagePreviewSidebar.vue";
 import MessageList from "@/components/chat/MessageList.vue";
-import {
-  gsapOverlayDockReveal,
-} from "@/services/motion/gsapPresets";
+import { gsapOverlayDockReveal } from "@/services/motion/gsapPresets";
 import { refreshOverlayWindowBackground } from "@/services/overlay/appearance";
 import { onWindowDragMouseDown } from "@/services/overlay/windowDrag";
 import { fetchChatSessions } from "@/commands/slash";
@@ -279,6 +323,7 @@ import {
 import { useChatStore } from "@/stores/chat";
 import { useSettingStore } from "@/stores/setting";
 import { tr } from "@/services/i18n";
+import { SUBAGENT_TOOLS } from "@/services/chat/subagentTools";
 import type {
   AskUserAnswerItem,
   CapturedContext,
@@ -288,7 +333,7 @@ import type {
   ToolApprovalDecision,
   ToolApprovalSession,
 } from "@/types/chat";
-import { getCurrentWorkspace } from "@/commands/workspace";
+import { listWorkspaces } from "@/commands/workspace";
 import {
   attachSelection,
   parseSelectionAttachment,
@@ -361,8 +406,12 @@ const openedSubagentIds = ref<string[]>([]);
 const selectedSubagentId = ref("");
 type SidebarTab = "diff" | "subagents" | "runtime" | "image";
 const sidebarTab = ref<SidebarTab>("diff");
-const sidebarOpen = computed(() =>
-  diffSidebarOpen.value || subagentSidebarOpen.value || runtimeSidebarOpen.value || imageSidebarOpen.value,
+const sidebarOpen = computed(
+  () =>
+    diffSidebarOpen.value ||
+    subagentSidebarOpen.value ||
+    runtimeSidebarOpen.value ||
+    imageSidebarOpen.value,
 );
 const panelStyle = computed(() => ({
   "--workspace-sidebar-width": sidebarOpen.value
@@ -386,9 +435,7 @@ let diffResizeStartX = 0;
 let diffResizeStartWidth = DIFF_SIDEBAR_DEFAULT_WIDTH;
 
 const isGlass = computed(() => settingStore.opacity < 100);
-const activeSessionId = computed(
-  () => overlayDraftSessionId.value || props.sessionId,
-);
+const activeSessionId = computed(() => overlayDraftSessionId.value || props.sessionId);
 const messages = computed(() => {
   const sessionId = activeSessionId.value;
   if (!sessionId) {
@@ -403,34 +450,23 @@ watch(activeSessionId, () => {
   selectedImageSource.value = "";
   if (sidebarTab.value === "subagents" || sidebarTab.value === "image") closeSidebar();
 });
-const SUBAGENT_TOOLS = new Set([
-  "run_subagent", "run_parallel_subagents",
-  "run_skill", "explore_codebase", "research_topic",
-  "review_code", "review_security", "generate_word",
-]);
 const allToolActivities = computed(() =>
   messages.value.flatMap((message) => message.toolActivities ?? []),
 );
 const subagentActivities = computed(() =>
   allToolActivities.value.filter((activity) => SUBAGENT_TOOLS.has(activity.toolName)),
 );
-const runningSubagentCount = computed(() =>
-  subagentActivities.value.filter((activity) => activity.status === "running").length,
+const runningSubagentCount = computed(
+  () => subagentActivities.value.filter((activity) => activity.status === "running").length,
 );
-const subagentTabLabel = computed(() =>
-  tr(settingStore.language, "sidebar.subagents"),
-);
-const imageTabLabel = computed(() =>
-  tr(settingStore.language, "sidebar.image"),
-);
+const subagentTabLabel = computed(() => tr(settingStore.language, "sidebar.subagents"));
+const imageTabLabel = computed(() => tr(settingStore.language, "sidebar.image"));
 const diffTabLabel = computed(() => tr(settingStore.language, "sidebar.diff"));
 const runtimeTabLabel = computed(() => tr(settingStore.language, "sidebar.runtime"));
 const sidebarViewsLabel = computed(() => tr(settingStore.language, "sidebar.views"));
 const sidebarCloseLabel = computed(() => tr(settingStore.language, "sidebar.close"));
 const hasVisibleMessages = computed(() =>
-  messages.value.some(
-    (message) => String(message.role).toLowerCase() !== "system",
-  ),
+  messages.value.some((message) => String(message.role).toLowerCase() !== "system"),
 );
 const sending = computed(() => {
   const sessionId = activeSessionId.value;
@@ -447,9 +483,7 @@ const sending = computed(() => {
   );
 });
 const contextNotice = computed(() => overlayContextNotice.value);
-const workspaceDisplayName = computed(
-  () => props.capturedContext?.workspace?.name?.trim() || "",
-);
+const workspaceDisplayName = computed(() => props.capturedContext?.workspace?.name?.trim() || "");
 const selectedText = computed(() => props.capturedContext?.selection?.trim() ?? "");
 const selectionLines = computed(() => selectionLineCount(selectedText.value));
 const contextPreview = computed(() => {
@@ -482,12 +516,8 @@ watch(
   { immediate: true },
 );
 const chatTitle = computed(() => {
-  const userMsg = messages.value.find(
-    (message) => String(message.role).toLowerCase() === "user",
-  );
-  const text = userMsg
-    ? parseSelectionAttachment(userMsg.content).message.trim()
-    : "";
+  const userMsg = messages.value.find((message) => String(message.role).toLowerCase() === "user");
+  const text = userMsg ? parseSelectionAttachment(userMsg.content).message.trim() : "";
   return text || tr(settingStore.language, "newChat");
 });
 
@@ -527,8 +557,8 @@ function toggleSidebar() {
 
   const selectedTab = sidebarTab.value;
   const unavailableDynamicTab =
-    (selectedTab === "subagents" && !openedSubagentIds.value.length)
-    || (selectedTab === "image" && !openedImageSources.value.length);
+    (selectedTab === "subagents" && !openedSubagentIds.value.length) ||
+    (selectedTab === "image" && !openedImageSources.value.length);
   selectSidebarTab(unavailableDynamicTab ? "diff" : selectedTab);
 }
 
@@ -618,21 +648,21 @@ function availableDiffSidebarWidth() {
   const contentWidth = document.documentElement.clientWidth;
   return Math.min(
     DIFF_SIDEBAR_MAX_WIDTH,
-    Math.max(
-      DIFF_SIDEBAR_MIN_WIDTH,
-      contentWidth - CHAT_PANE_MIN_WIDTH - DIFF_RESIZE_HANDLE_WIDTH,
-    ),
+    Math.max(DIFF_SIDEBAR_MIN_WIDTH, contentWidth - CHAT_PANE_MIN_WIDTH - DIFF_RESIZE_HANDLE_WIDTH),
   );
 }
 
 function startDiffSidebarResize(event: PointerEvent) {
   if (event.button !== 0) return;
   event.preventDefault();
+  event.stopPropagation();
+  (event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId);
   diffResizeStartX = event.clientX;
   diffResizeStartWidth = diffSidebarWidth.value;
   diffSidebarResizing.value = true;
   window.addEventListener("pointermove", handleDiffSidebarResize);
   window.addEventListener("pointerup", stopDiffSidebarResize, { once: true });
+  window.addEventListener("pointercancel", stopDiffSidebarResize, { once: true });
 }
 
 function handleDiffSidebarResize(event: PointerEvent) {
@@ -648,6 +678,7 @@ function stopDiffSidebarResize() {
   diffSidebarResizing.value = false;
   window.removeEventListener("pointermove", handleDiffSidebarResize);
   window.removeEventListener("pointerup", stopDiffSidebarResize);
+  window.removeEventListener("pointercancel", stopDiffSidebarResize);
   localStorage.setItem(DIFF_SIDEBAR_WIDTH_KEY, String(Math.round(diffSidebarWidth.value)));
 }
 
@@ -699,7 +730,7 @@ async function handleSubmit(text: string) {
   }
 
   if (props.mode === "chat") {
-    await chatStore.send(trimmed, activeSessionId.value);
+    await chatStore.send(trimmed, activeSessionId.value, resolveOverlaySendOptions());
     return;
   }
 
@@ -715,13 +746,44 @@ async function handleSubmit(text: string) {
   emit("enterChat", sessionId);
   emit("contextConsumed");
 
-  void chatStore.send(messageWithSelection, sessionId, { staged: true });
+  void chatStore.send(messageWithSelection, sessionId, {
+    staged: true,
+    ...resolveOverlaySendOptions(),
+  });
+}
+
+function resolveOverlaySendOptions(): { workspaceId?: string; quickAsk?: boolean } {
+  const selected = inputRef.value?.resolveSendWorkspaceOptions?.();
+  if (selected) {
+    return selected;
+  }
+  return { quickAsk: true };
+}
+
+async function scheduleOverlayInputFocus() {
+  const window = getCurrentWebviewWindow();
+  const attempt = async () => {
+    await nextTick();
+    try {
+      await window.setFocus();
+    } catch {
+      // ignore focus errors during reveal
+    }
+    void inputRef.value?.focusInput();
+  };
+  await attempt();
+  requestAnimationFrame(() => {
+    void attempt();
+    requestAnimationFrame(() => {
+      void attempt();
+      globalThis.setTimeout(() => void attempt(), 80);
+    });
+  });
 }
 
 function handleShowContext(context: CapturedContext) {
-  const sessionId = props.mode === "chat" && activeSessionId.value
-    ? activeSessionId.value
-    : createSessionId();
+  const sessionId =
+    props.mode === "chat" && activeSessionId.value ? activeSessionId.value : createSessionId();
   if (props.mode !== "chat") {
     chatStore.setOverlayDraftSession(sessionId);
     emit("enterChat", sessionId);
@@ -769,8 +831,8 @@ async function handlePause() {
     // 无活跃任务时（例如异常退出后恢复），本地也要解除卡住的执行态
     chatStore.settleInterruptedSession(sessionId);
   }
+  void chatStore.flushStaged(sessionId);
 }
-
 
 function close() {
   emit("close");
@@ -844,14 +906,10 @@ async function handleAskUserComplete(answer: string) {
       parsed.answers
         ?.map((item) => ({
           header: String(item.header ?? "").trim() || undefined,
-          selected: (item.selected ?? [])
-            .map((v) => String(v).trim())
-            .filter(Boolean),
+          selected: (item.selected ?? []).map((v) => String(v).trim()).filter(Boolean),
           userSupplement: Boolean(item.userSupplement),
         }))
-        .filter(
-          (item) => item.userSupplement || item.selected.length > 0,
-        ) ?? [];
+        .filter((item) => item.userSupplement || item.selected.length > 0) ?? [];
 
     if (items.length > 0) {
       chatStore.stageAskUserAnswer(activeSessionId.value, items);
@@ -903,18 +961,27 @@ async function handleOpenHistory() {
 }
 
 async function loadScopedHistorySessions() {
-  const [allSessions, currentWorkspace] = await Promise.all([
-    fetchChatSessions(),
-    getCurrentWorkspace(),
-  ]);
-  if (currentWorkspace) {
-    return allSessions.filter(
-      (session) => session.workspaceId === currentWorkspace.id,
-    );
+  const allSessions = await fetchChatSessions();
+
+  // Overlay (Alt+Alt) history must not inherit workbench's current workspace.
+  // Scope by:
+  // 1) Explicit IDE workspace (if present)
+  // 2) otherwise "quick ask" sessions (no workspaceId)
+  const overlayRoot = props.capturedContext?.ideContext?.workspace?.trim();
+
+  const normalizeRoot = (root: string) =>
+    root.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+
+  if (overlayRoot) {
+    const workspaces = await listWorkspaces();
+    const normalized = normalizeRoot(overlayRoot);
+    const matched = workspaces.find((w) => normalizeRoot(w.root) === normalized);
+    if (matched) {
+      return allSessions.filter((session) => session.workspaceId === matched.id);
+    }
   }
-  return allSessions
-    .filter((session) => !session.workspaceId)
-    .slice(0, PUBLIC_HISTORY_LIMIT);
+
+  return allSessions.filter((session) => !session.workspaceId).slice(0, PUBLIC_HISTORY_LIMIT);
 }
 
 async function handleHistorySelect(sessionId: string) {
@@ -1069,18 +1136,15 @@ watch(
   },
 );
 
-watch(
-  panelVisible,
-  async (visible) => {
-    gsapOverlayDockReveal(dockRef.value, visible);
-    if (!visible) {
-      return;
-    }
-    // Focus after the dock is visibility:visible (set synchronously in reveal).
-    await nextTick();
-    void inputRef.value?.focusInput();
-  },
-);
+watch(panelVisible, async (visible) => {
+  gsapOverlayDockReveal(dockRef.value, visible);
+  if (!visible) {
+    return;
+  }
+  // Focus after the dock is visibility:visible (set synchronously in reveal).
+  await nextTick();
+  void scheduleOverlayInputFocus();
+});
 
 onMounted(async () => {
   const window = getCurrentWebviewWindow();
@@ -1147,9 +1211,18 @@ onMounted(async () => {
 
   void listenInteractionResolved(async (payload) => {
     let matched = false;
-    if (askUserSession.value?.requestId === payload.requestId) { askUserSession.value = null; matched = true; }
-    if (pathPermissionSession.value?.requestId === payload.requestId) { pathPermissionSession.value = null; matched = true; }
-    if (toolApprovalSession.value?.requestId === payload.requestId) { toolApprovalSession.value = null; matched = true; }
+    if (askUserSession.value?.requestId === payload.requestId) {
+      askUserSession.value = null;
+      matched = true;
+    }
+    if (pathPermissionSession.value?.requestId === payload.requestId) {
+      pathPermissionSession.value = null;
+      matched = true;
+    }
+    if (toolApprovalSession.value?.requestId === payload.requestId) {
+      toolApprovalSession.value = null;
+      matched = true;
+    }
     if (!matched) return;
     emitComposerLayout();
     await setOverlayPopupOpen(getCurrentWebviewWindow().label, false);
@@ -1160,7 +1233,7 @@ onMounted(async () => {
     clearMinimizePreview();
     void refreshOverlayWindowBackground();
     panelVisible.value = true;
-    void inputRef.value?.focusInput();
+    void scheduleOverlayInputFocus();
   });
 
   await window.listen("overlay-hidden", () => {
@@ -1202,9 +1275,9 @@ onMounted(async () => {
     // 动态新建窗口时，overlay-shown 在 Vue 挂载前就发出了，
     // 这里补做相同的初始化：刷新背景透明度、聚焦输入框
     void refreshOverlayWindowBackground();
-    void inputRef.value?.focusInput();
+    void scheduleOverlayInputFocus();
   } else {
-    void inputRef.value?.focusInput();
+    void scheduleOverlayInputFocus();
   }
 
   void listen<string>("open-session", async (event) => {
@@ -1218,34 +1291,35 @@ onMounted(async () => {
     }
   });
 
-  void listen<{ sessionId?: string; command?: string; args?: string }>(
-    "slash-command",
-    (event) => {
-      const command = (event.payload?.command ?? "").replace(/^\//, "").toLowerCase();
-      if (props.sessionId && event.payload?.sessionId && event.payload.sessionId !== props.sessionId) {
-        return;
-      }
-      switch (command) {
-        case "history":
-          historySessions.value = historySessions.value ?? [];
-          void loadScopedHistorySessions().then((sessions) => {
-            historySessions.value = sessions;
-          });
-          break;
-        case "work":
-          void inputRef.value?.focusInput();
-          break;
-        case "exit":
-          emit("close");
-          break;
-        case "clear":
-          inputRef.value?.reset();
-          break;
-        default:
-          break;
-      }
-    },
-  );
+  void listen<{ sessionId?: string; command?: string; args?: string }>("slash-command", (event) => {
+    const command = (event.payload?.command ?? "").replace(/^\//, "").toLowerCase();
+    if (
+      props.sessionId &&
+      event.payload?.sessionId &&
+      event.payload.sessionId !== props.sessionId
+    ) {
+      return;
+    }
+    switch (command) {
+      case "history":
+        historySessions.value = historySessions.value ?? [];
+        void loadScopedHistorySessions().then((sessions) => {
+          historySessions.value = sessions;
+        });
+        break;
+      case "work":
+        void inputRef.value?.focusInput();
+        break;
+      case "exit":
+        emit("close");
+        break;
+      case "clear":
+        inputRef.value?.reset();
+        break;
+      default:
+        break;
+    }
+  });
 });
 
 onUnmounted(() => {
@@ -1271,9 +1345,12 @@ onUnmounted(() => {
   border: none;
   outline: none;
   --thread-side-gap: 14px;
-  --peek-panel-outline: var(--peek-strong-border, color-mix(in srgb, var(--peek-text) 20%, transparent));
+  --peek-panel-outline: var(
+    --peek-strong-border,
+    color-mix(in srgb, var(--peek-text) 20%, transparent)
+  );
   --peek-panel-highlight: color-mix(in srgb, var(--peek-text) 5%, transparent);
-  --peek-panel-shadow: rgba(0, 0, 0, 0.24);
+  --peek-panel-shadow: transparent;
 }
 
 .chat-main {
@@ -1315,9 +1392,9 @@ onUnmounted(() => {
 .workspace-sidebar-leave-active {
   overflow: hidden;
   transition:
-    width 180ms cubic-bezier(.2, .72, .25, 1),
+    width 180ms cubic-bezier(0.2, 0.72, 0.25, 1),
     opacity 130ms ease,
-    transform 180ms cubic-bezier(.2, .72, .25, 1);
+    transform 180ms cubic-bezier(0.2, 0.72, 0.25, 1);
 }
 
 .workspace-sidebar-enter-from,
@@ -1363,13 +1440,49 @@ onUnmounted(() => {
   font-weight: 500;
   box-shadow: none;
 }
-.workspace-sidebar-tabs .workspace-view-tab:hover { background: color-mix(in srgb, var(--peek-text) 5%, transparent); color: var(--peek-text); }
-.workspace-sidebar-tabs .workspace-view-tab.active { background: color-mix(in srgb, var(--peek-text) 8%, transparent); color: var(--peek-text); box-shadow: 0 3px 10px color-mix(in srgb, #000 9%, transparent); }
-.workspace-sidebar-tabs .workspace-view-tab > svg { flex: none; }
-.workspace-sidebar-tabs .workspace-view-tab > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-sidebar-tabs .sidebar-close-button { flex: none; min-width: 28px; width: 28px; height: 28px; display: grid; place-items: center; margin: 1px 0 0 auto; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--peek-muted); cursor: pointer; }
-.workspace-sidebar-tabs .sidebar-close-button:hover { color: var(--peek-text); background: color-mix(in srgb, var(--peek-text) 7%, transparent); }
-.workspace-sidebar-content { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.workspace-sidebar-tabs .workspace-view-tab:hover {
+  background: color-mix(in srgb, var(--peek-text) 5%, transparent);
+  color: var(--peek-text);
+}
+.workspace-sidebar-tabs .workspace-view-tab.active {
+  background: color-mix(in srgb, var(--peek-text) 8%, transparent);
+  color: var(--peek-text);
+  box-shadow: 0 3px 10px color-mix(in srgb, #000 9%, transparent);
+}
+.workspace-sidebar-tabs .workspace-view-tab > svg {
+  flex: none;
+}
+.workspace-sidebar-tabs .workspace-view-tab > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-sidebar-tabs .sidebar-close-button {
+  flex: none;
+  min-width: 28px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  margin: 1px 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--peek-muted);
+  cursor: pointer;
+}
+.workspace-sidebar-tabs .sidebar-close-button:hover {
+  color: var(--peek-text);
+  background: color-mix(in srgb, var(--peek-text) 7%, transparent);
+}
+.workspace-sidebar-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
 
 @container workspace-sidebar (max-width: 560px) {
   .workspace-sidebar-tabs .workspace-view-tab {
@@ -1391,7 +1504,16 @@ onUnmounted(() => {
   gap: 2px;
 }
 
-.running-dot { position: absolute; top: 4px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--peek-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--peek-sidebar) 88%, transparent); }
+.running-dot {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--peek-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--peek-sidebar) 88%, transparent);
+}
 
 .diff-resize-handle {
   position: relative;
@@ -1413,7 +1535,9 @@ onUnmounted(() => {
   height: 36px;
   border-radius: 2px;
   background: transparent;
-  transition: background 100ms ease, transform 100ms ease;
+  transition:
+    background 100ms ease,
+    transform 100ms ease;
 }
 
 .diff-resize-handle:hover::after,
@@ -1450,9 +1574,7 @@ onUnmounted(() => {
   position: relative;
   z-index: 1;
   isolation: isolate;
-  box-shadow:
-    inset 0 1px 0 var(--peek-panel-highlight),
-    0 8px 24px var(--peek-panel-shadow);
+  box-shadow: inset 0 1px 0 var(--peek-panel-highlight);
 }
 
 .thread-panel.glass {
@@ -1466,9 +1588,7 @@ onUnmounted(() => {
   z-index: 2;
   padding-top: 42px;
   scroll-padding-top: 42px;
-  padding-bottom: calc(
-    var(--composer-overlap, 12px) + var(--composer-clearance, 90px)
-  );
+  padding-bottom: calc(var(--composer-overlap, 12px) + var(--composer-clearance, 90px));
 }
 
 .thread-header {
@@ -1534,9 +1654,7 @@ onUnmounted(() => {
   overflow: hidden;
   isolation: isolate;
   will-change: transform, opacity;
-  box-shadow:
-    inset 0 1px 0 var(--peek-panel-highlight),
-    0 10px 28px var(--peek-panel-shadow);
+  box-shadow: inset 0 1px 0 var(--peek-panel-highlight);
 }
 
 .composer-dock :deep(.chat-input-shell) {
@@ -1587,7 +1705,10 @@ onUnmounted(() => {
   background: transparent;
   color: var(--peek-muted);
   cursor: default;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
 }
 
 .window-btn:hover {
@@ -1633,8 +1754,14 @@ onUnmounted(() => {
   line-height: 1.45;
   transform: translateX(-50%);
 }
-.context-notice > svg { flex: none; color: var(--peek-warning); }
-.context-notice > span { min-width: 0; overflow-wrap: anywhere; }
+.context-notice > svg {
+  flex: none;
+  color: var(--peek-warning);
+}
+.context-notice > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 
 .captured-context-preview {
   flex: none;
@@ -1680,5 +1807,4 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 </style>

@@ -1,3 +1,7 @@
+//! Chat protocol types shared by providers, agent loop, and persistence.
+//!
+//! This is **not** the crate-root `crate::runtime` tool-adapter layer.
+
 pub mod message;
 pub mod request;
 pub mod stream;

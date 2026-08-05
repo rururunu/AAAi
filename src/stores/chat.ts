@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 
 import { chat, chatHistory } from "@/services/ipc";
+import { createLogger } from "@/services/logger";
 import { useSettingStore } from "./setting";
 import { useChatModelStore } from "./chatModel";
 import {
@@ -26,6 +27,8 @@ import type {
   ToolPreviewPayload,
   WorkTimelineItem,
 } from "@/types/chat";
+
+const log = createLogger("chat-store");
 
 /** Per-conversation compose settings. Each conversation remembers its own
  * model / mode / approval choice and input draft; unopened sessions inherit
@@ -56,7 +59,7 @@ interface ComposeCache {
 }
 
 let composeCacheLoaded = false;
-let composeCache: ComposeCache = { entries: {}, last: "" };
+const composeCache: ComposeCache = { entries: {}, last: "" };
 
 function loadComposeCache(): void {
   if (composeCacheLoaded) {
@@ -70,8 +73,7 @@ function loadComposeCache(): void {
     }
     const parsed = JSON.parse(raw) as Partial<ComposeCache>;
     if (parsed && typeof parsed === "object") {
-      composeCache.entries =
-        (parsed.entries ?? {}) as Record<string, SessionCompose>;
+      composeCache.entries = (parsed.entries ?? {}) as Record<string, SessionCompose>;
       composeCache.last = typeof parsed.last === "string" ? parsed.last : "";
     }
   } catch {
@@ -90,11 +92,8 @@ function persistComposeCache(): void {
 /** Mark crash-orphaned in-flight rows so the UI is not stuck "executing". */
 export function settleInterruptedMessages(messages: ChatMessage[]): ChatMessage[] {
   return messages.map((message) => {
-    const statusStuck =
-      message.status === "pending" || message.status === "streaming";
-    const toolsStuck = message.toolActivities?.some(
-      (activity) => activity.status === "running",
-    );
+    const statusStuck = message.status === "pending" || message.status === "streaming";
+    const toolsStuck = message.toolActivities?.some((activity) => activity.status === "running");
     if (!statusStuck && !toolsStuck) {
       return message;
     }
@@ -121,10 +120,7 @@ export function settleInterruptedMessages(messages: ChatMessage[]): ChatMessage[
 /** Merge a persisted history snapshot into an actively streaming session.
  * The database can lag behind realtime events, so it must never replace newer
  * optimistic/streaming messages that only exist in memory yet. */
-export function mergeActiveHistory(
-  persisted: ChatMessage[],
-  live: ChatMessage[],
-): ChatMessage[] {
+export function mergeActiveHistory(persisted: ChatMessage[], live: ChatMessage[]): ChatMessage[] {
   const liveById = new Map(live.map((message) => [message.id, message]));
   const persistedIds = new Set(persisted.map((message) => message.id));
   const merged = persisted.map((stored) => {
@@ -133,8 +129,7 @@ export function mergeActiveHistory(
       return stored;
     }
 
-    const currentIsActive =
-      current.status === "pending" || current.status === "streaming";
+    const currentIsActive = current.status === "pending" || current.status === "streaming";
     const currentHasNewerContent =
       current.content.length > stored.content.length ||
       (current.reasoning?.length ?? 0) > (stored.reasoning?.length ?? 0) ||
@@ -300,7 +295,9 @@ export const useChatStore = defineStore("chat", {
     /** Persist one conversation's option change without touching others. */
     setCompose(
       sessionId: string,
-      patch: Partial<Pick<SessionCompose, "chatModel" | "chatModelProvider" | "chatMode" | "toolApprovalMode">>,
+      patch: Partial<
+        Pick<SessionCompose, "chatModel" | "chatModelProvider" | "chatMode" | "toolApprovalMode">
+      >,
     ) {
       if (!sessionId) {
         return;
@@ -421,10 +418,7 @@ export const useChatStore = defineStore("chat", {
           selected: item.selected.map((v) => v.trim()).filter(Boolean),
           userSupplement: Boolean(item.userSupplement),
         }))
-        .filter(
-          (item) =>
-            item.userSupplement || item.selected.length > 0,
-        );
+        .filter((item) => item.userSupplement || item.selected.length > 0);
       if (normalized.length === 0) {
         return;
       }
@@ -442,11 +436,7 @@ export const useChatStore = defineStore("chat", {
         if (normalizeRole(message.role) !== "assistant") {
           continue;
         }
-        if (
-          message.toolActivities?.some(
-            (activity) => activity.toolName === "ask_user",
-          )
-        ) {
+        if (message.toolActivities?.some((activity) => activity.toolName === "ask_user")) {
           targetIndex = i;
           break;
         }
@@ -537,12 +527,14 @@ export const useChatStore = defineStore("chat", {
      * next chat-finished event, so queued turns never merge into one another. */
     async flushStaged(sessionId: string) {
       const queue = this.stagedMessages[sessionId];
-      if (
-        !queue?.length ||
-        this.stagedDispatching[sessionId] ||
-        this.sending[sessionId] ||
-        this.hasActiveAssistantResponse(sessionId)
-      ) {
+      if (!queue?.length || this.stagedDispatching[sessionId] || this.sending[sessionId]) {
+        return;
+      }
+      // 用户停止后 sending 可能已清，但助手行仍是 pending/streaming；先落定再发队列。
+      if (this.hasActiveAssistantResponse(sessionId)) {
+        this.settleInterruptedSession(sessionId);
+      }
+      if (this.hasActiveAssistantResponse(sessionId) || this.sending[sessionId]) {
         return;
       }
       const content = queue[0];
@@ -676,17 +668,16 @@ export const useChatStore = defineStore("chat", {
         this.mergeSession(eventSessionId, targetSessionId);
       }
 
-      let messages = [...(this.sessions[targetSessionId] ?? [])];
+      const messages = [...(this.sessions[targetSessionId] ?? [])];
 
-      const localUserIndex = findLastMessageIndex(messages,
+      const localUserIndex = findLastMessageIndex(
+        messages,
         (item) => item.id.startsWith("local-user-") && item.content === userMessage.content,
       );
       if (localUserIndex !== -1) {
         messages[localUserIndex] = userMessage;
       } else {
-        const existingUserIndex = messages.findIndex(
-          (item) => item.id === userMessage.id,
-        );
+        const existingUserIndex = messages.findIndex((item) => item.id === userMessage.id);
         if (existingUserIndex === -1) {
           messages.push(userMessage);
         } else {
@@ -694,11 +685,10 @@ export const useChatStore = defineStore("chat", {
         }
       }
 
-      let assistantIndex = messages.findIndex(
-        (item) => item.id === assistantMessage.id,
-      );
+      let assistantIndex = messages.findIndex((item) => item.id === assistantMessage.id);
       if (assistantIndex === -1) {
-        assistantIndex = findLastMessageIndex(messages,
+        assistantIndex = findLastMessageIndex(
+          messages,
           (item) => item.id.startsWith("local-assistant-") && item.status === "pending",
         );
       }
@@ -712,21 +702,24 @@ export const useChatStore = defineStore("chat", {
       this.overlayDraftSessionId = targetSessionId;
       this.sending[targetSessionId] = true;
     },
-    reconcileOptimisticIds(
-      sessionId: string,
-      userMessageId: string,
-      assistantMessageId: string,
-    ) {
+    reconcileOptimisticIds(sessionId: string, userMessageId: string, assistantMessageId: string) {
       const messages = [...(this.sessions[sessionId] ?? [])];
-      const localUserIndex = findLastMessageIndex(messages, (item) => item.id.startsWith("local-user-"));
-      const localAssistantIndex = findLastMessageIndex(messages, (item) => item.id.startsWith("local-assistant-"));
+      const localUserIndex = findLastMessageIndex(messages, (item) =>
+        item.id.startsWith("local-user-"),
+      );
+      const localAssistantIndex = findLastMessageIndex(messages, (item) =>
+        item.id.startsWith("local-assistant-"),
+      );
       let changed = false;
       if (localUserIndex !== -1) {
         messages[localUserIndex] = { ...messages[localUserIndex], id: userMessageId };
         changed = true;
       }
       if (localAssistantIndex !== -1) {
-        messages[localAssistantIndex] = { ...messages[localAssistantIndex], id: assistantMessageId };
+        messages[localAssistantIndex] = {
+          ...messages[localAssistantIndex],
+          id: assistantMessageId,
+        };
         changed = true;
       }
       if (changed) this.setSessionMessages(sessionId, messages);
@@ -748,9 +741,7 @@ export const useChatStore = defineStore("chat", {
     failOptimisticSend(sessionId: string, error: unknown, softInject = false) {
       const messages = [...(this.sessions[sessionId] ?? [])];
       if (softInject) {
-        const index = findLastMessageIndex(messages, (item) =>
-          item.id.startsWith("local-user-"),
-        );
+        const index = findLastMessageIndex(messages, (item) => item.id.startsWith("local-user-"));
         if (index !== -1) {
           messages.splice(index, 1);
           this.setSessionMessages(sessionId, messages);
@@ -764,8 +755,7 @@ export const useChatStore = defineStore("chat", {
       if (index === -1) return;
       const settingStore = useSettingStore();
       const raw = String(error);
-      const configureProvider =
-        raw === "CONFIGURE_PROVIDER" || isConfigureProviderError(raw);
+      const configureProvider = raw === "CONFIGURE_PROVIDER" || isConfigureProviderError(raw);
       const content = configureProvider
         ? `${CONFIGURE_PROVIDER_MARKER}\n${tr(settingStore.language, "configureProviderHint")}`
         : `发送失败：${raw}`;
@@ -777,12 +767,7 @@ export const useChatStore = defineStore("chat", {
       };
       this.setSessionMessages(sessionId, messages);
     },
-    appendDelta(
-      sessionId: string,
-      messageId: string,
-      delta: string,
-      fallbackSessionId?: string,
-    ) {
+    appendDelta(sessionId: string, messageId: string, delta: string, fallbackSessionId?: string) {
       const resolvedSessionId = this.resolveOverlaySessionId(
         resolveSessionId(sessionId, fallbackSessionId),
       );
@@ -857,6 +842,18 @@ export const useChatStore = defineStore("chat", {
 
       const next = [...messages];
       const current = next[index];
+      if (kind.startsWith("stream_retry")) {
+        next[index] = {
+          ...current,
+          content: "",
+          reasoning: undefined,
+          workTimeline: undefined,
+          activityStatus: kind,
+          status: "streaming",
+        };
+        this.setSessionMessages(resolvedSessionId, next);
+        return;
+      }
       const activityStatus = kind.trim() ? kind : undefined;
       if (current.activityStatus === activityStatus) {
         return;
@@ -909,10 +906,7 @@ export const useChatStore = defineStore("chat", {
 
       const grouped = new Map<
         string,
-        Map<
-          string,
-          { contentDelta: string; reasoningDelta: string; fallbackSessionId?: string }
-        >
+        Map<string, { contentDelta: string; reasoningDelta: string; fallbackSessionId?: string }>
       >();
 
       for (const update of updates) {
@@ -1122,12 +1116,7 @@ export const useChatStore = defineStore("chat", {
         }
       }
     },
-    failMessage(
-      sessionId: string,
-      messageId: string,
-      error: string,
-      fallbackSessionId?: string,
-    ) {
+    failMessage(sessionId: string, messageId: string, error: string, fallbackSessionId?: string) {
       const resolvedSessionId = this.resolveOverlaySessionId(
         resolveSessionId(sessionId, fallbackSessionId),
       );
@@ -1211,10 +1200,11 @@ export const useChatStore = defineStore("chat", {
       let changed = false;
       const next = messages.map((message) => {
         const activities = message.toolActivities;
-        if (!activities?.some(
-          (activity) =>
-            activity.toolName === "ask_user" && activity.status === "running",
-        )) {
+        if (
+          !activities?.some(
+            (activity) => activity.toolName === "ask_user" && activity.status === "running",
+          )
+        ) {
           return message;
         }
 
@@ -1259,7 +1249,7 @@ export const useChatStore = defineStore("chat", {
           this.clearSending(sessionId);
         }
       } catch (error) {
-        console.error("chat_history failed:", error);
+        log.error("chat_history failed", error);
         // A transient history failure must not blank an already visible chat.
         if (!this.sessions[sessionId]) {
           this.setSessionMessages(sessionId, []);
@@ -1292,9 +1282,7 @@ export const useChatStore = defineStore("chat", {
         return false;
       }
 
-      const busy = Boolean(
-        this.sending[sessionId] || this.hasActiveAssistantResponse(sessionId),
-      );
+      const busy = Boolean(this.sending[sessionId] || this.hasActiveAssistantResponse(sessionId));
 
       // While a turn is executing, new user messages are staged instead of
       // being injected immediately. They reach the AI either via the guide
@@ -1377,11 +1365,7 @@ export const useChatStore = defineStore("chat", {
           chatMode: compose.chatMode,
           toolApprovalMode: compose.toolApprovalMode,
         });
-        this.reconcileOptimisticIds(
-          sessionId,
-          response.userMessageId,
-          response.assistantMessageId,
-        );
+        this.reconcileOptimisticIds(sessionId, response.userMessageId, response.assistantMessageId);
         if (softInject) {
           this.markMessageInjected(sessionId, response.userMessageId);
         }
@@ -1391,7 +1375,7 @@ export const useChatStore = defineStore("chat", {
         }
         return true;
       } catch (error) {
-        console.error("chat failed:", error);
+        log.error("chat failed", error);
         this.failOptimisticSend(sessionId, error, softInject);
         if (!softInject) {
           this.clearSending(sessionId);

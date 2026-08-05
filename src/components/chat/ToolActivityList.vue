@@ -7,11 +7,7 @@
         :start-collapsed="cardsCollapsed"
       />
 
-      <TaskListCard
-        v-else-if="item.tasks.length"
-        embedded
-        :tasks="item.tasks"
-      />
+      <TaskListCard v-else-if="item.tasks.length" embedded :tasks="item.tasks" />
 
       <div v-else-if="item.hunks.length" class="file-diff-stack">
         <FileDiffCard
@@ -31,7 +27,10 @@
         :class="[
           item.activity.kind,
           item.activity.status,
-          { subagent: isSubagentTool(item.activity), 'subagent-running': isRunningSubagent(item.activity) },
+          {
+            subagent: isSubagentTool(item.activity),
+            'subagent-running': isRunningSubagent(item.activity),
+          },
         ]"
       >
         <div class="tool-activity-header">
@@ -41,12 +40,18 @@
             :aria-expanded="isExpanded(item.activity)"
             @click="toggleActivity(item.activity)"
           >
-            <ChevronRight class="activity-chevron" :class="{ open: isExpanded(item.activity) }" :size="12" />
+            <ChevronRight
+              class="activity-chevron"
+              :class="{ open: isExpanded(item.activity) }"
+              :size="12"
+            />
             <span class="tool-activity-icon" aria-hidden="true">
               <component :is="icon(item.activity)" :size="12" />
             </span>
             <span class="tool-activity-title">{{ item.activity.title }}</span>
-            <span v-if="isFuzzy(item.activity)" class="fuzzy-badge">{{ tr(settingStore.language, "fuzzyMatch") }}</span>
+            <span v-if="isFuzzy(item.activity)" class="fuzzy-badge">
+              {{ tr(settingStore.language, "fuzzyMatch") }}
+            </span>
             <span v-if="item.activity.status === 'running'" class="tool-activity-status">
               {{
                 tr(
@@ -59,10 +64,16 @@
                 )
               }}
             </span>
-            <span v-else-if="item.activity.status === 'error'" class="tool-activity-status error">{{ tr(settingStore.language, "failed") }}</span>
+            <span v-else-if="item.activity.status === 'error'" class="tool-activity-status error">
+              {{ tr(settingStore.language, "failed") }}
+            </span>
           </button>
           <button
-            v-if="showInspectAction && isSubagentTool(item.activity) && !childAgentRows(item.activity).length"
+            v-if="
+              showInspectAction &&
+              isSubagentTool(item.activity) &&
+              !childAgentRows(item.activity).length
+            "
             type="button"
             class="inspect-subagent-button"
             :aria-label="inspectLabel"
@@ -73,7 +84,10 @@
           </button>
         </div>
 
-        <div v-if="isSubagentTool(item.activity) && childAgentRows(item.activity).length" class="child-agent-rows">
+        <div
+          v-if="isSubagentTool(item.activity) && childAgentRows(item.activity).length"
+          class="child-agent-rows"
+        >
           <button
             v-for="agent in childAgentRows(item.activity)"
             :key="agent.id"
@@ -86,13 +100,22 @@
               <SubagentIcon :status="agent.status" :size="12" />
             </span>
             <span class="child-agent-title">{{ agent.title }}</span>
-            <span v-if="agent.status === 'running'" class="tool-activity-status">{{ tr(settingStore.language, "running") }}</span>
-            <span v-else-if="agent.status === 'error'" class="tool-activity-status error">{{ tr(settingStore.language, "failed") }}</span>
+            <span v-if="agent.status === 'running'" class="tool-activity-status">
+              {{ tr(settingStore.language, "running") }}
+            </span>
+            <span v-else-if="agent.status === 'error'" class="tool-activity-status error">
+              {{ tr(settingStore.language, "failed") }}
+            </span>
             <PanelRightOpen :size="13" class="child-agent-inspect" />
           </button>
         </div>
 
-        <div v-if="isExpanded(item.activity) && (!isSubagentTool(item.activity) || showSubagentDetails)" class="tool-activity-body">
+        <div
+          v-if="
+            isExpanded(item.activity) && (!isSubagentTool(item.activity) || showSubagentDetails)
+          "
+          class="tool-activity-body"
+        >
           <div v-if="item.activity.detail" class="tool-activity-detail">
             <Markdown :content="item.activity.detail" />
           </div>
@@ -139,28 +162,28 @@ import TaskListCard from "@/components/chat/TaskListCard.vue";
 import type { TaskItem, ToolActivity } from "@/types/chat";
 import { useSettingStore } from "@/stores/setting";
 import { tr } from "@/services/i18n";
-import {
-  hunkFromPlainEdit,
-  parseUnifiedDiffHunks,
-  type DiffHunk,
-} from "@/services/chat/toolDiff";
+import { SUBAGENT_TOOLS } from "@/services/chat/subagentTools";
+import { hunkFromPlainEdit, parseUnifiedDiffHunks, type DiffHunk } from "@/services/chat/toolDiff";
 
-const props = withDefaults(defineProps<{
-  activities: ToolActivity[];
-  allActivities?: ToolActivity[];
-  operations?: boolean;
-  nested?: boolean;
-  showInspectAction?: boolean;
-  showSubagentDetails?: boolean;
-  /** When true, shell/diff cards start collapsed (compact display mode). */
-  cardsCollapsed?: boolean;
-}>(), {
-  operations: false,
-  nested: false,
-  showInspectAction: true,
-  showSubagentDetails: false,
-  cardsCollapsed: false,
-});
+const props = withDefaults(
+  defineProps<{
+    activities: ToolActivity[];
+    allActivities?: ToolActivity[];
+    operations?: boolean;
+    nested?: boolean;
+    showInspectAction?: boolean;
+    showSubagentDetails?: boolean;
+    /** When true, shell/diff cards start collapsed (compact display mode). */
+    cardsCollapsed?: boolean;
+  }>(),
+  {
+    operations: false,
+    nested: false,
+    showInspectAction: true,
+    showSubagentDetails: false,
+    cardsCollapsed: false,
+  },
+);
 const emit = defineEmits<{ inspectSubagent: [activityId: string] }>();
 const settingStore = useSettingStore();
 const inspectLabel = computed(() => tr(settingStore.language, "subagent.view"));
@@ -177,7 +200,12 @@ type ChildAgentRow = {
 };
 
 const HIDE_RESULT_TOOLS = new Set([
-  "read_file", "list_folder", "find_files", "search_files", "list_symbols", "fetch_url",
+  "read_file",
+  "list_folder",
+  "find_files",
+  "search_files",
+  "list_symbols",
+  "fetch_url",
 ]);
 
 const FILE_OPERATION_KINDS = new Set(["create", "edit", "delete", "move"]);
@@ -217,12 +245,14 @@ function tasksFromActivity(activity: ToolActivity): TaskItem[] {
           ? item.active_form
           : undefined;
     const level = typeof item.level === "number" ? item.level : undefined;
-    return [{
-      content,
-      status: String(item.status ?? "pending"),
-      activeForm,
-      level,
-    }];
+    return [
+      {
+        content,
+        status: String(item.status ?? "pending"),
+        activeForm,
+        level,
+      },
+    ];
   });
 }
 
@@ -258,7 +288,9 @@ function collectHunks(activity: ToolActivity): DiffHunk[] {
 }
 
 function shouldShowResult(activity: ToolActivity) {
-  return Boolean(activity.result && activity.status !== "running" && !HIDE_RESULT_TOOLS.has(activity.toolName));
+  return Boolean(
+    activity.result && activity.status !== "running" && !HIDE_RESULT_TOOLS.has(activity.toolName),
+  );
 }
 
 function isFuzzy(activity: ToolActivity) {
@@ -269,26 +301,22 @@ function icon(activity: ToolActivity): Component {
   if (isRunningSubagent(activity)) return LoaderCircle;
   if (isSubagentTool(activity)) return Workflow;
   switch (activity.kind) {
-    case "shell": return Terminal;
-    case "create": return FilePlus2;
-    case "edit": return FilePenLine;
-    case "delete": return FileX2;
-    case "move": return MoveRight;
-    case "read": return FolderSearch;
-    default: return Wrench;
+    case "shell":
+      return Terminal;
+    case "create":
+      return FilePlus2;
+    case "edit":
+      return FilePenLine;
+    case "delete":
+      return FileX2;
+    case "move":
+      return MoveRight;
+    case "read":
+      return FolderSearch;
+    default:
+      return Wrench;
   }
 }
-
-const SUBAGENT_TOOLS = new Set([
-  "run_subagent",
-  "run_parallel_subagents",
-  "run_skill",
-  "explore_codebase",
-  "research_topic",
-  "review_code",
-  "review_security",
-  "generate_word",
-]);
 
 function isSubagentTool(activity: ToolActivity) {
   return SUBAGENT_TOOLS.has(activity.toolName);
@@ -341,7 +369,10 @@ function childAgentRows(activity: ToolActivity): ChildAgentRow[] {
 }
 
 function shortTaskTitle(prompt: string, index: number) {
-  const lines = prompt.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = prompt
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   const heading = lines.find((line) => /^#{1,6}\s+/.test(line));
   const source = heading ?? lines[0] ?? "";
   const cleaned = source
@@ -411,9 +442,23 @@ watch(
 </script>
 
 <style scoped>
-.tool-activity-list { display: flex; flex-direction: column; gap: 3px; width: 100%; margin-bottom: 0; box-sizing: border-box; }
-.tool-activity-list.operations { gap: 3px; }
-.file-diff-stack { display: flex; flex-direction: column; gap: 0; width: 100%; }
+.tool-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  margin-bottom: 0;
+  box-sizing: border-box;
+}
+.tool-activity-list.operations {
+  gap: 3px;
+}
+.file-diff-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+}
 .tool-activity-list.nested {
   gap: 2px;
   margin: 2px 8px 8px 28px;
@@ -472,7 +517,9 @@ watch(
   width: 100%;
   background: transparent;
   border-radius: 6px;
-  transition: background 120ms ease, color 120ms ease;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 .tool-activity-main {
   flex: 1;
@@ -493,8 +540,14 @@ watch(
   background: color-mix(in srgb, var(--peek-text) 5%, transparent);
   color: var(--peek-text);
 }
-.activity-chevron { flex: none; color: var(--peek-faint); transition: transform 150ms ease; }
-.activity-chevron.open { transform: rotate(90deg); }
+.activity-chevron {
+  flex: none;
+  color: var(--peek-faint);
+  transition: transform 150ms ease;
+}
+.activity-chevron.open {
+  transform: rotate(90deg);
+}
 .tool-activity-main[aria-expanded="true"] {
   color: var(--peek-text);
   border-bottom: 0;
@@ -510,26 +563,116 @@ watch(
   background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
   color: var(--peek-accent);
 }
-.tool-activity-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fuzzy-badge { flex: none; font-size: 9px; padding: 0 5px; border-radius: 999px; background: color-mix(in srgb, #eab308 22%, transparent); color: #eab308; font-weight: 650; }
-.tool-activity-status { flex: none; color: var(--peek-muted); font-size: 10px; }
-.tool-activity-status.error { color: var(--destructive); }
-.inspect-subagent-button { flex: none; width: 23px; height: 23px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 4px; color: var(--peek-muted); background: transparent; cursor: pointer; }
-.inspect-subagent-button:hover { color: var(--peek-accent); background: color-mix(in srgb, var(--peek-accent) 12%, transparent); }
-.child-agent-rows { display: flex; flex-direction: column; gap: 2px; margin: 0 6px 5px 28px; padding-left: 8px; border-left: 1px solid color-mix(in srgb, var(--peek-border) 78%, transparent); }
-.child-agent-row { width: 100%; min-width: 0; min-height: 29px; display: flex; align-items: center; gap: 6px; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--peek-muted); text-align: left; cursor: pointer; }
-.child-agent-row:hover { color: var(--peek-text); background: color-mix(in srgb, var(--peek-text) 5%, transparent); }
-.child-agent-title { flex: 1; min-width: 0; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.child-agent-inspect { flex: none; color: var(--peek-faint); }
-.child-agent-row:hover .child-agent-inspect { color: var(--peek-accent); }
+.tool-activity-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fuzzy-badge {
+  flex: none;
+  font-size: 9px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #eab308 22%, transparent);
+  color: #eab308;
+  font-weight: 650;
+}
+.tool-activity-status {
+  flex: none;
+  color: var(--peek-muted);
+  font-size: 10px;
+}
+.tool-activity-status.error {
+  color: var(--destructive);
+}
+.inspect-subagent-button {
+  flex: none;
+  width: 23px;
+  height: 23px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--peek-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.inspect-subagent-button:hover {
+  color: var(--peek-accent);
+  background: color-mix(in srgb, var(--peek-accent) 12%, transparent);
+}
+.child-agent-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 6px 5px 28px;
+  padding-left: 8px;
+  border-left: 1px solid color-mix(in srgb, var(--peek-border) 78%, transparent);
+}
+.child-agent-row {
+  width: 100%;
+  min-width: 0;
+  min-height: 29px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--peek-muted);
+  text-align: left;
+  cursor: pointer;
+}
+.child-agent-row:hover {
+  color: var(--peek-text);
+  background: color-mix(in srgb, var(--peek-text) 5%, transparent);
+}
+.child-agent-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.child-agent-inspect {
+  flex: none;
+  color: var(--peek-faint);
+}
+.child-agent-row:hover .child-agent-inspect {
+  color: var(--peek-accent);
+}
 .tool-activity-detail {
   padding: 2px 6px 8px 28px;
   font-size: 11px;
   color: var(--peek-muted);
 }
-.tool-activity-detail :deep(pre) { margin: 0; max-height: var(--agent-card-max-height, 240px); overflow: auto; border-radius: 6px; }
-.tool-activity-card.create .tool-activity-icon { background: color-mix(in srgb, #22c55e 15%, transparent); color: #22c55e; }
-.tool-activity-card.edit .tool-activity-icon { background: color-mix(in srgb, #eab308 15%, transparent); color: #eab308; }
-.tool-activity-card.delete .tool-activity-icon { background: color-mix(in srgb, var(--destructive) 15%, transparent); color: var(--destructive); }
-@keyframes subagent-tool-spin { to { transform: rotate(360deg); } }
+.tool-activity-detail :deep(pre) {
+  margin: 0;
+  max-height: var(--agent-card-max-height, 240px);
+  overflow: auto;
+  border-radius: 6px;
+}
+.tool-activity-card.create .tool-activity-icon {
+  background: color-mix(in srgb, #22c55e 15%, transparent);
+  color: #22c55e;
+}
+.tool-activity-card.edit .tool-activity-icon {
+  background: color-mix(in srgb, #eab308 15%, transparent);
+  color: #eab308;
+}
+.tool-activity-card.delete .tool-activity-icon {
+  background: color-mix(in srgb, var(--destructive) 15%, transparent);
+  color: var(--destructive);
+}
+@keyframes subagent-tool-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 </style>

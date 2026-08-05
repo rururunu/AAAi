@@ -5,6 +5,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 use rdev::Key;
 
 pub const DEFAULT_SECONDARY_HOTKEY: &str = "Ctrl+Alt+Space";
+/// Primary overlay gesture — double-tap `Alt` (configurable modifier).
 pub const DEFAULT_PRIMARY_HOTKEY: &str = "Alt";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -26,7 +27,7 @@ impl PrimaryHotkey {
         }
     }
 
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Alt => "Alt",
             Self::Ctrl => "Ctrl",
@@ -48,9 +49,8 @@ pub fn parse_primary_hotkey(raw: &str) -> Result<PrimaryHotkey, String> {
 
 pub fn normalize_primary_hotkey(raw: &str) -> String {
     parse_primary_hotkey(raw)
-        .unwrap_or_default()
-        .label()
-        .to_string()
+        .map(|hotkey| hotkey.label().to_string())
+        .unwrap_or_else(|_| DEFAULT_PRIMARY_HOTKEY.to_string())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -492,7 +492,7 @@ pub fn shared_primary_hotkey() -> &'static Mutex<PrimaryHotkey> {
 }
 
 pub fn configure_primary_hotkey(raw: &str) {
-    let hotkey = parse_primary_hotkey(raw).unwrap_or_default();
+    let hotkey = parse_primary_hotkey(&normalize_primary_hotkey(raw)).unwrap_or_default();
     *lock_recover(shared_primary_hotkey()) = hotkey;
 }
 
@@ -522,7 +522,16 @@ mod tests {
     #[test]
     fn normalizes_primary_double_tap_modifier() {
         assert_eq!(normalize_primary_hotkey("control"), "Ctrl");
+        assert_eq!(normalize_primary_hotkey("Alt+;"), "Alt");
+        assert_eq!(normalize_primary_hotkey("Ctrl+`"), "Alt");
         assert_eq!(normalize_primary_hotkey("invalid"), DEFAULT_PRIMARY_HOTKEY);
+    }
+
+    #[test]
+    fn primary_hotkey_detection() {
+        assert!(parse_primary_hotkey("Alt").is_ok());
+        assert!(parse_primary_hotkey("ctrl").is_ok());
+        assert!(parse_primary_hotkey("Alt+;").is_err());
     }
 
     #[test]

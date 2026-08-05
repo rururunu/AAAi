@@ -20,8 +20,10 @@ import {
 } from "@/services/ipc";
 import { normalizeToolActivityEvent, resolveSessionId } from "@/services/chat/normalize";
 import { createRafBatch } from "@/services/chat/rafBatch";
+import { hideBootSplash, waitForNextPaint } from "@/services/bootSplash";
 import { markPeekWindow } from "@/services/overlay/appearance";
 import { installBrowserGuards } from "@/services/browserGuards";
+import { createLogger, rootLogger } from "@/services/logger";
 import type {
   ChatContextNoticeEvent,
   ChatDeltaEvent,
@@ -39,19 +41,38 @@ installBrowserGuards();
 
 const app = createApp(App);
 const pinia = createPinia();
+const bootLog = createLogger("bootstrap");
+
+app.config.errorHandler = (err, _instance, info) => {
+  rootLogger.error("vue errorHandler", {
+    info,
+    err: err instanceof Error ? { message: err.message, stack: err.stack } : err,
+  });
+};
+
+window.addEventListener("unhandledrejection", (event) => {
+  rootLogger.error("unhandledrejection", {
+    reason:
+      event.reason instanceof Error
+        ? { message: event.reason.message, stack: event.reason.stack }
+        : event.reason,
+  });
+});
+
+window.addEventListener("error", (event) => {
+  rootLogger.error("window error", {
+    message: event.message,
+    filename: event.filename,
+    lineno: event.lineno,
+    colno: event.colno,
+  });
+});
 
 app.use(pinia);
 app.use(router);
 
 const settingStore = useSettingStore();
 const chatStore = useChatStore();
-
-function hideBootSplash() {
-  const splash = document.getElementById("boot-splash");
-  if (!splash) return;
-  splash.setAttribute("hidden", "");
-  splash.setAttribute("aria-busy", "false");
-}
 
 type StreamBatchUpdate = {
   sessionId: string;
@@ -60,6 +81,7 @@ type StreamBatchUpdate = {
   reasoningDelta?: string;
 };
 
+/** Coalesce high-frequency stream deltas onto animation frames. */
 const streamBatch = createRafBatch<StreamBatchUpdate>((batch) => {
   chatStore.applyStreamDeltas(
     batch.map((item) => ({
@@ -69,32 +91,64 @@ const streamBatch = createRafBatch<StreamBatchUpdate>((batch) => {
   );
 });
 
+/**
+ * Boot the correct window surface (workbench / overlay / settings),
+ * wire chat IPC listeners, then drop the HTML splash once paint is ready.
+ */
 async function bootstrap() {
   const webviewWindow = getCurrentWebviewWindow();
   const windowLabel = webviewWindow.label;
-  const isOverlay = (windowLabel === "overlay" || windowLabel.startsWith("overlay-"))
-    && !windowLabel.startsWith("overlay-preview-");
+  const isOverlay =
+    (windowLabel === "overlay" || windowLabel.startsWith("overlay-")) &&
+    !windowLabel.startsWith("overlay-preview-");
 
-  // Resolve each interactive route before loading settings. Mount the workbench
-  // immediately so the boot splash / WorkbenchLoading cover the white-screen gap.
+  // Resolve each interactive route before loading settings. Keep the HTML
+  // boot splash up until the workbench loading layer has painted, so we never
+  // cut to a blank frame between splash → Suspense → Main loading.
   if (windowLabel === "workbench") {
     void router.replace("/workbench");
+    applyTheme({
+      colorScheme: "dark",
+      language: settingStore.language,
+    });
+    // Load persisted settings before Main mounts. Otherwise its first render
+    // sees the default onboardingCompleted=false and opens the wizard before
+    // the persisted value arrives.
+    await settingStore.load();
     applyTheme({
       colorScheme: settingStore.colorScheme,
       language: settingStore.language,
     });
     app.mount("#app");
-    hideBootSplash();
-    await settingStore.load();
+    await router.isReady();
+    await waitForNextPaint();
+    hideBootSplash({ fadeMs: 220 });
   } else if (isOverlay) {
-    hideBootSplash();
     markPeekWindow();
+    hideBootSplash({ fadeMs: 0 });
     void router.replace("/overlay");
+    applyTheme({
+      colorScheme: "dark",
+      language: settingStore.language,
+    });
     await settingStore.load();
+    applyTheme({
+      colorScheme: settingStore.colorScheme,
+      language: settingStore.language,
+    });
     app.mount("#app");
+    await router.isReady();
+    await waitForNextPaint();
   } else {
-    hideBootSplash();
+    applyTheme({
+      colorScheme: "dark",
+      language: settingStore.language,
+    });
     await settingStore.load();
+    applyTheme({
+      colorScheme: settingStore.colorScheme,
+      language: settingStore.language,
+    });
   }
 
   await listenSettingsChanged((settings) => {
@@ -114,10 +168,7 @@ async function bootstrap() {
     };
     const sId = resolveSessionId(event.sessionId, event.session_id);
     if (sId && (chatStore.sessions[sId] || sId === chatStore.overlayDraftSessionId)) {
-      chatStore.setContextNotice(
-        sId,
-        event.message,
-      );
+      chatStore.setContextNotice(sId, event.message);
       const prev = chatStore.contextUsage[sId];
       chatStore.setContextUsage(sId, {
         usageRatio: event.usageRatio,
@@ -165,6 +216,9 @@ async function bootstrap() {
     };
     const sId = resolveSessionId(event.sessionId, event.session_id);
     if (sId && (chatStore.sessions[sId] || sId === chatStore.overlayDraftSessionId)) {
+      if (event.kind?.startsWith("stream_retry")) {
+        streamBatch.drain();
+      }
       chatStore.setActivityStatus(
         sId,
         event.messageId ?? event.message_id ?? "",
@@ -206,8 +260,8 @@ async function bootstrap() {
         event.reasoning,
       );
     }
-    // 本轮正常执行完后，立即自动发出暂存的消息（引导按钮之外的默认路径）。
-    if (sId && event.finishReason !== "cancelled") {
+    // 本轮结束后（含用户停止）自动发出暂存消息。
+    if (sId) {
       void chatStore.flushStaged(sId);
     }
   });
@@ -226,6 +280,7 @@ async function bootstrap() {
         event.message,
         chatStore.overlayDraftSessionId,
       );
+      void chatStore.flushStaged(sId);
     }
   });
 
@@ -242,12 +297,7 @@ async function bootstrap() {
       sessionId &&
       (chatStore.sessions[sessionId] || sessionId === chatStore.overlayDraftSessionId)
     ) {
-      chatStore.upsertToolActivity(
-        sessionId,
-        messageId,
-        activity,
-        chatStore.overlayDraftSessionId,
-      );
+      chatStore.upsertToolActivity(sessionId, messageId, activity, chatStore.overlayDraftSessionId);
     }
   };
 
@@ -282,9 +332,14 @@ async function bootstrap() {
 
   await router.isReady();
   if (windowLabel !== "workbench" && !isOverlay) {
-    hideBootSplash();
     app.mount("#app");
+    await waitForNextPaint();
+    hideBootSplash({ fadeMs: 180 });
   }
+
+  bootLog.info("ready", { windowLabel });
 }
 
-void bootstrap();
+void bootstrap().catch((err) => {
+  bootLog.error("bootstrap failed", err);
+});

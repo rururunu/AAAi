@@ -22,7 +22,7 @@ fn normalize_tool_name(name: &str) -> &str {
         // Search
         "Grep" | "grep" | "rg" => "search_files",
         "Glob" | "glob" => "find_files",
-        // Task / ask (Cursor-style aliases)
+        // Task / ask aliases
         "todo_write" | "TodoWrite" | "todoWrite" | "update_task_list" => "update_tasks",
         "AskQuestion" | "ask_question" | "AskUser" => "ask_user",
         _ => name,

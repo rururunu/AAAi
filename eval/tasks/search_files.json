@@ -1,0 +1,34 @@
+{
+  "id": "search_files",
+  "prompt": "Find TODO markers.",
+  "setupFiles": [
+    {
+      "path": "lib.rs",
+      "content": "// TODO: fix\nfn main() {}"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "search_files",
+          "arguments": {
+            "pattern": "TODO",
+            "path": "."
+          }
+        }
+      ]
+    },
+    {
+      "content": "Found TODO in lib.rs",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "answerContains",
+      "text": "TODO"
+    }
+  ]
+}

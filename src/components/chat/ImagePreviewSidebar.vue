@@ -115,7 +115,7 @@ let copyTimer: number | undefined;
 let stageResizeObserver: ResizeObserver | undefined;
 
 const activeSource = computed(() =>
-  props.sources.includes(props.selectedSource) ? props.selectedSource : props.sources[0] ?? "",
+  props.sources.includes(props.selectedSource) ? props.selectedSource : (props.sources[0] ?? ""),
 );
 const resolvedSource = computed(() => resolveSource(activeSource.value));
 const displayName = computed(() => sourceName(activeSource.value));
@@ -124,7 +124,9 @@ const closeTabLabel = computed(() => tr(settingStore.language, "image.close"));
 const zoomInLabel = computed(() => tr(settingStore.language, "image.zoomIn"));
 const zoomOutLabel = computed(() => tr(settingStore.language, "image.zoomOut"));
 const resetLabel = computed(() => tr(settingStore.language, "image.fit"));
-const copyLabel = computed(() => tr(settingStore.language, copied.value ? "image.copied" : "image.copySource"));
+const copyLabel = computed(() =>
+  tr(settingStore.language, copied.value ? "image.copied" : "image.copySource"),
+);
 const emptyLabel = computed(() => tr(settingStore.language, "image.empty"));
 
 function resolveSource(source: string) {
@@ -150,12 +152,14 @@ function panBounds() {
   const image = imageRef.value;
   if (!stage || !image || scale.value <= 1) return { x: 0, y: 0 };
   const style = getComputedStyle(stage);
-  const availableWidth = stage.clientWidth
-    - Number.parseFloat(style.paddingLeft)
-    - Number.parseFloat(style.paddingRight);
-  const availableHeight = stage.clientHeight
-    - Number.parseFloat(style.paddingTop)
-    - Number.parseFloat(style.paddingBottom);
+  const availableWidth =
+    stage.clientWidth -
+    Number.parseFloat(style.paddingLeft) -
+    Number.parseFloat(style.paddingRight);
+  const availableHeight =
+    stage.clientHeight -
+    Number.parseFloat(style.paddingTop) -
+    Number.parseFloat(style.paddingBottom);
   return {
     x: Math.max(0, (image.offsetWidth * scale.value - availableWidth) / 2),
     y: Math.max(0, (image.offsetHeight * scale.value - availableHeight) / 2),
@@ -178,8 +182,12 @@ function setScale(next: number) {
   }
 }
 
-function zoomIn() { setScale(scale.value + 0.25); }
-function zoomOut() { setScale(scale.value - 0.25); }
+function zoomIn() {
+  setScale(scale.value + 0.25);
+}
+function zoomOut() {
+  setScale(scale.value - 0.25);
+}
 function resetView() {
   scale.value = 1;
   offsetX.value = 0;
@@ -187,7 +195,10 @@ function resetView() {
   dragging.value = false;
   activePointerId = null;
 }
-function toggleZoom() { scale.value === 1 ? setScale(2) : resetView(); }
+function toggleZoom() {
+  if (scale.value === 1) setScale(2);
+  else resetView();
+}
 function handleWheel(event: WheelEvent) {
   setScale(scale.value + (event.deltaY < 0 ? 0.12 : -0.12));
 }
@@ -236,7 +247,9 @@ async function copySource() {
   await copyText(activeSource.value);
   copied.value = true;
   if (copyTimer) window.clearTimeout(copyTimer);
-  copyTimer = window.setTimeout(() => { copied.value = false; }, 1400);
+  copyTimer = window.setTimeout(() => {
+    copied.value = false;
+  }, 1400);
 }
 
 watch(activeSource, () => {
@@ -258,31 +271,169 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.image-preview-sidebar { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.image-tabs { flex: none; }
-.image-tab-shell { flex: 0 0 190px; width: 190px; min-width: 190px; max-width: 240px; }
-.image-tab { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 7px; padding: 0 4px 0 9px; border: 0; background: transparent; color: inherit; cursor: pointer; }
-.image-tab > svg { flex: none; color: color-mix(in srgb, var(--peek-accent) 82%, var(--peek-text)); }
-.image-tab span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
-.image-tab-close { position: relative; z-index: 1; flex: none; width: 24px; height: 24px; display: inline-grid; place-items: center; margin-right: 4px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--peek-faint); cursor: pointer; opacity: 0; }
-.image-tab-shell:hover .image-tab-close, .image-tab-shell.active .image-tab-close { opacity: 1; }
-.image-tab-close:hover { color: var(--peek-text); background: color-mix(in srgb, var(--peek-text) 8%, transparent); }
-.image-preview-toolbar { flex: none; height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--peek-border); }
-.image-name { min-width: 0; flex: 1; overflow: hidden; color: var(--peek-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.image-actions { display: flex; align-items: center; gap: 2px; }
-.image-actions button { width: 26px; height: 26px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--peek-muted); cursor: pointer; }
-.image-actions button:hover { background: color-mix(in srgb, var(--peek-text) 7%, transparent); color: var(--peek-text); }
-.zoom-value { width: 40px; color: var(--peek-faint); font-size: 10px; text-align: center; }
-.image-stage { box-sizing: border-box; flex: 1; min-width: 0; min-height: 0; display: grid; place-items: center; overflow: hidden; padding: 18px; background: color-mix(in srgb, var(--peek-bg) 72%, transparent); cursor: default; user-select: none; touch-action: none; }
-.image-stage.pannable { cursor: grab; }
-.image-stage.dragging { cursor: grabbing; }
-.image-stage img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none; transform-origin: center; transition: transform 100ms ease-out; will-change: transform; }
-.image-stage.dragging img { transition: none; }
-.image-stage p { color: var(--peek-faint); font-size: 12px; }
+.image-preview-sidebar {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.image-tabs {
+  flex: none;
+}
+.image-tab-shell {
+  flex: 0 0 190px;
+  width: 190px;
+  min-width: 190px;
+  max-width: 240px;
+}
+.image-tab {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 4px 0 9px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.image-tab > svg {
+  flex: none;
+  color: color-mix(in srgb, var(--peek-accent) 82%, var(--peek-text));
+}
+.image-tab span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+.image-tab-close {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--peek-faint);
+  cursor: pointer;
+  opacity: 0;
+}
+.image-tab-shell:hover .image-tab-close,
+.image-tab-shell.active .image-tab-close {
+  opacity: 1;
+}
+.image-tab-close:hover {
+  color: var(--peek-text);
+  background: color-mix(in srgb, var(--peek-text) 8%, transparent);
+}
+.image-preview-toolbar {
+  flex: none;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--peek-border);
+}
+.image-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--peek-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.image-actions button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--peek-muted);
+  cursor: pointer;
+}
+.image-actions button:hover {
+  background: color-mix(in srgb, var(--peek-text) 7%, transparent);
+  color: var(--peek-text);
+}
+.zoom-value {
+  width: 40px;
+  color: var(--peek-faint);
+  font-size: 10px;
+  text-align: center;
+}
+.image-stage {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 18px;
+  background: color-mix(in srgb, var(--peek-bg) 72%, transparent);
+  cursor: default;
+  user-select: none;
+  touch-action: none;
+}
+.image-stage.pannable {
+  cursor: grab;
+}
+.image-stage.dragging {
+  cursor: grabbing;
+}
+.image-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  transform-origin: center;
+  transition: transform 100ms ease-out;
+  will-change: transform;
+}
+.image-stage.dragging img {
+  transition: none;
+}
+.image-stage p {
+  color: var(--peek-faint);
+  font-size: 12px;
+}
 @container workspace-sidebar (max-width: 560px) {
-  .image-tab-shell { flex-basis: 164px; width: 164px; min-width: 164px; }
-  .image-preview-toolbar { padding-left: 8px; }
-  .image-name { display: none; }
-  .image-actions { width: 100%; justify-content: flex-end; }
+  .image-tab-shell {
+    flex-basis: 164px;
+    width: 164px;
+    min-width: 164px;
+  }
+  .image-preview-toolbar {
+    padding-left: 8px;
+  }
+  .image-name {
+    display: none;
+  }
+  .image-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 </style>

@@ -25,7 +25,7 @@ impl Tool for SearchTool {
         "web_search"
     }
     fn description(&self) -> &str {
-        "Search the web and return structured result metadata. Prefer including today's date in time-sensitive queries. Use before browser_read when the user asks for current, recent, or externally verifiable information."
+        "Search the web and return structured result metadata. Prefer including today's date in time-sensitive queries. Use before browser_read when the user asks for current, recent, or externally verifiable information. Skip when repository evidence or stable knowledge already answers the question."
     }
     fn parameters_schema(&self) -> Value {
         let today = today_local();

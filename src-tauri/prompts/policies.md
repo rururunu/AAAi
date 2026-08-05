@@ -15,19 +15,7 @@ When the user supplies `<peek-attached-file ...>` or a file chip/path:
 
 ## Editing existing files
 
-Choose the narrowest tool for the change:
-1. Localized edit: `replace_in_file` with a unique anchor.
-2. Multiple independent edits: `replace_many_in_file`.
-3. Structural, block, or multi-file edits: `apply_patch` with minimal context.
-4. New file or full rewrite requested: `write_file`.
-
-Anchors and patches must contain only changing lines plus 1-2 context lines. Never pass whole-file content or long unchanged blocks. Do not default to `apply_patch` or use `write_file` to avoid locating edits. If matching is ambiguous, narrow the search and retry. Preserve style, encoding, and line endings.
-
-## Discovery and commands
-
-Use dedicated workspace tools for scoped reads and searches; prefer `search_files`/`find_files` over directory scans. Exclude generated and dependency dirs unless in scope.
-
-Use `run_shell` only when dedicated tools are insufficient (PowerShell, workspace root). Prefer `rg`/`rg --files`; use `rtk` to compact large output. Do not repeat a failed command without changing approach.
+Follow each edit tool's description for which tool to pick and how much context to pass. Preserve style, encoding, and line endings. If matching is ambiguous, narrow the search and retry — do not fall back to a full-file rewrite to avoid locating the edit.
 
 ## Verification
 

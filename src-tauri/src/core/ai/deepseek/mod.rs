@@ -1,0 +1,639 @@
+//! DeepSeek and OpenAI-compatible chat provider.
+
+mod image_fallback;
+mod messages;
+mod models;
+mod multimodal;
+mod stream;
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use tokio::sync::mpsc::Sender;
+use tracing::Instrument;
+
+use crate::core::runtime::{ChatRequest, Role, StreamEvent};
+use crate::models::settings::ReasoningEffort;
+
+use super::provider::{AIProvider, ProviderError};
+
+pub use models::list_models;
+pub(crate) use messages::build_api_body;
+pub(crate) use models::normalize_chat_completions_url;
+use stream::RETRY_BACKOFF;
+
+use image_fallback::{apply_image_input_fallback, FallbackPlan};
+use stream::{emit_stream_error, run_chat_stream};
+
+const API_URL: &str = "https://api.deepseek.com/chat/completions";
+
+pub struct DeepSeekProvider {
+    app: tauri::AppHandle,
+    resolve_api_key: Arc<dyn Fn() -> String + Send + Sync>,
+    resolve_model: Arc<dyn Fn() -> String + Send + Sync>,
+    resolve_effort: Arc<dyn Fn() -> ReasoningEffort + Send + Sync>,
+    resolve_pass_tool_reasoning: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// Optional resolver that returns a custom chat-completions URL.
+    /// When `None` (or the resolver returns `None`) the default `API_URL` is used.
+    resolve_base_url: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
+}
+
+impl DeepSeekProvider {
+    pub fn new(
+        app: tauri::AppHandle,
+        resolve_api_key: Arc<dyn Fn() -> String + Send + Sync>,
+        resolve_model: Arc<dyn Fn() -> String + Send + Sync>,
+        resolve_effort: Arc<dyn Fn() -> ReasoningEffort + Send + Sync>,
+        resolve_pass_tool_reasoning: Arc<dyn Fn() -> bool + Send + Sync>,
+        resolve_base_url: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
+    ) -> Self {
+        Self {
+            app,
+            resolve_api_key,
+            resolve_model,
+            resolve_effort,
+            resolve_pass_tool_reasoning,
+            resolve_base_url,
+        }
+    }
+
+    fn api_key(&self) -> Result<String, ProviderError> {
+        let api_key = (self.resolve_api_key)();
+        if api_key.trim().is_empty() {
+            return Err(ProviderError::message(
+                "Model credentials are not configured. Sign in to Gemini (Antigravity) or enter an API Key in Settings.",
+            ));
+        }
+        Ok(api_key.trim().to_string())
+    }
+
+    fn model(&self) -> Result<String, ProviderError> {
+        let model = (self.resolve_model)();
+        let trimmed = model.trim();
+        if trimmed.is_empty() {
+            return Err(ProviderError::message(
+                "No model selected. Configure a provider and choose a model in Settings first.",
+            ));
+        }
+        Ok(trimmed.to_string())
+    }
+
+    fn effort(&self) -> ReasoningEffort {
+        (self.resolve_effort)()
+    }
+
+    fn pass_tool_reasoning(&self) -> bool {
+        (self.resolve_pass_tool_reasoning)()
+    }
+
+    fn chat_completions_url(&self) -> String {
+        if let Some(resolver) = &self.resolve_base_url {
+            if let Some(base) = resolver() {
+                return normalize_chat_completions_url(&base);
+            }
+        }
+        API_URL.to_string()
+    }
+}
+
+#[async_trait]
+impl AIProvider for DeepSeekProvider {
+    fn id(&self) -> &'static str {
+        "deepseek"
+    }
+
+    async fn stream(
+        &self,
+        request: ChatRequest,
+        tx: Sender<StreamEvent>,
+    ) -> Result<(), ProviderError> {
+        let span = tracing::info_span!(
+            target: "peek.provider",
+            "provider_stream",
+            provider = "deepseek",
+            session_id = %request.session_id,
+            request_id = %request.request_id,
+        );
+        self.stream_inner(request, tx).instrument(span).await
+    }
+}
+
+impl DeepSeekProvider {
+    async fn stream_inner(
+        &self,
+        request: ChatRequest,
+        tx: Sender<StreamEvent>,
+    ) -> Result<(), ProviderError> {
+        let settings = crate::services::settings_store::get_settings(&self.app).unwrap_or_default();
+        let mut request = request;
+        let primary_model = self.model()?;
+        let primary_api_key = self.api_key()?;
+        let primary_url = self.chat_completions_url();
+        let effort = self.effort();
+        let pass_tool_reasoning = self.pass_tool_reasoning();
+        let include_thinking = !primary_url.contains("generativelanguage.googleapis.com");
+
+        let has_images = request
+            .messages
+            .iter()
+            .any(|msg| msg.role == Role::User && msg.content.contains("![image]("));
+
+        let _ = tx.send(StreamEvent::Start).await;
+        let client = reqwest::Client::new();
+
+        let mut model = primary_model.clone();
+        let mut api_key = primary_api_key.clone();
+        let mut url = primary_url.clone();
+
+        if has_images {
+            let body = build_api_body(
+                &request,
+                &primary_model,
+                true,
+                effort,
+                pass_tool_reasoning,
+                include_thinking,
+            );
+            match run_chat_stream(&client, &primary_url, &primary_api_key, &body, &tx).await {
+                Ok(()) => return Ok(()),
+                // Multimodal split-analysis is only for text-only primaries.
+                // Gemini / gpt-4o / Claude already see images natively — never describe→reask.
+                Err(error)
+                    if crate::core::ai::multimodal::is_vision_unsupported_error(&error)
+                        && !crate::core::ai::multimodal::primary_model_has_native_vision(
+                            &primary_model,
+                        ) =>
+                {
+                    match apply_image_input_fallback(&mut request, &settings, &self.app, &tx).await
+                    {
+                        Ok(FallbackPlan::RetryPrimary) => {
+                            model = primary_model;
+                            api_key = primary_api_key;
+                            url = primary_url;
+                        }
+                        Ok(FallbackPlan::SwitchToMultimodal {
+                            model: mm_model,
+                            api_key: mm_key,
+                            url: mm_url,
+                        }) => {
+                            model = mm_model;
+                            api_key = mm_key;
+                            url = mm_url;
+                        }
+                        Err(error) => return emit_stream_error(&tx, error).await,
+                    }
+                }
+                Err(error) => return emit_stream_error(&tx, error).await,
+            }
+        }
+
+        let body = build_api_body(
+            &request,
+            &model,
+            true,
+            effort,
+            pass_tool_reasoning,
+            include_thinking,
+        );
+        match run_chat_stream(&client, &url, &api_key, &body, &tx).await {
+            Ok(()) => Ok(()),
+            Err(error) => emit_stream_error(&tx, error).await,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::core::runtime::{ChatMessage, MessageStatus, RequestContext, Role};
+    use multimodal::{
+        antigravity_model_for_image_describe, multimodal_http_error_message,
+        multimodal_transport_error_message, resolve_multimodal_endpoint,
+        should_retry_multimodal_as_stream,
+    };
+    use messages::message_to_api_json;
+    use serde_json::json;
+    use stream::{user_facing_stream_error, StreamReadOutcome, USER_STREAM_INTERRUPTED};
+
+    fn sample_request(messages: Vec<ChatMessage>) -> ChatRequest {
+        ChatRequest {
+            request_id: "req-1".into(),
+            session_id: "default".into(),
+            messages,
+            context: RequestContext::default(),
+            provider: Some("deepseek".into()),
+            stream: true,
+            tools: std::sync::Arc::from([]),
+            temperature: None,
+            max_tokens: None,
+        }
+    }
+
+    fn assistant_with_reasoning() -> ChatMessage {
+        ChatMessage {
+            id: "msg-a".into(),
+            session_id: "default".into(),
+            role: Role::Assistant,
+            content: "final answer".into(),
+            reasoning: Some("hidden chain of thought".into()),
+            tool_activities: None,
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+            status: MessageStatus::Done,
+            timestamp: 1,
+            estimated_tokens: None,
+        }
+    }
+
+    #[test]
+    fn build_api_body_omits_null_optional_fields() {
+        let body = build_api_body(
+            &sample_request(vec![]),
+            "deepseek-reasoner",
+            true,
+            ReasoningEffort::High,
+            true,
+            true,
+        );
+        let obj = body.as_object().expect("object body");
+        assert!(!obj.contains_key("temperature"));
+        assert!(!obj.contains_key("max_tokens"));
+        assert_eq!(
+            obj.get("stream_options"),
+            Some(&json!({ "include_usage": true }))
+        );
+    }
+
+    #[test]
+    fn build_api_body_high_effort_includes_thinking() {
+        let body = build_api_body(
+            &sample_request(vec![]),
+            "deepseek-reasoner",
+            true,
+            ReasoningEffort::High,
+            true,
+            true,
+        );
+        let obj = body.as_object().expect("object body");
+        assert_eq!(obj.get("thinking"), Some(&json!({ "type": "enabled" })));
+        assert_eq!(obj.get("reasoning_effort"), Some(&json!("high")));
+    }
+
+    #[test]
+    fn build_api_body_disabled_effort_omits_reasoning_effort() {
+        let body = build_api_body(
+            &sample_request(vec![]),
+            "deepseek-chat",
+            true,
+            ReasoningEffort::Disabled,
+            true,
+            true,
+        );
+        let obj = body.as_object().expect("object body");
+        assert_eq!(obj.get("thinking"), Some(&json!({ "type": "disabled" })));
+        assert!(!obj.contains_key("reasoning_effort"));
+    }
+
+    #[test]
+    fn build_api_body_drops_stored_reasoning_from_messages() {
+        let request = sample_request(vec![assistant_with_reasoning()]);
+        let body = build_api_body(
+            &request,
+            "deepseek-reasoner",
+            true,
+            ReasoningEffort::High,
+            true,
+            true,
+        );
+        let messages = body["messages"].as_array().expect("messages array");
+        assert_eq!(messages.len(), 1);
+        let message = &messages[0];
+        assert_eq!(message["role"], "assistant");
+        assert_eq!(message["content"], "final answer");
+        assert!(!message
+            .as_object()
+            .unwrap()
+            .contains_key("reasoning_content"));
+    }
+
+    #[test]
+    fn stream_outcome_complete_when_done_or_finish_reason() {
+        let done = StreamReadOutcome::test_with(true, None);
+        assert!(done.is_complete());
+
+        let finish = StreamReadOutcome::test_with(false, Some("stop".into()));
+        assert!(finish.is_complete());
+
+        let incomplete = StreamReadOutcome::default();
+        assert!(!incomplete.is_complete());
+    }
+
+    #[test]
+    fn user_facing_stream_error_maps_network_failures() {
+        let error = ProviderError::message("network error: connection reset");
+        assert_eq!(user_facing_stream_error(&error), USER_STREAM_INTERRUPTED);
+    }
+
+    #[test]
+    fn message_to_api_json_serializes_tool_result() {
+        use crate::core::runtime::ToolCallPayload;
+
+        let assistant = ChatMessage {
+            id: "a1".into(),
+            session_id: "default".into(),
+            role: Role::Assistant,
+            content: String::new(),
+            reasoning: None,
+            tool_activities: None,
+            tool_calls: Some(vec![ToolCallPayload {
+                id: "call-1".into(),
+                name: "read_file".into(),
+                arguments: r#"{"path":"README.md"}"#.into(),
+                thought_signature: None,
+            }]),
+            tool_call_id: None,
+            name: None,
+            status: MessageStatus::Done,
+            timestamp: 1,
+            estimated_tokens: None,
+        };
+        let tool = ChatMessage {
+            id: "t1".into(),
+            session_id: "default".into(),
+            role: Role::Tool,
+            content: "file contents".into(),
+            reasoning: None,
+            tool_activities: None,
+            tool_calls: None,
+            tool_call_id: Some("call-1".into()),
+            name: Some("read_file".into()),
+            status: MessageStatus::Done,
+            timestamp: 2,
+            estimated_tokens: None,
+        };
+
+        let assistant_json = message_to_api_json(&assistant, true);
+        assert_eq!(assistant_json["role"], "assistant");
+        assert!(assistant_json["tool_calls"].is_array());
+        assert_eq!(assistant_json["reasoning_content"], " ");
+
+        let tool_json = message_to_api_json(&tool, true);
+        assert_eq!(tool_json["role"], "tool");
+        assert_eq!(tool_json["tool_call_id"], "call-1");
+    }
+
+    #[test]
+    fn tool_continuation_disables_thinking() {
+        use crate::core::runtime::ToolCallPayload;
+
+        let assistant = ChatMessage {
+            id: "a1".into(),
+            session_id: "default".into(),
+            role: Role::Assistant,
+            content: String::new(),
+            reasoning: Some("plan once".into()),
+            tool_activities: None,
+            tool_calls: Some(vec![ToolCallPayload {
+                id: "call-1".into(),
+                name: "read_file".into(),
+                arguments: r#"{"path":"a.rs"}"#.into(),
+                thought_signature: None,
+            }]),
+            tool_call_id: None,
+            name: None,
+            status: MessageStatus::Done,
+            timestamp: 1,
+            estimated_tokens: None,
+        };
+        let tool = ChatMessage {
+            id: "t1".into(),
+            session_id: "default".into(),
+            role: Role::Tool,
+            content: "ok".into(),
+            reasoning: None,
+            tool_activities: None,
+            tool_calls: None,
+            tool_call_id: Some("call-1".into()),
+            name: Some("read_file".into()),
+            status: MessageStatus::Done,
+            timestamp: 2,
+            estimated_tokens: None,
+        };
+        let body = build_api_body(
+            &sample_request(vec![assistant, tool]),
+            "deepseek-reasoner",
+            true,
+            ReasoningEffort::High,
+            true,
+            true,
+        );
+        let obj = body.as_object().expect("object body");
+        assert_eq!(obj.get("thinking"), Some(&json!({ "type": "disabled" })));
+        let messages = body["messages"].as_array().expect("messages");
+        assert_eq!(messages[0]["reasoning_content"], "plan once");
+    }
+
+    #[test]
+    fn tool_call_turn_includes_reasoning_when_enabled() {
+        use crate::core::runtime::ToolCallPayload;
+
+        let assistant = ChatMessage {
+            id: "a1".into(),
+            session_id: "default".into(),
+            role: Role::Assistant,
+            content: String::new(),
+            reasoning: Some("need to read the file first".into()),
+            tool_activities: None,
+            tool_calls: Some(vec![ToolCallPayload {
+                id: "call-1".into(),
+                name: "read_file".into(),
+                arguments: r#"{"path":"a.rs"}"#.into(),
+                thought_signature: None,
+            }]),
+            tool_call_id: None,
+            name: None,
+            status: MessageStatus::Done,
+            timestamp: 1,
+            estimated_tokens: None,
+        };
+
+        let enabled = message_to_api_json(&assistant, true);
+        assert_eq!(enabled["reasoning_content"], "need to read the file first");
+
+        let disabled = message_to_api_json(&assistant, false);
+        assert!(!disabled
+            .as_object()
+            .unwrap()
+            .contains_key("reasoning_content"));
+    }
+
+    #[test]
+    fn build_api_body_includes_tools_when_present() {
+        let mut request = sample_request(vec![]);
+        request.tools =
+            std::sync::Arc::from([json!({"type": "function", "function": {"name": "read_file"}})]);
+        let body = build_api_body(
+            &request,
+            "deepseek-chat",
+            true,
+            ReasoningEffort::Disabled,
+            true,
+            true,
+        );
+        assert!(body["tools"].is_array());
+    }
+
+    #[test]
+    fn normalize_chat_completions_url_avoids_duplication() {
+        assert_eq!(
+            normalize_chat_completions_url("https://api.openai.com/v1"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            normalize_chat_completions_url("https://api.openai.com/v1/chat/completions"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            normalize_chat_completions_url("https://proxy.example/v1/"),
+            "https://proxy.example/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn normalize_chat_completions_url_injects_v1_for_bare_host() {
+        assert_eq!(
+            normalize_chat_completions_url("https://www.micuapi.ai"),
+            "https://www.micuapi.ai/v1/chat/completions"
+        );
+        assert_eq!(
+            normalize_chat_completions_url("https://www.micuapi.ai/"),
+            "https://www.micuapi.ai/v1/chat/completions"
+        );
+        assert_eq!(
+            normalize_chat_completions_url("https://www.micuapi.ai/chat/completions"),
+            "https://www.micuapi.ai/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn resolve_multimodal_endpoint_requires_custom_provider() {
+        let settings = crate::models::settings::AppSettings::default();
+        let err = resolve_multimodal_endpoint(&settings, "gpt-4o", "").unwrap_err();
+        match err {
+            ProviderError::Message(msg) => {
+                assert!(msg.contains("not configured under any custom provider"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_multimodal_endpoint_uses_custom_provider() {
+        let mut settings = crate::models::settings::AppSettings::default();
+        settings
+            .custom_providers
+            .push(crate::models::settings::CustomProviderConfig {
+                id: "openai".into(),
+                name: "OpenAI".into(),
+                base_url: "https://api.openai.com/v1/chat/completions".into(),
+                api_key: "sk-test".into(),
+                models: "gpt-4o, gpt-4o-mini".into(),
+            });
+        let endpoint = resolve_multimodal_endpoint(&settings, "gpt-4o", "openai").unwrap();
+        assert_eq!(endpoint.api_key, "sk-test");
+        assert_eq!(endpoint.url, "https://api.openai.com/v1/chat/completions");
+    }
+
+    #[test]
+    fn resolve_multimodal_endpoint_disambiguates_duplicate_model_ids() {
+        let provider = |id: &str, key: &str| crate::models::settings::CustomProviderConfig {
+            id: id.into(),
+            name: id.into(),
+            base_url: format!("https://{id}.example/v1"),
+            api_key: key.into(),
+            models: "shared-vision-model".into(),
+        };
+        let settings = crate::models::settings::AppSettings {
+            custom_providers: vec![provider("first", "key-1"), provider("second", "key-2")],
+            ..Default::default()
+        };
+
+        let endpoint =
+            resolve_multimodal_endpoint(&settings, "shared-vision-model", "second").unwrap();
+        assert_eq!(endpoint.api_key, "key-2");
+        assert_eq!(endpoint.url, "https://second.example/v1/chat/completions");
+    }
+
+    #[test]
+    fn multimodal_http_error_message_explains_502() {
+        let msg = multimodal_http_error_message(
+            reqwest::StatusCode::BAD_GATEWAY,
+            r#"{"error":"Bad gateway"}"#,
+        );
+        assert!(msg.contains("502"));
+        assert!(msg.contains("Bad gateway"));
+        assert!(msg.contains("oversized image") || msg.contains("upstream"));
+        assert!(msg.contains("Bad gateway"));
+        let facing = user_facing_stream_error(&ProviderError::message(msg.clone()));
+        assert_eq!(facing, msg);
+    }
+
+    #[test]
+    fn multimodal_transport_error_message_explains_send_failure() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let err = runtime.block_on(async {
+            reqwest::Client::builder()
+                .timeout(Duration::from_millis(1))
+                .build()
+                .unwrap()
+                .get("http://127.0.0.1:1/")
+                .send()
+                .await
+                .expect_err("should fail")
+        });
+        let msg = multimodal_transport_error_message(&err);
+        assert!(
+            msg.contains("Connection")
+                || msg.contains("network")
+                || msg.contains("proxy")
+                || msg.contains("could not be sent"),
+            "unexpected message: {msg}"
+        );
+        assert!(msg.contains("Details:"));
+    }
+
+    #[test]
+    fn should_not_retry_stream_after_body_decode_failure() {
+        assert!(!should_retry_multimodal_as_stream(&ProviderError::message(
+            "Failed to read multimodal response: error decoding response body"
+        )));
+        assert!(should_retry_multimodal_as_stream(&ProviderError::message(
+            "Failed to extract an image description from the multimodal response. Debug: empty. Snippet: {}"
+        )));
+    }
+
+    #[test]
+    fn antigravity_describe_model_only_when_multimodal_is_gemini() {
+        let mut settings = crate::models::settings::AppSettings {
+            chat_model: "gemini-3.5-flash-low".into(),
+            multimodal_model: "gpt-4o".into(),
+            ..Default::default()
+        };
+        settings.gemini_oauth.refresh_token = "rt".into();
+        // Chat Gemini must not hijack multimodal describe — chat already sees images natively.
+        assert!(antigravity_model_for_image_describe(&settings, "gpt-4o").is_none());
+        assert_eq!(
+            antigravity_model_for_image_describe(&settings, "gemini-3-flash").as_deref(),
+            Some("gemini-3-flash")
+        );
+
+        settings.multimodal_model_provider = "custom-gemini".into();
+        assert!(antigravity_model_for_image_describe(&settings, "gemini-3-flash").is_none());
+    }
+}

@@ -5,7 +5,8 @@ mod imp {
     use std::sync::{Mutex, OnceLock};
 
     use tauri::WebviewWindow;
-    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Foundation::{BOOL, HWND};
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CLOAK};
     use windows::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, IsIconic, IsWindowVisible, SetWindowLongPtrW, SetWindowPos, ShowWindow,
         GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
@@ -65,6 +66,56 @@ mod imp {
         }
     }
 
+    /// Show without a Win32/DWM flash: cloak → show → uncloak.
+    ///
+    /// Do **not** set window `background_color` to (0,0,0,0) on Windows: the
+    /// window-layer alpha is ignored, so it becomes an opaque black rectangle
+    /// that leaks past CSS `border-radius` as corner triangles.
+    ///
+    /// Do **not** force `DWMWA_NCRENDERING_POLICY` or `DWMWA_TRANSITIONS_FORCEDISABLED`
+    /// either: both make DWM take a different composition path for this
+    /// layered/transparent window that stops alpha-blending the rounded-corner
+    /// edge against the desktop, painting a solid black ring around the content
+    /// instead of a clean transparent edge. Cloak/uncloak alone is enough to
+    /// hide the default Win32 frame during the show transition.
+    pub fn show_overlay_without_flash(window: &WebviewWindow) -> Result<(), String> {
+        let hwnd = local_hwnd(window)?;
+        unsafe {
+            apply_toolwindow_style(hwnd);
+            set_cloaked(hwnd, true);
+        }
+        window.show().map_err(|error| error.to_string())?;
+        let _ = window.set_focus();
+        unsafe {
+            set_cloaked(hwnd, false);
+        }
+        Ok(())
+    }
+
+    /// Hide without DWM close animation flash.
+    pub fn hide_overlay_without_flash(window: &WebviewWindow) -> Result<(), String> {
+        let hwnd = local_hwnd(window)?;
+        unsafe {
+            set_cloaked(hwnd, true);
+        }
+        let result = window.hide().map_err(|error| error.to_string());
+        unsafe {
+            // Keep cloaked=false while hidden so state stays clean for next show.
+            set_cloaked(hwnd, false);
+        }
+        result
+    }
+
+    unsafe fn set_cloaked(hwnd: HWND, cloaked: bool) {
+        let value = BOOL(i32::from(cloaked));
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAK,
+            &value as *const _ as *const std::ffi::c_void,
+            std::mem::size_of_val(&value) as u32,
+        );
+    }
+
     unsafe fn minimize_hwnd(hwnd: HWND) -> Result<(), String> {
         if IsIconic(hwnd).as_bool() || !IsWindowVisible(hwnd).as_bool() {
             return Ok(());
@@ -89,33 +140,34 @@ mod imp {
 
         let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
         let next_style = (ex_style | WS_EX_APPWINDOW.0) & !WS_EX_TOOLWINDOW.0;
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next_style as isize);
-
-        // Force shell to pick up taskbar eligibility before minimizing.
-        let _ = SetWindowPos(
-            hwnd,
-            HWND_NOTOPMOST,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-        );
+        if ex_style != next_style {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next_style as isize);
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_NOTOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
     }
 
     unsafe fn apply_toolwindow_style(hwnd: HWND) {
         let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
         let next_style = (ex_style | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0;
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next_style as isize);
-        let _ = SetWindowPos(
-            hwnd,
-            HWND_TOPMOST,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-        );
+        let style_changed = ex_style != next_style;
+        if style_changed {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next_style as isize);
+        }
+
+        let flags = if style_changed {
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED
+        } else {
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+        };
+        let _ = SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags);
     }
 }
 
@@ -137,6 +189,16 @@ mod imp {
         false
     }
     pub fn reapply_toolwindow_style(_window: &WebviewWindow) {}
+
+    pub fn show_overlay_without_flash(window: &WebviewWindow) -> Result<(), String> {
+        window.show().map_err(|error| error.to_string())?;
+        let _ = window.set_focus();
+        Ok(())
+    }
+
+    pub fn hide_overlay_without_flash(window: &WebviewWindow) -> Result<(), String> {
+        window.hide().map_err(|error| error.to_string())
+    }
 
     pub fn minimize_window(window: &WebviewWindow) -> Result<(), String> {
         window.minimize().map_err(|error| error.to_string())

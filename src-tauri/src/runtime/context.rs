@@ -13,7 +13,7 @@ impl Tool for ContextTool {
         "get_context"
     }
     fn description(&self) -> &str {
-        "Return the current selected text, selected files, clipboard text, active window, and workspace captured by AAAi."
+        "Return fresh selected text, selected files, clipboard, active window, and workspace captured by AAAi. Prefer the injected request context when it already answers the question; call this when you need an updated snapshot."
     }
     fn parameters_schema(&self) -> Value {
         json!({ "type": "object", "properties": {} })

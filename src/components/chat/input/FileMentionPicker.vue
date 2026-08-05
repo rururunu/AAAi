@@ -18,7 +18,13 @@
       @mouseenter="$emit('hover', index)"
       @mousedown.prevent="$emit('select', path)"
     >
-      <File :size="13" class="file-suggestion-icon" />
+      <img
+        v-if="iconForPath(path)"
+        class="file-suggestion-icon-img"
+        :src="iconForPath(path) || ''"
+        alt=""
+      />
+      <File v-else :size="13" class="file-suggestion-icon" />
       <span class="command-desc">{{ path }}</span>
     </li>
   </ul>
@@ -26,6 +32,7 @@
 
 <script setup lang="ts">
 import { File } from "@lucide/vue";
+import { codeLanguageForPath } from "@/services/chat/codeLanguage";
 
 defineProps<{
   loading: boolean;
@@ -40,6 +47,10 @@ defineEmits<{
   hover: [index: number];
   select: [path: string];
 }>();
+
+function iconForPath(path: string) {
+  return codeLanguageForPath(path).icon;
+}
 </script>
 
 <style scoped>
@@ -55,7 +66,9 @@ defineEmits<{
   background: var(--peek-list-bg);
   flex: none;
   max-height: min(
-    calc(var(--command-row-height) * var(--command-list-visible-rows) + var(--command-list-padding)),
+    calc(
+      var(--command-row-height) * var(--command-list-visible-rows) + var(--command-list-padding)
+    ),
     72vh
   );
   overflow-x: hidden;
@@ -98,5 +111,12 @@ defineEmits<{
 .file-suggestion-icon {
   flex: none;
   color: var(--peek-accent);
+}
+
+.file-suggestion-icon-img {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
 }
 </style>

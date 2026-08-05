@@ -1,0 +1,44 @@
+{
+  "id": "write_and_verify",
+  "prompt": "Create notes/out.txt with content hello-eval.",
+  "script": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "notes/out.txt",
+            "content": "hello-eval"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "notes/out.txt"
+          }
+        }
+      ]
+    },
+    {
+      "content": "任务完成",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "fileContains",
+      "path": "notes/out.txt",
+      "text": "hello-eval"
+    },
+    {
+      "type": "answerContains",
+      "text": "任务完成"
+    }
+  ]
+}

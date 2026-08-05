@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "tauri": {
+      "source": "smithery.ai",
+      "sourceType": "well-known",
+      "computedHash": "8846df779beba33d583a1712ecfb18a3dc0a542ad1c95643a2797e0eb44f43ab"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 {
   "name": "AAAi",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "AAAi — Windows overlay AI assistant",
   "type": "module",
   "scripts": {
@@ -9,7 +9,30 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev"
+    "posttauri": "node scripts/rename-msi.mjs",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build && node scripts/rename-msi.mjs",
+    "typecheck": "vue-tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "prepare": "simple-git-hooks"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm lint-staged"
+  },
+  "lint-staged": {
+    "*.{ts,vue}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,css,html}": [
+      "prettier --write"
+    ]
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -55,11 +78,26 @@
     "vue-router": "^5.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.22.0",
     "@tauri-apps/cli": "^2",
     "@types/dompurify": "^3.2.0",
     "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/eslint-config-typescript": "^14.5.0",
+    "@vue/test-utils": "^2.4.11",
+    "eslint": "^9.22.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-vue": "^10.10.0",
+    "globals": "^16.0.0",
+    "happy-dom": "^20.11.1",
+    "lint-staged": "^17.3.0",
+    "prettier": "^3.9.6",
+    "simple-git-hooks": "^2.13.1",
     "typescript": "~5.6.2",
+    "typescript-eslint": "^8.66.0",
     "vite": "^6.0.3",
+    "vitest": "^4.1.10",
     "vue-tsc": "^2.1.10"
   }
 }

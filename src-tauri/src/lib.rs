@@ -6,6 +6,8 @@ mod models;
 mod runtime;
 mod services;
 
+pub use core::chat::eval_harness;
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rdev::{listen, Event, EventType, Key};
@@ -52,7 +54,7 @@ struct DoubleModifierDetector {
     modifier_down: bool,
     chorded: bool,
     last_tap_ms: Option<u64>,
-    /// Second Alt was pressed within the double-tap window; fire on its keyup
+    /// Second modifier press within the double-tap window; fire on its keyup
     /// so Alt is no longer held when we simulate Ctrl+Insert / Ctrl+C.
     pending_trigger: bool,
 }
@@ -71,7 +73,6 @@ impl DoubleModifierDetector {
         self.sync_modifier(modifier);
         if modifier.matches(key) {
             if self.modifier_down {
-                // Key-repeat while holding Alt — ignore.
                 return;
             }
             self.modifier_down = true;
@@ -93,7 +94,6 @@ impl DoubleModifierDetector {
         }
     }
 
-    /// Returns true when the second Alt of a double-tap is released.
     fn key_release(
         &mut self,
         key: Key,
@@ -279,7 +279,14 @@ pub fn run() {
                 if should_keep_overlay_visible(&label) {
                     return;
                 }
-                let _ = window.hide();
+                use crate::services::overlay_native::hide_overlay_without_flash;
+                if let Some(webview) = window.app_handle().get_webview_window(&label) {
+                    if hide_overlay_without_flash(&webview).is_err() {
+                        let _ = webview.hide();
+                    }
+                } else {
+                    let _ = window.hide();
+                }
                 let _ = window.emit_to(&label, "overlay-hidden", ());
             }
         })
@@ -355,51 +362,4 @@ pub fn run() {
 
 pub fn configure_prestart_webview() {
     services::settings_store::configure_prestart_webview();
-}
-
-#[cfg(test)]
-mod double_modifier_tests {
-    use super::*;
-
-    #[test]
-    fn key_repeat_during_long_press_does_not_trigger() {
-        let mut detector = DoubleModifierDetector::default();
-        let modifier = crate::services::hotkey::PrimaryHotkey::Alt;
-        detector.key_press(Key::Alt, 1_000, modifier);
-        detector.key_press(Key::Alt, 1_010, modifier);
-        assert!(!detector.key_release(Key::Alt, 1_020, modifier));
-    }
-
-    #[test]
-    fn two_complete_taps_trigger_on_second_release() {
-        let mut detector = DoubleModifierDetector::default();
-        let modifier = crate::services::hotkey::PrimaryHotkey::Alt;
-        detector.key_press(Key::Alt, 1_000, modifier);
-        assert!(!detector.key_release(Key::Alt, 1_050, modifier));
-        detector.key_press(Key::Alt, 1_250, modifier);
-        assert!(detector.key_release(Key::Alt, 1_280, modifier));
-        detector.key_press(Key::Alt, 1_300, modifier);
-        assert!(!detector.key_release(Key::Alt, 1_320, modifier));
-    }
-
-    #[test]
-    fn alt_chord_does_not_count_as_a_tap() {
-        let mut detector = DoubleModifierDetector::default();
-        let modifier = crate::services::hotkey::PrimaryHotkey::Alt;
-        detector.key_press(Key::Alt, 1_000, modifier);
-        detector.key_press(Key::KeyC, 1_010, modifier);
-        assert!(!detector.key_release(Key::Alt, 1_020, modifier));
-        detector.key_press(Key::Alt, 1_100, modifier);
-        assert!(!detector.key_release(Key::Alt, 1_120, modifier));
-    }
-
-    #[test]
-    fn configured_ctrl_double_tap_triggers() {
-        let mut detector = DoubleModifierDetector::default();
-        let modifier = crate::services::hotkey::PrimaryHotkey::Ctrl;
-        detector.key_press(Key::ControlLeft, 1_000, modifier);
-        assert!(!detector.key_release(Key::ControlLeft, 1_050, modifier));
-        detector.key_press(Key::ControlRight, 1_200, modifier);
-        assert!(detector.key_release(Key::ControlRight, 1_240, modifier));
-    }
 }

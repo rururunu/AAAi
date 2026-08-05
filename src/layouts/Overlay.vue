@@ -16,16 +16,18 @@
 
 <script setup lang="ts">
 import { onMounted, ref, watch } from "vue";
-// trigger rebuild
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { currentMonitor } from "@tauri-apps/api/window";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import PeekPanel from "@/components/chat/PeekPanel.vue";
 import { closeOverlay, setOverlayChatMode, takeOverlayContext } from "@/services/ipc";
+import { createLogger } from "@/services/logger";
 import { useChatStore } from "@/stores/chat";
 import { useSettingStore } from "@/stores/setting";
 import type { CapturedContext } from "@/types/chat";
 import { IPC_EVENTS } from "@/types/ipc";
+
+const log = createLogger("overlay");
 
 const chatStore = useChatStore();
 const settingStore = useSettingStore();
@@ -160,7 +162,9 @@ async function resizeWindow(
   const deltaWidth = scaledWidth - currentWidth;
 
   await window.setResizable(resizable);
-  await window.setMaximizable(true);
+  // Keep maximizable off for the borderless overlay — toggling it forces a
+  // Win32 non-client style refresh that flashes on every double-Alt summon.
+  await window.setMaximizable(false);
   await window.setSize(new LogicalSize(scaledWidth, scaledHeight));
 
   if (!skipPositionCorrection && (Math.abs(delta) > 0.5 || Math.abs(deltaWidth) > 0.5)) {
@@ -179,9 +183,7 @@ async function resizeWindow(
     }
 
     // 输入模式以底边为锚点，建议列表只向上展开，输入框保持原位。
-    let newY = verticalAnchor === "bottom"
-      ? logicalPos.y - delta
-      : logicalPos.y;
+    let newY = verticalAnchor === "bottom" ? logicalPos.y - delta : logicalPos.y;
 
     if (verticalAnchor === "top") {
       if (monitor) {
@@ -196,7 +198,6 @@ async function resizeWindow(
 
     await window.setPosition(new LogicalPosition(newX, newY));
   }
-
 }
 
 function queueLayoutResize(operation: () => Promise<void>) {
@@ -204,7 +205,6 @@ function queueLayoutResize(operation: () => Promise<void>) {
     .then(operation)
     .catch((error) => console.error("Failed to resize overlay:", error));
 }
-
 
 function handleLayoutChange(payload: {
   showSuggestions: boolean;
@@ -235,22 +235,27 @@ function handleLayoutChange(payload: {
           ? SUGGESTION_PADDING + payload.suggestionCount * SUGGESTION_ROW_HEIGHT
           : 0;
   const wasSidebarOpen =
-    diffSidebarOpen.value || subagentSidebarOpen.value || runtimeSidebarOpen.value || imageSidebarOpen.value;
+    diffSidebarOpen.value ||
+    subagentSidebarOpen.value ||
+    runtimeSidebarOpen.value ||
+    imageSidebarOpen.value;
   diffSidebarOpen.value = modeValue === "chat" && Boolean(payload.diffSidebarOpen);
   subagentSidebarOpen.value = modeValue === "chat" && Boolean(payload.subagentSidebarOpen);
   runtimeSidebarOpen.value = modeValue === "chat" && Boolean(payload.runtimeSidebarOpen);
   imageSidebarOpen.value = modeValue === "chat" && Boolean(payload.imageSidebarOpen);
   const willSidebarOpen =
-    diffSidebarOpen.value || subagentSidebarOpen.value || runtimeSidebarOpen.value || imageSidebarOpen.value;
+    diffSidebarOpen.value ||
+    subagentSidebarOpen.value ||
+    runtimeSidebarOpen.value ||
+    imageSidebarOpen.value;
   const sidebarOpening = !wasSidebarOpen && willSidebarOpen;
   const sidebarClosing = wasSidebarOpen && !willSidebarOpen;
   const sidebarWidth = willSidebarOpen ? Math.max(0, payload.sidebarWidth ?? 0) : 0;
   if (sidebarOpening) {
     windowWidthWithSidebar = Math.max(windowWidthBeforeSidebar, sidebarWidth * 2);
   }
-  const initialDesignWidth = modeValue === "chat" && willSidebarOpen
-    ? windowWidthWithSidebar
-    : PANEL_WIDTH;
+  const initialDesignWidth =
+    modeValue === "chat" && willSidebarOpen ? windowWidthWithSidebar : PANEL_WIDTH;
   // Chip menus are in-panel pickers now; height comes from pickerHeight.
   // Keep modelMenuHeight only for any leftover floating chrome in input mode.
   const modelMenuHeight =
@@ -262,7 +267,11 @@ function handleLayoutChange(payload: {
   // In chat mode pickers overlay the conversation above the composer. They
   // must not resize the native window or push the chat viewport upward.
   const extraHeight =
-    (modeValue === "chat" ? 0 : pickerHeight) + modelMenuHeight + contextHeight + imagesHeight + filesHeight;
+    (modeValue === "chat" ? 0 : pickerHeight) +
+    modelMenuHeight +
+    contextHeight +
+    imagesHeight +
+    filesHeight;
 
   if (modeValue === "input") {
     chatWindowInitialized.value = false;
@@ -331,10 +340,7 @@ async function monitorHeightLimit() {
   const scaleFactor = await window.scaleFactor();
   const monitorSize = monitor.size.toLogical(scaleFactor);
   const zoom = (settingStore.zoom || 100) / 100;
-  return Math.max(
-    OVERLAY_MIN_HEIGHT_CHAT,
-    (monitorSize.height - CHAT_SCREEN_MARGIN) / zoom,
-  );
+  return Math.max(OVERLAY_MIN_HEIGHT_CHAT, (monitorSize.height - CHAT_SCREEN_MARGIN) / zoom);
 }
 
 async function preferredChatHeight(extraHeight = 0) {
@@ -393,20 +399,20 @@ async function close() {
 
 onMounted(async () => {
   const window = getCurrentWebviewWindow();
-  void window.setMaximizable(true);
+  void window.setMaximizable(false);
   void window.listen<CapturedContext>(IPC_EVENTS.contextCaptured, (event) => {
     if (mode.value === "chat") {
       return;
     }
     capturedContext.value = event.payload;
     contextReady.value = true;
-    console.debug("overlay interactive ready", { windowLabel, source: "context-captured" });
+    log.debug("overlay interactive ready", { windowLabel, source: "context-captured" });
   });
   const pendingContext = await takeOverlayContext(windowLabel);
   if (pendingContext && mode.value === "input") {
     capturedContext.value = pendingContext;
     contextReady.value = true;
-    console.debug("overlay interactive ready", { windowLabel, source: "pending-context" });
+    log.debug("overlay interactive ready", { windowLabel, source: "pending-context" });
   }
   // 基础 overlay 窗口：监听 overlay-hidden 重置 UI
   // 动态窗口（overlay-N）即将被销毁，不需要 reset UI/resize
@@ -426,10 +432,11 @@ watch(
   async () => {
     if (mode.value === "chat") {
       const sidebarOpen =
-        diffSidebarOpen.value || subagentSidebarOpen.value || runtimeSidebarOpen.value || imageSidebarOpen.value;
-      const designWidth = sidebarOpen
-        ? windowWidthWithSidebar
-        : windowWidthBeforeSidebar;
+        diffSidebarOpen.value ||
+        subagentSidebarOpen.value ||
+        runtimeSidebarOpen.value ||
+        imageSidebarOpen.value;
+      const designWidth = sidebarOpen ? windowWidthWithSidebar : windowWidthBeforeSidebar;
       await applySizeConstraints("chat", OVERLAY_MIN_HEIGHT_CHAT, designWidth);
       const window = getCurrentWebviewWindow();
       const scaleFactor = await window.scaleFactor();
@@ -440,7 +447,7 @@ watch(
       await applySizeConstraints("input", OVERLAY_MIN_HEIGHT_INPUT);
       await resizeWindow(PANEL_WIDTH, INPUT_HEIGHT, false, false, "bottom");
     }
-  }
+  },
 );
 </script>
 

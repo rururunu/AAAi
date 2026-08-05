@@ -47,6 +47,16 @@ impl ContextResolver {
         known_workspaces: &[Workspace],
         ide_context: Option<IDEContext>,
     ) -> RequestContext {
+        // The IDE push has a multi-minute cache TTL (see local_api.rs), so it
+        // can still be "latest" long after the user has switched away from the
+        // IDE entirely. Only trust it — for workspace binding, active file,
+        // and selection — when the window that's actually in the foreground
+        // right now plausibly belongs to that IDE; otherwise a quick-ask
+        // triggered from the desktop would silently inherit (and bind chat
+        // history to) a stale workspace.
+        let ide_context = ide_context
+            .filter(|ide| ide_context_matches_active_window(ide, context.active_window.as_deref()));
+
         let active_file = ide_context
             .as_ref()
             .and_then(|ide| ide.active_file.clone())
@@ -89,6 +99,29 @@ impl ContextResolver {
         }
         context.ide_context = ide_context;
         context
+    }
+}
+
+/// Whether `active_window` (the real foreground window at capture time)
+/// plausibly belongs to the IDE that pushed `ide`. Used to distinguish "you
+/// just triggered this from inside your editor" from "you left the editor a
+/// while ago and its last-pushed context is still cached".
+fn ide_context_matches_active_window(ide: &IDEContext, active_window: Option<&str>) -> bool {
+    let Some(active_window) = active_window else {
+        return false;
+    };
+    let window = active_window.to_ascii_lowercase();
+    let id = ide.ide.trim().to_ascii_lowercase();
+    if id.is_empty() {
+        return false;
+    }
+    if window.contains(&id) {
+        return true;
+    }
+    match id.as_str() {
+        "vscode" | "vs code" | "code" => window.contains("visual studio code"),
+        "jetbrains" | "idea" | "intellij" => window.contains("intellij"),
+        _ => false,
     }
 }
 
@@ -239,7 +272,7 @@ mod tests {
             cursor: None,
         };
         let context = RequestContext {
-            active_window: Some("Code.exe - main.rs - Project A".to_string()),
+            active_window: Some("Code.exe - main.rs - Project A - Visual Studio Code".to_string()),
             selection: Some("clipboard selection".to_string()),
             ..RequestContext::default()
         };
@@ -291,5 +324,38 @@ mod tests {
         );
         assert_eq!(resolved.selection.as_deref(), Some("clipboard selection"));
         assert!(resolved.ide_context.is_none());
+    }
+
+    #[test]
+    fn stale_ide_context_is_ignored_when_ide_is_not_foreground() {
+        // The IDE-pushed context is cached for minutes (see local_api.rs's
+        // IDE_CONTEXT_TTL), so it can still be "latest" long after the user
+        // switched away from the editor. If the foreground window at capture
+        // time is unrelated (e.g. Explorer/desktop), it must not be used to
+        // silently bind a quick-ask to that stale workspace.
+        let ide_workspace = workspace("Project B", r"C:\code\project-b");
+        let ide = IDEContext {
+            ide: "vscode".to_string(),
+            active_file: Some(PathBuf::from(r"C:\code\project-b\src\main.rs")),
+            workspace: Some(PathBuf::from(r"C:\code\project-b")),
+            language: Some("rust".to_string()),
+            selection: Some("fn main() {}".to_string()),
+            cursor: None,
+        };
+        let context = RequestContext {
+            active_window: Some("Explorer.EXE - Program Manager".to_string()),
+            ..RequestContext::default()
+        };
+
+        let resolved = ContextResolver::new().resolve_request_with_ide(
+            context,
+            None,
+            std::slice::from_ref(&ide_workspace),
+            Some(ide),
+        );
+
+        assert!(resolved.ide_context.is_none());
+        assert!(resolved.workspace.is_none());
+        assert!(resolved.active_file.is_none());
     }
 }

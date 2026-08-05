@@ -1,0 +1,20 @@
+{
+  "id": "no_claim_ok",
+  "prompt": "Explain what Foo means briefly.",
+  "script": [
+    {
+      "content": "Foo is a placeholder name.",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "answerContains",
+      "text": "placeholder"
+    },
+    {
+      "type": "answerNotContains",
+      "text": "未完成"
+    }
+  ]
+}

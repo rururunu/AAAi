@@ -1,3 +1,7 @@
+//! Agent **run lifecycle** (state machine + StreamManager bridge).
+//!
+//! Not the tool-calling loop — that is [`crate::core::chat::agent::AgentRunner`].
+
 mod agent_runtime;
 mod event;
 mod state;

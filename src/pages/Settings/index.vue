@@ -1,11 +1,7 @@
 <template>
   <div class="settings-workbench" :class="{ embedded: props.embedded }">
     <header v-if="!props.embedded" class="titlebar">
-      <div
-        class="titlebar-drag"
-        data-tauri-drag-region
-        @mousedown="onWindowDragMouseDown"
-      >
+      <div class="titlebar-drag" data-tauri-drag-region @mousedown="onWindowDragMouseDown">
         <Settings2 class="titlebar-icon" :size="15" />
         <span class="titlebar-title" data-tauri-drag-region>{{ t.title }}</span>
       </div>
@@ -33,7 +29,7 @@
     <div class="settings-body">
       <SidebarProvider
         class="settings-layout h-full min-h-0 w-full [&_[data-slot=sidebar-wrapper]]:h-full [&_[data-slot=sidebar-wrapper]]:min-h-0"
-        >
+      >
         <Sidebar collapsible="none" class="settings-nav">
           <SidebarContent class="settings-nav-content peek-scrollbar">
             <div v-if="props.embedded" class="settings-back-wrap">
@@ -52,14 +48,11 @@
               :key="section.id"
               class="settings-nav-group"
             >
-              <SidebarGroupLabel class="settings-section-label">{{
-                section.label
-              }}</SidebarGroupLabel>
+              <SidebarGroupLabel class="settings-section-label">
+                {{ section.label }}
+              </SidebarGroupLabel>
               <SidebarMenu>
-                <SidebarMenuItem
-                  v-for="category in section.categories"
-                  :key="category.id"
-                >
+                <SidebarMenuItem v-for="category in section.categories" :key="category.id">
                   <SidebarMenuButton
                     class="settings-nav-item"
                     :is-active="activeCategory === category.id"
@@ -84,18 +77,10 @@
               @leave="gsapSettingsPanelLeave"
             >
               <div :key="activeCategory" class="settings-panel">
-                <WorkspaceSettings
-                  v-if="activeCategory === 'workspace'"
-                />
-                <McpSettings
-                  v-else-if="activeCategory === 'mcp'"
-                />
-                <SkillsSettings
-                  v-else-if="activeCategory === 'skills'"
-                />
-                <ProviderSettings
-                  v-else-if="activeCategory === 'provider'"
-                />
+                <WorkspaceSettings v-if="activeCategory === 'workspace'" />
+                <McpSettings v-else-if="activeCategory === 'mcp'" />
+                <SkillsSettings v-else-if="activeCategory === 'skills'" />
+                <ProviderSettings v-else-if="activeCategory === 'provider'" />
                 <HistorySettings
                   v-else-if="activeCategory === 'history'"
                   :expanded-history-groups="expandedHistoryGroups"
@@ -323,9 +308,7 @@ const categories = computed(() => [
 ]);
 
 const categorySections = computed(() => {
-  const byId = new Map(
-    categories.value.map((category) => [category.id, category]),
-  );
+  const byId = new Map(categories.value.map((category) => [category.id, category]));
   const section = (id: string, label: string, ids: CategoryId[]) => ({
     id,
     label,
@@ -336,10 +319,7 @@ const categorySections = computed(() => {
   });
   const language = settingStore.language;
   return [
-    section("general", tr(language, "settings.sections.general"), [
-      "appearance",
-      "workspace",
-    ]),
+    section("general", tr(language, "settings.sections.general"), ["appearance", "workspace"]),
     section("intelligence", tr(language, "settings.sections.intelligence"), [
       "ai",
       "provider",
@@ -352,10 +332,7 @@ const categorySections = computed(() => {
       "skills",
       "plugins",
     ]),
-    section("data", tr(language, "settings.sections.data"), [
-      "history",
-      "usage",
-    ]),
+    section("data", tr(language, "settings.sections.data"), ["history", "usage"]),
     section("system", tr(language, "settings.sections.system"), ["about"]),
   ];
 });
@@ -441,9 +418,7 @@ async function saveApiKey() {
 function isModelSelection(value: unknown): value is ModelSelection {
   if (!value || typeof value !== "object") return false;
   const selection = value as Partial<ModelSelection>;
-  return (
-    typeof selection.id === "string" && typeof selection.provider === "string"
-  );
+  return typeof selection.id === "string" && typeof selection.provider === "string";
 }
 
 function onDefaultModelChange(value: unknown) {
@@ -507,6 +482,11 @@ function onToggle(id: string) {
   if (id === "snipastePinAiEnabled") {
     void settingStore.update({
       snipastePinAiEnabled: !settingStore.snipastePinAiEnabled,
+    });
+  }
+  if (id === "minimalCoding") {
+    void settingStore.update({
+      minimalCoding: !settingStore.minimalCoding,
     });
   }
 }
@@ -580,11 +560,7 @@ watch(
 
 <style scoped>
 .settings-workbench {
-  --settings-chrome-bg: color-mix(
-    in srgb,
-    var(--peek-sidebar) 92%,
-    var(--peek-bg)
-  );
+  --settings-chrome-bg: color-mix(in srgb, var(--peek-sidebar) 92%, var(--peek-bg));
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -708,7 +684,9 @@ watch(
   color: var(--peek-text);
 }
 
-.settings-back svg { flex: none; }
+.settings-back svg {
+  flex: none;
+}
 
 .settings-nav-group {
   padding: 0 4px 4px;

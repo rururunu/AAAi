@@ -1,0 +1,37 @@
+{
+  "id": "find_files",
+  "prompt": "Find all *.md files.",
+  "setupFiles": [
+    {
+      "path": "docs/a.md",
+      "content": "a"
+    },
+    {
+      "path": "docs/b.md",
+      "content": "b"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "find_files",
+          "arguments": {
+            "pattern": "**/*.md"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Found docs/a.md and docs/b.md",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "answerContains",
+      "text": "a.md"
+    }
+  ]
+}

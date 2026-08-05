@@ -21,6 +21,9 @@ pub const COMPACT_SUMMARY_SYSTEM_PROMPT: &str =
 pub const MULTI_MODEL_COLLABORATION_PROMPT: &str =
     include_str!("../../../../prompts/multi-model-collaboration.md");
 
+/// Optional YAGNI / minimal-diff guidance; injected only when the setting is on.
+pub const MINIMAL_CODING_PROMPT: &str = include_str!("../../../../prompts/minimal-coding.md");
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,12 +56,12 @@ mod tests {
     }
 
     #[test]
-    fn editing_prompt_routes_tools_by_change_shape() {
-        assert!(SYSTEM_PROMPT.contains("Choose the narrowest tool"));
-        assert!(SYSTEM_PROMPT.contains("Localized edit"));
-        assert!(SYSTEM_PROMPT.contains("Multiple independent edits"));
-        assert!(SYSTEM_PROMPT.contains("Do not default to `apply_patch`"));
-        assert!(SYSTEM_PROMPT.contains("Never pass whole-file content"));
+    fn editing_prompt_defers_routing_to_tool_descriptions() {
+        assert!(SYSTEM_PROMPT.contains("Prefer dedicated tools"));
+        assert!(SYSTEM_PROMPT.contains("replace_in_file"));
+        assert!(SYSTEM_PROMPT.contains("Follow each edit tool's description"));
+        assert!(SYSTEM_PROMPT.contains("do not fall back to a full-file rewrite"));
+        assert!(!SYSTEM_PROMPT.contains("## Routing"));
         assert!(!SYSTEM_PROMPT.contains("Prefer `apply_patch` for most edits"));
     }
 
@@ -84,5 +87,14 @@ mod tests {
         assert!(MULTI_MODEL_COLLABORATION_PROMPT.contains("difficulty, breadth, coupling"));
         assert!(MULTI_MODEL_COLLABORATION_PROMPT.contains("Use your own knowledge"));
         assert!(!MULTI_MODEL_COLLABORATION_PROMPT.contains("Model capability reference"));
+    }
+
+    #[test]
+    fn minimal_coding_prompt_has_the_decision_ladder() {
+        assert!(MINIMAL_CODING_PROMPT.contains("Minimal coding mode"));
+        assert!(MINIMAL_CODING_PROMPT.contains("YAGNI"));
+        assert!(MINIMAL_CODING_PROMPT.contains("Standard library"));
+        assert!(MINIMAL_CODING_PROMPT.contains("Never lazy about"));
+        assert!(!MINIMAL_CODING_PROMPT.to_ascii_lowercase().contains("ponytail"));
     }
 }

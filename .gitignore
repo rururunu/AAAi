@@ -23,6 +23,7 @@ src-tauri/client_secret.local.json
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json
 .idea
 .DS_Store
 *.suo
@@ -33,4 +34,7 @@ src-tauri/client_secret.local.json
 
 # Git worktrees
 .worktrees/
+
+# Eval harness outputs
+eval/results/
 

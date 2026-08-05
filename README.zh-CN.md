@@ -17,7 +17,7 @@
 
 <p align="center">
   <img alt="platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" />
-  <img alt="release" src="https://img.shields.io/badge/version-v0.1.3-4D6BFE?style=flat-square" />
+  <img alt="release" src="https://img.shields.io/badge/version-v0.1.4-4D6BFE?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-Unlicense-3DA639?style=flat-square" />
 </p>
 
@@ -86,13 +86,13 @@
 2. 点击系统托盘中的 AAAi 图标，打开 **设置**，配置模型服务商。
 3. 回到任意应用，双击 <kbd>Alt</kbd>，输入问题后按 <kbd>Enter</kbd>。
 
-| 快捷键 | 作用 |
-| --- | --- |
-| 双击 <kbd>Alt</kbd> | 显示或隐藏悬浮窗口 |
-| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> | 备用唤出快捷键 |
-| <kbd>Enter</kbd> | 发送消息 |
-| <kbd>/</kbd> | 打开斜杠命令 |
-| <kbd>Esc</kbd> | 清空输入；部分场景下关闭窗口 |
+| 快捷键                                              | 作用                         |
+| --------------------------------------------------- | ---------------------------- |
+| 双击 <kbd>Alt</kbd>                                 | 显示或隐藏悬浮窗口           |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> | 备用唤出快捷键               |
+| <kbd>Enter</kbd>                                    | 发送消息                     |
+| <kbd>/</kbd>                                        | 打开斜杠命令                 |
+| <kbd>Esc</kbd>                                      | 清空输入；部分场景下关闭窗口 |
 
 ## 数据与隐私
 
@@ -109,12 +109,19 @@ pnpm install
 pnpm tauri dev
 ```
 
+前端工程化说明见 [docs/frontend-architecture.md](./docs/frontend-architecture.md)；Rust 后端见 [docs/rust-architecture.md](./docs/rust-architecture.md)。日常门禁：
+
+```bash
+pnpm check   # typecheck + lint + test
+```
+
 构建 MSI：
 
 ```bash
-pnpm tauri build
+pnpm tauri:build
 ```
 
 安装包输出至 `src-tauri/target/release/bundle/msi/`。
+生成的文件名为 `AAAi_0.1.4_x64.msi`，不再带有 `_en-US` 后缀。
 
 本项目采用 [Unlicense](./LICENSE)，相当于公共领域，几乎无限制使用、修改与分发。

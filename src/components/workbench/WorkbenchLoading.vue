@@ -2,7 +2,6 @@
   <div class="workbench-loading" role="status" :aria-label="label">
     <div class="loading-brand" aria-hidden="true">
       <img class="loading-logo" :src="appIconAsset" alt="" draggable="false" />
-      <span class="loading-halo" />
     </div>
     <p class="loading-label">{{ label }}</p>
     <span class="loading-progress" aria-hidden="true"><i /></span>
@@ -32,71 +31,57 @@ const label = computed(() =>
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 18px;
-  background:
-    radial-gradient(120% 80% at 50% -10%, #ffffff 0%, transparent 55%),
-    linear-gradient(180deg, #f7f5f1 0%, #efeae2 52%, #e8e2d8 100%);
-  color: #1c1915;
-  font-family: var(--peek-font-sans, "Noto Sans SC", "Segoe UI", sans-serif);
-  user-select: none;
-}
-
-.workbench[data-theme="dark"] .workbench-loading,
-:global(html.dark) .workbench-loading {
+  gap: 20px;
   background:
     radial-gradient(120% 80% at 50% -10%, #2a2a2a 0%, transparent 55%),
     linear-gradient(180deg, #1f1f1f 0%, #181818 100%);
   color: #f3f4f6;
+  font-family: var(--peek-font-sans, "Noto Sans SC", "Segoe UI", sans-serif);
+  user-select: none;
+}
+
+.workbench[data-theme="light"] .workbench-loading,
+:global(html[data-theme="light"]) .workbench-loading {
+  background:
+    radial-gradient(120% 80% at 50% -10%, #ffffff 0%, transparent 55%),
+    linear-gradient(180deg, #f7f5f1 0%, #efeae2 52%, #e8e2d8 100%);
+  color: #1c1915;
 }
 
 .loading-brand {
   position: relative;
-  width: 112px;
-  height: 112px;
+  width: 168px;
+  height: 168px;
   display: grid;
   place-items: center;
 }
 
 .loading-logo {
-  position: relative;
-  z-index: 1;
-  width: 88px;
-  height: 88px;
+  width: 168px;
+  height: 168px;
   object-fit: contain;
+  filter: invert(1);
   animation: logo-breathe 2.2s ease-in-out infinite;
 }
 
-:global(html.dark) .loading-logo,
-.workbench[data-theme="dark"] .loading-logo {
-  filter: invert(1);
-}
-
-.loading-halo {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 1px solid rgba(28, 25, 21, 0.1);
-  animation: halo-pulse 2.2s ease-in-out infinite;
-}
-
-:global(html.dark) .loading-halo,
-.workbench[data-theme="dark"] .loading-halo {
-  border-color: rgba(255, 255, 255, 0.12);
+.workbench[data-theme="light"] .loading-logo,
+:global(html[data-theme="light"]) .loading-logo {
+  filter: none;
 }
 
 .loading-label {
   margin: 0;
   max-width: min(80vw, 360px);
-  color: rgba(28, 25, 21, 0.62);
+  color: rgba(243, 244, 246, 0.62);
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.02em;
   text-align: center;
 }
 
-:global(html.dark) .loading-label,
-.workbench[data-theme="dark"] .loading-label {
-  color: rgba(243, 244, 246, 0.62);
+.workbench[data-theme="light"] .loading-label,
+:global(html[data-theme="light"]) .loading-label {
+  color: rgba(28, 25, 21, 0.62);
 }
 
 .loading-progress {
@@ -104,12 +89,12 @@ const label = computed(() =>
   height: 2px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(28, 25, 21, 0.08);
+  background: rgba(243, 244, 246, 0.12);
 }
 
-:global(html.dark) .loading-progress,
-.workbench[data-theme="dark"] .loading-progress {
-  background: rgba(255, 255, 255, 0.1);
+.workbench[data-theme="light"] .loading-progress,
+:global(html[data-theme="light"]) .loading-progress {
+  background: rgba(28, 25, 21, 0.08);
 }
 
 .loading-progress i {
@@ -117,13 +102,13 @@ const label = computed(() =>
   width: 36%;
   height: 100%;
   border-radius: inherit;
-  background: #171411;
+  background: #f3f4f6;
   animation: progress-travel 1.45s ease-in-out infinite;
 }
 
-:global(html.dark) .loading-progress i,
-.workbench[data-theme="dark"] .loading-progress i {
-  background: #f3f4f6;
+.workbench[data-theme="light"] .loading-progress i,
+:global(html[data-theme="light"]) .loading-progress i {
+  background: #171411;
 }
 
 @keyframes logo-breathe {
@@ -134,18 +119,6 @@ const label = computed(() =>
   }
   50% {
     transform: scale(1.04);
-    opacity: 1;
-  }
-}
-
-@keyframes halo-pulse {
-  0%,
-  100% {
-    transform: scale(0.92);
-    opacity: 0.55;
-  }
-  50% {
-    transform: scale(1.08);
     opacity: 1;
   }
 }
@@ -166,7 +139,6 @@ const label = computed(() =>
 
 @media (prefers-reduced-motion: reduce) {
   .loading-logo,
-  .loading-halo,
   .loading-progress i {
     animation: none;
   }

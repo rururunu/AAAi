@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::core::agent::{AgentDebugEvent, AgentRuntime, AgentSpawnInput};
@@ -130,7 +131,7 @@ impl ChatService {
                 .find(|workspace| workspace.id == workspace_id)
                 .cloned()
         } else {
-            self.workspace_manager.current()
+            None
         };
         if let Some(workspace) = workspace.as_ref() {
             self.workspace_manager
@@ -168,11 +169,17 @@ impl ChatService {
             context.workspace = None;
         }
         self.remember_ide_workspace(&context).await;
+        let known_workspaces = self.workspace_manager.list();
         let is_new_session = self.conversation.messages(&session_id).is_empty();
         if is_new_session && !quick_ask {
             if let Some(resolved) = context.workspace.as_ref() {
+                let workspace_id = known_workspaces
+                    .iter()
+                    .find(|workspace| workspace.root == PathBuf::from(&resolved.root))
+                    .map(|workspace| workspace.id.clone())
+                    .unwrap_or_else(|| resolved.root.clone());
                 self.conversation
-                    .bind_workspace(&session_id, &resolved.root);
+                    .bind_workspace(&session_id, &workspace_id);
             }
         }
         let user_message = create_message(&session_id, Role::User, content, MessageStatus::Done);
@@ -254,17 +261,24 @@ impl ChatService {
                 folded_messages: notice.folded_messages,
             });
         }
-        let collaboration_models = self
+        let settings = self
             .app_handle
             .as_ref()
-            .and_then(|app| crate::services::settings_store::get_settings(app).ok())
+            .and_then(|app| crate::services::settings_store::get_settings(app).ok());
+        let collaboration_models = settings
+            .as_ref()
             .filter(|settings| settings.multi_model_collaboration)
-            .map(|settings| settings.collaboration_models)
+            .map(|settings| settings.collaboration_models.clone())
             .unwrap_or_default();
+        let minimal_coding = settings
+            .as_ref()
+            .map(|settings| settings.minimal_coding)
+            .unwrap_or(false);
         let prompt_preferences = PromptPreferences {
             app_language: preferences.app_language,
             reasoning_language: preferences.reasoning_language,
             collaboration_models,
+            minimal_coding,
         };
         let request = PromptBuilder::build(PromptBuildInput {
             request_id: &assistant_message.id,
@@ -355,25 +369,26 @@ impl ChatService {
     }
 
     async fn remember_ide_workspace(&self, context: &crate::core::runtime::RequestContext) {
-        let Some(ide) = context.ide_context.as_ref() else {
-            return;
-        };
-        if ide
-            .selection
-            .as_deref()
-            .is_none_or(|selection| selection.trim().is_empty())
-        {
-            return;
-        }
-        let Some(root) = ide.workspace.clone() else {
+        let root = context
+            .ide_context
+            .as_ref()
+            .and_then(|ide| ide.workspace.clone())
+            .or_else(|| {
+                context
+                    .workspace
+                    .as_ref()
+                    .map(|workspace| PathBuf::from(&workspace.root))
+            });
+        let ide = context
+            .ide_context
+            .as_ref()
+            .map(|ide| ide.ide.as_str())
+            .unwrap_or("ide");
+        let Some(root) = root else {
             return;
         };
 
-        match self
-            .workspace_manager
-            .remember_from_ide(root, &ide.ide)
-            .await
-        {
+        match self.workspace_manager.remember_from_ide(root, ide).await {
             Ok((_, false)) => {}
             Ok((workspace, true)) => {
                 if let Some(app) = &self.app_handle {
@@ -392,7 +407,7 @@ impl ChatService {
             Err(error) => {
                 tracing::warn!(
                     provider = "ide",
-                    ide = %ide.ide,
+                    ide = %ide,
                     error = %error,
                     "failed to remember IDE workspace"
                 );

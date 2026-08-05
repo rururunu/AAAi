@@ -1,0 +1,37 @@
+{
+  "id": "list_folder",
+  "prompt": "List files under src.",
+  "setupFiles": [
+    {
+      "path": "src/a.rs",
+      "content": "fn a() {}"
+    },
+    {
+      "path": "src/b.rs",
+      "content": "fn b() {}"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "list_folder",
+          "arguments": {
+            "path": "src"
+          }
+        }
+      ]
+    },
+    {
+      "content": "src has a.rs and b.rs",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "answerContains",
+      "text": "a.rs"
+    }
+  ]
+}

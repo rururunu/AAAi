@@ -1,0 +1,46 @@
+{
+  "id": "idempotent_write",
+  "prompt": "Ensure version.txt is 1.0.0",
+  "setupFiles": [
+    {
+      "path": "version.txt",
+      "content": "0.9.0"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "version.txt",
+            "content": "1.0.0"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "version.txt"
+          }
+        }
+      ]
+    },
+    {
+      "content": "任务完成",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "fileEquals",
+      "path": "version.txt",
+      "text": "1.0.0"
+    }
+  ]
+}

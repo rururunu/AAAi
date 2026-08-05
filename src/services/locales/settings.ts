@@ -1,25 +1,92 @@
 import type { AppLanguage } from "@/types/setting";
 
 export const settingsFieldIds = [
-  "colorScheme", "language", "zoom", "hardwareAccelerationEnabled", "opacity", "primaryHotkey", "secondaryHotkey", "deepseekApiKey",
-  "defaultModel", "multimodalModel", "multimodalSplitAnalysis", "largeContextEnabled", "reasoningEffort", "reasoningLanguage", "showReasoning", "passToolReasoning",
-  "memoryEnabled", "mem0ApiKey", "mem0UserId", "mem0BaseUrl",
-  "webSearchEnabled", "webSearchProvider", "serperApiKey", "tavilyApiKey",
-  "toolApprovalMode", "agentWorkDisplay", "lspEnabled", "multiModelCollaboration",
-  "pixpinPinAiEnabled", "snipastePinAiEnabled",
-  "appName", "appVersion", "appIdentifier",
+  "colorScheme",
+  "language",
+  "zoom",
+  "hardwareAccelerationEnabled",
+  "opacity",
+  "primaryHotkey",
+  "secondaryHotkey",
+  "deepseekApiKey",
+  "defaultModel",
+  "multimodalModel",
+  "multimodalSplitAnalysis",
+  "largeContextEnabled",
+  "reasoningEffort",
+  "reasoningLanguage",
+  "showReasoning",
+  "passToolReasoning",
+  "memoryEnabled",
+  "mem0ApiKey",
+  "mem0UserId",
+  "mem0BaseUrl",
+  "webSearchEnabled",
+  "webSearchProvider",
+  "serperApiKey",
+  "tavilyApiKey",
+  "toolApprovalMode",
+  "agentWorkDisplay",
+  "lspEnabled",
+  "multiModelCollaboration",
+  "minimalCoding",
+  "pixpinPinAiEnabled",
+  "snipastePinAiEnabled",
+  "appName",
+  "appVersion",
+  "appIdentifier",
 ] as const;
-export type SettingFieldId = typeof settingsFieldIds[number];
+export type SettingFieldId = (typeof settingsFieldIds)[number];
 
-type CategoryKey = "appearance" | "ai" | "memory" | "search" | "agent" | "mcp" | "skills" | "plugins" | "workspace" | "history" | "about" | "provider";
+type CategoryKey =
+  | "appearance"
+  | "ai"
+  | "memory"
+  | "search"
+  | "agent"
+  | "mcp"
+  | "skills"
+  | "plugins"
+  | "workspace"
+  | "history"
+  | "about"
+  | "provider";
 type GroupKey = "appearance" | "ai" | "memory" | "search" | "agent" | "plugins" | "about";
-type HistoryKey = "search" | "title" | "selectAll" | "deleteSelected" | "clearAll" | "empty" | "deleteGroup" | "messages" | "open" | "publicGroup" | "yesterday" | "cancel" | "deleteLabel";
-type HistoryConfirmKey = "deleteTitle" | "deleteSelectedDesc" | "deleteGroupTitle" | "deleteGroupDesc" | "deleteSingleDesc" | "clearTitle" | "clearDesc" | "deleteAllLabel";
+type HistoryKey =
+  | "search"
+  | "title"
+  | "selectAll"
+  | "deleteSelected"
+  | "clearAll"
+  | "empty"
+  | "deleteGroup"
+  | "messages"
+  | "open"
+  | "publicGroup"
+  | "yesterday"
+  | "cancel"
+  | "deleteLabel";
+type HistoryConfirmKey =
+  | "deleteTitle"
+  | "deleteSelectedDesc"
+  | "deleteGroupTitle"
+  | "deleteGroupDesc"
+  | "deleteSingleDesc"
+  | "clearTitle"
+  | "clearDesc"
+  | "deleteAllLabel";
 
 export type SettingsI18nKey =
-  | "settings.title" | "settings.minimize" | "settings.close" | "settings.sidebarLabel"
-  | "settings.searchPlaceholder" | "settings.apiKeyPlaceholder" | "settings.empty"
-  | "settings.hotkey.record" | "settings.hotkey.recording" | "settings.hotkey.reset"
+  | "settings.title"
+  | "settings.minimize"
+  | "settings.close"
+  | "settings.sidebarLabel"
+  | "settings.searchPlaceholder"
+  | "settings.apiKeyPlaceholder"
+  | "settings.empty"
+  | "settings.hotkey.record"
+  | "settings.hotkey.recording"
+  | "settings.hotkey.reset"
   | "settings.provider.deepseek"
   | "settings.provider.gemini"
   | "settings.provider.geminiDescription"
@@ -70,10 +137,12 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
 
   "settings.provider.deepseek": "DeepSeek Provider",
   "settings.provider.gemini": "Gemini Provider",
-  "settings.provider.geminiDescription": "Sign in with Google via Antigravity to use Gemini models (Cloud Code).",
+  "settings.provider.geminiDescription":
+    "Sign in with Google via Antigravity to use Gemini models (Cloud Code).",
   "settings.provider.geminiClientId": "OAuth Client ID",
   "settings.provider.geminiClientSecret": "OAuth Client Secret",
-  "settings.provider.geminiClientSecretHint": "From Google Cloud → Credentials → your Desktop OAuth client. Kept on this device only.",
+  "settings.provider.geminiClientSecretHint":
+    "From Google Cloud → Credentials → your Desktop OAuth client. Kept on this device only.",
   "settings.provider.geminiAccount": "Google account",
   "settings.provider.geminiLogin": "Sign in with Google",
   "settings.provider.geminiLogout": "Sign out",
@@ -84,11 +153,13 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.provider.geminiImportCredentials": "Import client_secret JSON",
   "settings.provider.custom": "Custom Provider",
   "settings.provider.title": "Provider Configurations",
-  "settings.provider.description": "Configure DeepSeek, Gemini (Antigravity), or custom OpenAI-compatible providers.",
+  "settings.provider.description":
+    "Configure DeepSeek, Gemini (Antigravity), or custom OpenAI-compatible providers.",
   "settings.provider.apiKey": "API Key",
   "settings.provider.baseUrl": "Base URL",
   "settings.provider.modelsList": "Model List",
-  "settings.provider.modelsPlaceholder": "Enter model IDs, e.g. gpt-4o, llama3 (separated by commas or newlines)",
+  "settings.provider.modelsPlaceholder":
+    "Enter model IDs, e.g. gpt-4o, llama3 (separated by commas or newlines)",
   "settings.provider.save": "Save Settings",
   "settings.provider.saved": "Settings saved successfully",
   "settings.provider.back": "Back",
@@ -124,61 +195,90 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.fields.language.title": "Language",
   "settings.fields.language.description": "Choose the display language for the interface.",
   "settings.fields.zoom.title": "Interface Zoom",
-  "settings.fields.zoom.description": "Adjust the scale of interface elements and fonts for high-DPI displays.",
+  "settings.fields.zoom.description":
+    "Adjust the scale of interface elements and fonts for high-DPI displays.",
   "settings.fields.hardwareAccelerationEnabled.title": "Hardware acceleration",
-  "settings.fields.hardwareAccelerationEnabled.description": "Use the GPU for WebView2 rendering. Enabled by default; changing this setting requires a full application restart.",
+  "settings.fields.hardwareAccelerationEnabled.description":
+    "Use the GPU for WebView2 rendering. Enabled by default; changing this setting requires a full application restart.",
   "settings.fields.opacity.title": "Opacity",
-  "settings.fields.opacity.description": "Adjust window opacity and enable frosted glass background.",
+  "settings.fields.opacity.description":
+    "Adjust window opacity and enable frosted glass background.",
   "settings.fields.primaryHotkey.title": "Primary shortcut",
-  "settings.fields.primaryHotkey.description": "Record the modifier key to double-tap for opening AAAi. Default: double Alt.",
+  "settings.fields.primaryHotkey.description":
+    "Record the modifier key to double-tap for opening AAAi. Default: double Alt.",
   "settings.fields.secondaryHotkey.title": "Secondary shortcut",
-  "settings.fields.secondaryHotkey.description": "Record a backup shortcut for apps that steal double-Alt (e.g. IDEA). Default: Ctrl+Alt+Space.",
+  "settings.fields.secondaryHotkey.description":
+    "Record a backup shortcut for apps that steal double-Alt (e.g. IDEA). Default: Ctrl+Alt+Space.",
   "settings.fields.deepseekApiKey.title": "API Key",
-  "settings.fields.deepseekApiKey.description": "Used for DeepSeek chat requests. Stored locally only.",
+  "settings.fields.deepseekApiKey.description":
+    "Used for DeepSeek chat requests. Stored locally only.",
   "settings.fields.defaultModel.title": "Default model",
-  "settings.fields.defaultModel.description": "The model used for new chats. Available models are loaded from the DeepSeek API.",
+  "settings.fields.defaultModel.description":
+    "The model used for new chats. Available models are loaded from the DeepSeek API.",
   "settings.fields.multimodalModel.title": "Multimodal model",
-  "settings.fields.multimodalModel.description": "Fallback vision model used only when the primary chat model cannot see images (e.g. DeepSeek-R1). Gemini / GPT-4o already see images natively and ignore this.",
+  "settings.fields.multimodalModel.description":
+    "Fallback vision model used only when the primary chat model cannot see images (e.g. DeepSeek-R1). Gemini / GPT-4o already see images natively and ignore this.",
   "settings.fields.multimodalSplitAnalysis.title": "Split multimodal analysis",
-  "settings.fields.multimodalSplitAnalysis.description": "For text-only primary models: the multimodal model describes the image, then the primary model answers and runs tools. Not used when the primary model already supports vision (e.g. Gemini).",
+  "settings.fields.multimodalSplitAnalysis.description":
+    "For text-only primary models: the multimodal model describes the image, then the primary model answers and runs tools. Not used when the primary model already supports vision (e.g. Gemini).",
   "settings.fields.largeContextEnabled.title": "1M context window",
-  "settings.fields.largeContextEnabled.description": "When enabled, use a 1,000,000-token context window for history compaction and turn budgets. When disabled, fall back to 64k.",
+  "settings.fields.largeContextEnabled.description":
+    "When enabled, use a 1,000,000-token context window for history compaction and turn budgets. When disabled, fall back to 64k.",
   "settings.fields.reasoningEffort.title": "Reasoning Effort",
-  "settings.fields.reasoningEffort.description": "Controls DeepSeek thinking depth; disabled omits reasoning_effort.",
+  "settings.fields.reasoningEffort.description":
+    "Controls DeepSeek thinking depth; disabled omits reasoning_effort.",
   "settings.fields.reasoningLanguage.title": "Reasoning Language",
-  "settings.fields.reasoningLanguage.description": "Preferences for visible reasoning and final answer language (transient injection).",
+  "settings.fields.reasoningLanguage.description":
+    "Preferences for visible reasoning and final answer language (transient injection).",
   "settings.fields.showReasoning.title": "Show reasoning process",
-  "settings.fields.showReasoning.description": "Show model reasoning in chat when the provider supplies it.",
+  "settings.fields.showReasoning.description":
+    "Show model reasoning in chat when the provider supplies it.",
   "settings.fields.passToolReasoning.title": "Pass tool-turn reasoning",
-  "settings.fields.passToolReasoning.description": "Include reasoning_content on assistant turns with tool_calls (required by DeepSeek thinking + tools; turning off may cause 400 errors).",
+  "settings.fields.passToolReasoning.description":
+    "Include reasoning_content on assistant turns with tool_calls (required by DeepSeek thinking + tools; turning off may cause 400 errors).",
   "settings.fields.memoryEnabled.title": "Enable memory",
-  "settings.fields.memoryEnabled.description": "Recall relevant memories and save durable preferences and project rules.",
+  "settings.fields.memoryEnabled.description":
+    "Recall relevant memories and save durable preferences and project rules.",
   "settings.fields.mem0ApiKey.title": "mem0 API Key",
-  "settings.fields.mem0ApiKey.description": "Connects to mem0 and is stored only in local settings. Leave empty for local memory.",
+  "settings.fields.mem0ApiKey.description":
+    "Connects to mem0 and is stored only in local settings. Leave empty for local memory.",
   "settings.fields.mem0UserId.title": "User ID",
-  "settings.fields.mem0UserId.description": "A stable identifier used to isolate memories for this user.",
+  "settings.fields.mem0UserId.description":
+    "A stable identifier used to isolate memories for this user.",
   "settings.fields.mem0BaseUrl.title": "Base URL",
-  "settings.fields.mem0BaseUrl.description": "The mem0 API endpoint for compatible services or a self-hosted gateway.",
+  "settings.fields.mem0BaseUrl.description":
+    "The mem0 API endpoint for compatible services or a self-hosted gateway.",
   "settings.fields.webSearchEnabled.title": "Enable web search",
-  "settings.fields.webSearchEnabled.description": "When enabled with a valid provider API key, expose web_search to the model.",
+  "settings.fields.webSearchEnabled.description":
+    "When enabled with a valid provider API key, expose web_search to the model.",
   "settings.fields.webSearchProvider.title": "Search provider",
-  "settings.fields.webSearchProvider.description": "Choose Serper or Tavily as the web search backend.",
+  "settings.fields.webSearchProvider.description":
+    "Choose Serper or Tavily as the web search backend.",
   "settings.fields.serperApiKey.title": "Serper API Key",
   "settings.fields.serperApiKey.description": "Used for Serper search. Stored locally only.",
   "settings.fields.tavilyApiKey.title": "Tavily API Key",
   "settings.fields.tavilyApiKey.description": "Used for Tavily search. Stored locally only.",
   "settings.fields.toolApprovalMode.title": "Tool approval mode",
-  "settings.fields.toolApprovalMode.description": "Ask / Auto / Always allow. Always allow still blocks dangerous shell via rules.",
+  "settings.fields.toolApprovalMode.description":
+    "Ask / Auto / Always allow. Always allow still blocks dangerous shell via rules.",
   "settings.fields.agentWorkDisplay.title": "Agent work display",
-  "settings.fields.agentWorkDisplay.description": "Detailed shows shell and code diffs inline in the chat timeline. Compact folds them into process details (collapsed by default). Read tools always stay in process details.",
+  "settings.fields.agentWorkDisplay.description":
+    "Detailed shows shell and code diffs inline in the chat timeline. Compact folds them into process details (collapsed by default). Read tools always stay in process details.",
   "settings.fields.lspEnabled.title": "Enable LSP",
-  "settings.fields.lspEnabled.description": "Expose the lsp tool (hover / definition / diagnostics) when language servers are available.",
+  "settings.fields.lspEnabled.description":
+    "Expose the lsp tool (hover / definition / diagnostics) when language servers are available.",
   "settings.fields.multiModelCollaboration.title": "Multi-model collaboration",
-  "settings.fields.multiModelCollaboration.description": "Allow the main Agent to delegate suitable tasks to child Agents using the selected available models.",
+  "settings.fields.multiModelCollaboration.description":
+    "Allow the main Agent to delegate suitable tasks to child Agents using the selected available models.",
+  "settings.fields.minimalCoding.title": "Minimal coding mode",
+  "settings.fields.minimalCoding.description":
+    "When enabled, each turn injects a YAGNI ladder: reuse existing code, prefer stdlib/native features, and write the smallest correct change without cutting safety or validation.",
   "settings.fields.pixpinPinAiEnabled.title": "PixPin pin badge",
-  "settings.fields.pixpinPinAiEnabled.description": "When a PixPin pin is on screen, show a small AI badge at its bottom-right. Click to open AAAi with that image attached.",
+  "settings.fields.pixpinPinAiEnabled.description":
+    "When a PixPin pin is on screen, show a small AI badge at its bottom-right. Click to open AAAi with that image attached.",
   "settings.fields.snipastePinAiEnabled.title": "Snipaste pin badge",
-  "settings.fields.snipastePinAiEnabled.description": "When a Snipaste pin is on screen, show a small AI badge at its bottom-right. Click to open AAAi with that image attached.",
+  "settings.fields.snipastePinAiEnabled.description":
+    "When a Snipaste pin is on screen, show a small AI badge at its bottom-right. Click to open AAAi with that image attached.",
   "settings.fields.appName.title": "Application Name",
   "settings.fields.appName.description": "The installed application name.",
   "settings.fields.appVersion.title": "Version",
@@ -201,9 +301,11 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.history.deleteLabel": "Delete",
 
   "settings.historyConfirm.deleteTitle": "Delete chats",
-  "settings.historyConfirm.deleteSelectedDesc": "Delete the selected {count} chats? This cannot be undone.",
+  "settings.historyConfirm.deleteSelectedDesc":
+    "Delete the selected {count} chats? This cannot be undone.",
   "settings.historyConfirm.deleteGroupTitle": "Delete group chats",
-  "settings.historyConfirm.deleteGroupDesc": "Delete all {count} chats in \u201c{name}\u201d? This cannot be undone.",
+  "settings.historyConfirm.deleteGroupDesc":
+    "Delete all {count} chats in \u201c{name}\u201d? This cannot be undone.",
   "settings.historyConfirm.deleteSingleDesc": "Delete this chat? This cannot be undone.",
   "settings.historyConfirm.clearTitle": "Clear history",
   "settings.historyConfirm.clearDesc": "Clear all chat history? This cannot be undone.",
@@ -238,10 +340,12 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
 
     "settings.provider.deepseek": "DeepSeek 提供商",
     "settings.provider.gemini": "Gemini 提供商",
-    "settings.provider.geminiDescription": "通过 Antigravity 使用 Google 账号登录后即可调用 Gemini（Cloud Code）。",
+    "settings.provider.geminiDescription":
+      "通过 Antigravity 使用 Google 账号登录后即可调用 Gemini（Cloud Code）。",
     "settings.provider.geminiClientId": "OAuth Client ID",
     "settings.provider.geminiClientSecret": "OAuth Client Secret",
-    "settings.provider.geminiClientSecretHint": "来自 Google Cloud → 凭据 → Desktop OAuth 客户端，仅保存在本机。",
+    "settings.provider.geminiClientSecretHint":
+      "来自 Google Cloud → 凭据 → Desktop OAuth 客户端，仅保存在本机。",
     "settings.provider.geminiAccount": "Google 账号",
     "settings.provider.geminiLogin": "使用 Google 登录",
     "settings.provider.geminiLogout": "退出登录",
@@ -252,11 +356,13 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.geminiImportCredentials": "导入 client_secret JSON",
     "settings.provider.custom": "自定义提供商",
     "settings.provider.title": "模型提供商配置",
-    "settings.provider.description": "配置 DeepSeek、Gemini（Antigravity）或自定义 OpenAI 兼容提供商。",
+    "settings.provider.description":
+      "配置 DeepSeek、Gemini（Antigravity）或自定义 OpenAI 兼容提供商。",
     "settings.provider.apiKey": "API Key",
     "settings.provider.baseUrl": "Base URL",
     "settings.provider.modelsList": "模型列表",
-    "settings.provider.modelsPlaceholder": "请输入模型 ID，例如 gpt-4o, llama3（使用逗号或换行分隔）",
+    "settings.provider.modelsPlaceholder":
+      "请输入模型 ID，例如 gpt-4o, llama3（使用逗号或换行分隔）",
     "settings.provider.save": "保存设置",
     "settings.provider.saved": "设置保存成功",
     "settings.provider.back": "返回",
@@ -281,23 +387,29 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.zoom.title": "界面缩放",
     "settings.fields.zoom.description": "调整软件界面大小。",
     "settings.fields.hardwareAccelerationEnabled.title": "硬件加速",
-    "settings.fields.hardwareAccelerationEnabled.description": "使用 GPU 加速 WebView2 界面渲染。默认开启，更改后需要完整重启应用才能生效。",
+    "settings.fields.hardwareAccelerationEnabled.description":
+      "使用 GPU 加速 WebView2 界面渲染。默认开启，更改后需要完整重启应用才能生效。",
     "settings.fields.opacity.title": "透明度",
     "settings.fields.opacity.description": "调整窗口背景透明度与毛玻璃效果。",
     "settings.fields.primaryHotkey.title": "主快捷键",
     "settings.fields.primaryHotkey.description": "录制用于打开 AAAi 的双击修饰键。默认：双击 Alt。",
     "settings.fields.secondaryHotkey.title": "副快捷键",
-    "settings.fields.secondaryHotkey.description": "为会抢走双击 Alt 的应用（如 IDEA）录制备用快捷键。默认：Ctrl+Alt+Space。",
+    "settings.fields.secondaryHotkey.description":
+      "为会抢走双击 Alt 的应用（如 IDEA）录制备用快捷键。默认：Ctrl+Alt+Space。",
     "settings.fields.deepseekApiKey.title": "API Key",
     "settings.fields.deepseekApiKey.description": "DeepSeek API Key",
     "settings.fields.defaultModel.title": "默认模型",
-    "settings.fields.defaultModel.description": "新对话默认使用的模型，列表通过 DeepSeek API 获取。",
+    "settings.fields.defaultModel.description":
+      "新对话默认使用的模型，列表通过 DeepSeek API 获取。",
     "settings.fields.multimodalModel.title": "多模态模型",
-    "settings.fields.multimodalModel.description": "仅当主模型本身不能看图时（如 DeepSeek-R1）才用作视觉回退；Gemini / GPT-4o 等原生识图模型不会走此路径。",
+    "settings.fields.multimodalModel.description":
+      "仅当主模型本身不能看图时（如 DeepSeek-R1）才用作视觉回退；Gemini / GPT-4o 等原生识图模型不会走此路径。",
     "settings.fields.multimodalSplitAnalysis.title": "多模态分步分析",
-    "settings.fields.multimodalSplitAnalysis.description": "面向无视觉能力的主模型：多模态模型先描述图片，再由主模型作答与调用工具。主模型已支持识图（如 Gemini）时不会启用。",
+    "settings.fields.multimodalSplitAnalysis.description":
+      "面向无视觉能力的主模型：多模态模型先描述图片，再由主模型作答与调用工具。主模型已支持识图（如 Gemini）时不会启用。",
     "settings.fields.largeContextEnabled.title": "1M 上下文",
-    "settings.fields.largeContextEnabled.description": "开启后使用约 100 万 token 的上下文窗口（历史压缩与单轮预算）；关闭则回退到 64k。",
+    "settings.fields.largeContextEnabled.description":
+      "开启后使用约 100 万 token 的上下文窗口（历史压缩与单轮预算）；关闭则回退到 64k。",
     "settings.fields.reasoningEffort.title": "Reasoning Effort",
     "settings.fields.reasoningEffort.description": "DeepSeek 思考深度",
     "settings.fields.reasoningLanguage.title": "Reasoning Language",
@@ -305,17 +417,21 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.showReasoning.title": "显示思考过程",
     "settings.fields.showReasoning.description": "模型提供推理内容时，在聊天中显示思考过程。",
     "settings.fields.passToolReasoning.title": "工具轮次回传推理",
-    "settings.fields.passToolReasoning.description": "开启后，含 tool_calls 的 assistant 轮次会把 reasoning_content 带回 API（DeepSeek Thinking + 工具所必需；关闭可能导致 400）。",
+    "settings.fields.passToolReasoning.description":
+      "开启后，含 tool_calls 的 assistant 轮次会把 reasoning_content 带回 API（DeepSeek Thinking + 工具所必需；关闭可能导致 400）。",
     "settings.fields.memoryEnabled.title": "启用记忆",
-    "settings.fields.memoryEnabled.description": "自动召回相关记忆，并按规则保存长期偏好与项目约定。",
+    "settings.fields.memoryEnabled.description":
+      "自动召回相关记忆，并按规则保存长期偏好与项目约定。",
     "settings.fields.mem0ApiKey.title": "mem0 API Key",
-    "settings.fields.mem0ApiKey.description": "用于连接 mem0，密钥仅保存在本机设置中。留空时使用本地记忆。",
+    "settings.fields.mem0ApiKey.description":
+      "用于连接 mem0，密钥仅保存在本机设置中。留空时使用本地记忆。",
     "settings.fields.mem0UserId.title": "User ID",
     "settings.fields.mem0UserId.description": "稳定的用户标识，用于隔离不同用户的记忆。",
     "settings.fields.mem0BaseUrl.title": "Base URL",
     "settings.fields.mem0BaseUrl.description": "mem0 API 地址，可配置兼容服务或自托管网关。",
     "settings.fields.webSearchEnabled.title": "启用联网搜索",
-    "settings.fields.webSearchEnabled.description": "开启后，在已配置对应 Provider API Key 时向模型提供 web_search。",
+    "settings.fields.webSearchEnabled.description":
+      "开启后，在已配置对应 Provider API Key 时向模型提供 web_search。",
     "settings.fields.webSearchProvider.title": "搜索 Provider",
     "settings.fields.webSearchProvider.description": "选择 Serper 或 Tavily 作为联网搜索后端。",
     "settings.fields.serperApiKey.title": "Serper API Key",
@@ -323,17 +439,26 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.tavilyApiKey.title": "Tavily API Key",
     "settings.fields.tavilyApiKey.description": "用于 Tavily 搜索，密钥仅保存在本机设置中。",
     "settings.fields.toolApprovalMode.title": "工具审批模式",
-    "settings.fields.toolApprovalMode.description": "询问 / 自动 / 一律允许。一律允许仍会拦截危险 shell。",
+    "settings.fields.toolApprovalMode.description":
+      "询问 / 自动 / 一律允许。一律允许仍会拦截危险 shell。",
     "settings.fields.agentWorkDisplay.title": "工作过程显示",
-    "settings.fields.agentWorkDisplay.description": "详细显示：命令与代码 diff 直接穿插在对话时间线中。轻量显示：收入过程详情并默认折叠；读取类工具始终在过程详情中。",
+    "settings.fields.agentWorkDisplay.description":
+      "详细显示：命令与代码 diff 直接穿插在对话时间线中。轻量显示：收入过程详情并默认折叠；读取类工具始终在过程详情中。",
     "settings.fields.lspEnabled.title": "启用 LSP",
-    "settings.fields.lspEnabled.description": "启用后可使用 lsp 工具（hover / definition / diagnostics）。",
+    "settings.fields.lspEnabled.description":
+      "启用后可使用 lsp 工具（hover / definition / diagnostics）。",
     "settings.fields.multiModelCollaboration.title": "多模型协同",
-    "settings.fields.multiModelCollaboration.description": "允许主 Agent 将适合的任务交给使用所选模型的子 Agent。",
+    "settings.fields.multiModelCollaboration.description":
+      "允许主 Agent 将适合的任务交给使用所选模型的子 Agent。",
+    "settings.fields.minimalCoding.title": "精简编码模式",
+    "settings.fields.minimalCoding.description":
+      "开启后，每轮对话注入 YAGNI 决策阶梯：优先复用现有代码与标准库/原生能力，只写最小正确改动，且不砍安全与校验。",
     "settings.fields.pixpinPinAiEnabled.title": "PixPin 贴图角标",
-    "settings.fields.pixpinPinAiEnabled.description": "检测到 PixPin 贴图时，在其右下角显示 AI 角标。点击后打开 AAAi 并将该图片附加到消息中。",
+    "settings.fields.pixpinPinAiEnabled.description":
+      "检测到 PixPin 贴图时，在其右下角显示 AI 角标。点击后打开 AAAi 并将该图片附加到消息中。",
     "settings.fields.snipastePinAiEnabled.title": "Snipaste 贴图角标",
-    "settings.fields.snipastePinAiEnabled.description": "检测到 Snipaste 贴图时，在其右下角显示 AI 角标。点击后打开 AAAi 并将该图片附加到消息中。",
+    "settings.fields.snipastePinAiEnabled.description":
+      "检测到 Snipaste 贴图时，在其右下角显示 AI 角标。点击后打开 AAAi 并将该图片附加到消息中。",
     "settings.fields.appName.title": "Application Name",
     "settings.fields.appName.description": "应用名称",
     "settings.fields.appVersion.title": "Version",
@@ -356,9 +481,11 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.history.deleteLabel": "删除",
 
     "settings.historyConfirm.deleteTitle": "删除对话",
-    "settings.historyConfirm.deleteSelectedDesc": "确定删除选中的 {count} 个对话吗？此操作不可撤销。",
+    "settings.historyConfirm.deleteSelectedDesc":
+      "确定删除选中的 {count} 个对话吗？此操作不可撤销。",
     "settings.historyConfirm.deleteGroupTitle": "删除分组对话",
-    "settings.historyConfirm.deleteGroupDesc": "确定删除\u201c{name}\u201d分组下的全部 {count} 个对话吗？此操作不可撤销。",
+    "settings.historyConfirm.deleteGroupDesc":
+      "确定删除\u201c{name}\u201d分组下的全部 {count} 个对话吗？此操作不可撤销。",
     "settings.historyConfirm.deleteSingleDesc": "确定删除这个对话吗？此操作不可撤销。",
     "settings.historyConfirm.clearTitle": "清空历史记录",
     "settings.historyConfirm.clearDesc": "确定要清空所有历史对话吗？此操作不可逆！",
@@ -386,11 +513,13 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.deepseek": "DeepSeek プロバイダー",
     "settings.provider.custom": "カスタムプロバイダー",
     "settings.provider.title": "プロバイダー設定",
-    "settings.provider.description": "DeepSeek API またはカスタムの OpenAI 互換プロバイダーを設定します。",
+    "settings.provider.description":
+      "DeepSeek API またはカスタムの OpenAI 互換プロバイダーを設定します。",
     "settings.provider.apiKey": "API キー",
     "settings.provider.baseUrl": "ベース URL",
     "settings.provider.modelsList": "モデルリスト",
-    "settings.provider.modelsPlaceholder": "モデルIDを入力（カンマまたは改行で区切る、例: gpt-4o, llama3）",
+    "settings.provider.modelsPlaceholder":
+      "モデルIDを入力（カンマまたは改行で区切る、例: gpt-4o, llama3）",
     "settings.provider.save": "設定を保存",
     "settings.provider.saved": "設定が正常に保存されました",
     "settings.provider.back": "戻る",
@@ -416,27 +545,35 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.opacity.title": "不透明度",
     "settings.fields.opacity.description": "ウィンドウの透明度とすりガラス効果を調整します。",
     "settings.fields.deepseekApiKey.title": "API キー",
-    "settings.fields.deepseekApiKey.description": "DeepSeek のチャットリクエストに使用し、ローカルにのみ保存されます。",
+    "settings.fields.deepseekApiKey.description":
+      "DeepSeek のチャットリクエストに使用し、ローカルにのみ保存されます。",
     "settings.fields.defaultModel.title": "既定のモデル",
-    "settings.fields.defaultModel.description": "新しいチャットで使用するモデルです。一覧は DeepSeek API から取得します。",
+    "settings.fields.defaultModel.description":
+      "新しいチャットで使用するモデルです。一覧は DeepSeek API から取得します。",
     "settings.fields.multimodalModel.title": "マルチモーダルモデル",
-    "settings.fields.multimodalModel.description": "画像などのビジョン入力を含む場合に自動的に使用されるモデルです（例: gpt-4o）。",
+    "settings.fields.multimodalModel.description":
+      "画像などのビジョン入力を含む場合に自動的に使用されるモデルです（例: gpt-4o）。",
     "settings.fields.reasoningEffort.title": "推論の強度",
     "settings.fields.reasoningEffort.description": "DeepSeek の思考の深さを調整します。",
     "settings.fields.reasoningLanguage.title": "回答言語",
     "settings.fields.reasoningLanguage.description": "推論テキストと最終回答の言語設定です。",
     "settings.fields.passToolReasoning.title": "ツール回合の推論を返す",
-    "settings.fields.passToolReasoning.description": "tool_calls 付きの assistant ターンで reasoning_content を API に戻します（Thinking + ツールで必須。オフにすると 400 になる場合があります）。",
+    "settings.fields.passToolReasoning.description":
+      "tool_calls 付きの assistant ターンで reasoning_content を API に戻します（Thinking + ツールで必須。オフにすると 400 になる場合があります）。",
     "settings.fields.memoryEnabled.title": "メモリを有効化",
-    "settings.fields.memoryEnabled.description": "関連するメモリを呼び出し、長期的な設定やプロジェクトルールを保存します。",
+    "settings.fields.memoryEnabled.description":
+      "関連するメモリを呼び出し、長期的な設定やプロジェクトルールを保存します。",
     "settings.fields.mem0ApiKey.title": "mem0 API キー",
-    "settings.fields.mem0ApiKey.description": "mem0 への接続に使用します。空欄の場合はローカルメモリを使用します。",
+    "settings.fields.mem0ApiKey.description":
+      "mem0 への接続に使用します。空欄の場合はローカルメモリを使用します。",
     "settings.fields.mem0UserId.title": "ユーザー ID",
     "settings.fields.mem0UserId.description": "ユーザーごとのメモリを分離する安定した識別子です。",
     "settings.fields.mem0BaseUrl.title": "ベース URL",
-    "settings.fields.mem0BaseUrl.description": "互換サービスまたはセルフホストゲートウェイの mem0 API URL です。",
+    "settings.fields.mem0BaseUrl.description":
+      "互換サービスまたはセルフホストゲートウェイの mem0 API URL です。",
     "settings.fields.webSearchEnabled.title": "ウェブ検索を有効化",
-    "settings.fields.webSearchEnabled.description": "有効化し、選択したプロバイダーの API キーがある場合に web_search をモデルへ提供します。",
+    "settings.fields.webSearchEnabled.description":
+      "有効化し、選択したプロバイダーの API キーがある場合に web_search をモデルへ提供します。",
     "settings.fields.webSearchProvider.title": "検索プロバイダー",
     "settings.fields.webSearchProvider.description": "Serper または Tavily を選択します。",
     "settings.fields.serperApiKey.title": "Serper API キー",
@@ -444,9 +581,11 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.tavilyApiKey.title": "Tavily API キー",
     "settings.fields.tavilyApiKey.description": "Tavily 検索用。ローカルにのみ保存されます。",
     "settings.fields.toolApprovalMode.title": "ツール承認",
-    "settings.fields.toolApprovalMode.description": "Ask / Auto / 常に許可。危険な shell は引き続きブロックされます。",
+    "settings.fields.toolApprovalMode.description":
+      "Ask / Auto / 常に許可。危険な shell は引き続きブロックされます。",
     "settings.fields.lspEnabled.title": "LSP を有効化",
-    "settings.fields.lspEnabled.description": "言語サーバーが利用可能な場合に診断と定義ジャンプを提供します。",
+    "settings.fields.lspEnabled.description":
+      "言語サーバーが利用可能な場合に診断と定義ジャンプを提供します。",
     "settings.fields.appName.title": "アプリケーション名",
     "settings.fields.appName.description": "インストールされているアプリケーションの名前です。",
     "settings.fields.appVersion.title": "バージョン",
@@ -469,9 +608,11 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.history.deleteLabel": "削除",
 
     "settings.historyConfirm.deleteTitle": "チャットを削除",
-    "settings.historyConfirm.deleteSelectedDesc": "選択した {count} 件のチャットを削除しますか？元に戻せません。",
+    "settings.historyConfirm.deleteSelectedDesc":
+      "選択した {count} 件のチャットを削除しますか？元に戻せません。",
     "settings.historyConfirm.deleteGroupTitle": "グループのチャットを削除",
-    "settings.historyConfirm.deleteGroupDesc": "「{name}」の {count} 件のチャットをすべて削除しますか？元に戻せません。",
+    "settings.historyConfirm.deleteGroupDesc":
+      "「{name}」の {count} 件のチャットをすべて削除しますか？元に戻せません。",
     "settings.historyConfirm.deleteSingleDesc": "このチャットを削除しますか？元に戻せません。",
     "settings.historyConfirm.clearTitle": "履歴を消去",
     "settings.historyConfirm.clearDesc": "すべてのチャット履歴を消去しますか？元に戻せません。",
@@ -499,11 +640,13 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.deepseek": "Провайдер DeepSeek",
     "settings.provider.custom": "Пользовательский провайдер",
     "settings.provider.title": "Настройки провайдеров",
-    "settings.provider.description": "Настройте DeepSeek API или другие OpenAI-совместимые провайдеры.",
+    "settings.provider.description":
+      "Настройте DeepSeek API или другие OpenAI-совместимые провайдеры.",
     "settings.provider.apiKey": "API ключ",
     "settings.provider.baseUrl": "Базовый URL",
     "settings.provider.modelsList": "Список моделей",
-    "settings.provider.modelsPlaceholder": "Введите ID моделей, например gpt-4o, llama3 (через запятую или новую строку)",
+    "settings.provider.modelsPlaceholder":
+      "Введите ID моделей, например gpt-4o, llama3 (через запятую или новую строку)",
     "settings.provider.save": "Сохранить настройки",
     "settings.provider.saved": "Настройки успешно сохранены",
     "settings.provider.back": "Назад",
@@ -529,27 +672,36 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.opacity.title": "Прозрачность",
     "settings.fields.opacity.description": "Настройте прозрачность окна и эффект матового стекла.",
     "settings.fields.deepseekApiKey.title": "Ключ API",
-    "settings.fields.deepseekApiKey.description": "Используется для запросов DeepSeek и хранится только локально.",
+    "settings.fields.deepseekApiKey.description":
+      "Используется для запросов DeepSeek и хранится только локально.",
     "settings.fields.defaultModel.title": "Модель по умолчанию",
-    "settings.fields.defaultModel.description": "Модель для новых чатов. Список загружается через API DeepSeek.",
+    "settings.fields.defaultModel.description":
+      "Модель для новых чатов. Список загружается через API DeepSeek.",
     "settings.fields.multimodalModel.title": "Мультимодальная модель",
-    "settings.fields.multimodalModel.description": "Модель, автоматически используемая при обработке изображений или мультимедиа (например, gpt-4o).",
+    "settings.fields.multimodalModel.description":
+      "Модель, автоматически используемая при обработке изображений или мультимедиа (например, gpt-4o).",
     "settings.fields.reasoningEffort.title": "Глубина рассуждений",
     "settings.fields.reasoningEffort.description": "Управляет глубиной рассуждений DeepSeek.",
     "settings.fields.reasoningLanguage.title": "Язык ответа",
     "settings.fields.reasoningLanguage.description": "Язык видимых рассуждений и итогового ответа.",
     "settings.fields.passToolReasoning.title": "Возврат reasoning в tool-ходах",
-    "settings.fields.passToolReasoning.description": "Передавать reasoning_content для assistant-ходов с tool_calls (нужно для DeepSeek thinking + tools; выключение может дать 400).",
+    "settings.fields.passToolReasoning.description":
+      "Передавать reasoning_content для assistant-ходов с tool_calls (нужно для DeepSeek thinking + tools; выключение может дать 400).",
     "settings.fields.memoryEnabled.title": "Включить память",
-    "settings.fields.memoryEnabled.description": "Находит связанную память и сохраняет долгосрочные предпочтения и правила проекта.",
+    "settings.fields.memoryEnabled.description":
+      "Находит связанную память и сохраняет долгосрочные предпочтения и правила проекта.",
     "settings.fields.mem0ApiKey.title": "Ключ API mem0",
-    "settings.fields.mem0ApiKey.description": "Подключает mem0. Оставьте пустым для локальной памяти.",
+    "settings.fields.mem0ApiKey.description":
+      "Подключает mem0. Оставьте пустым для локальной памяти.",
     "settings.fields.mem0UserId.title": "ID пользователя",
-    "settings.fields.mem0UserId.description": "Постоянный идентификатор для разделения памяти пользователей.",
+    "settings.fields.mem0UserId.description":
+      "Постоянный идентификатор для разделения памяти пользователей.",
     "settings.fields.mem0BaseUrl.title": "Базовый URL",
-    "settings.fields.mem0BaseUrl.description": "Адрес API mem0 для совместимого сервиса или собственного шлюза.",
+    "settings.fields.mem0BaseUrl.description":
+      "Адрес API mem0 для совместимого сервиса или собственного шлюза.",
     "settings.fields.webSearchEnabled.title": "Включить веб-поиск",
-    "settings.fields.webSearchEnabled.description": "При включении и наличии ключа выбранного провайдера предоставляет модели web_search.",
+    "settings.fields.webSearchEnabled.description":
+      "При включении и наличии ключа выбранного провайдера предоставляет модели web_search.",
     "settings.fields.webSearchProvider.title": "Провайдер поиска",
     "settings.fields.webSearchProvider.description": "Выберите Serper или Tavily.",
     "settings.fields.serperApiKey.title": "Ключ API Serper",
@@ -557,9 +709,11 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.tavilyApiKey.title": "Ключ API Tavily",
     "settings.fields.tavilyApiKey.description": "Для поиска Tavily. Хранится только локально.",
     "settings.fields.toolApprovalMode.title": "Одобрение инструментов",
-    "settings.fields.toolApprovalMode.description": "Ask / Auto / Always allow. Опасный shell всё ещё блокируется.",
+    "settings.fields.toolApprovalMode.description":
+      "Ask / Auto / Always allow. Опасный shell всё ещё блокируется.",
     "settings.fields.lspEnabled.title": "Включить LSP",
-    "settings.fields.lspEnabled.description": "Диагностика и переход к определению при доступных серверах.",
+    "settings.fields.lspEnabled.description":
+      "Диагностика и переход к определению при доступных серверах.",
     "settings.fields.appName.title": "Название приложения",
     "settings.fields.appName.description": "Название установленного приложения.",
     "settings.fields.appVersion.title": "Версия",
@@ -582,12 +736,15 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.history.deleteLabel": "Удалить",
 
     "settings.historyConfirm.deleteTitle": "Удалить чаты",
-    "settings.historyConfirm.deleteSelectedDesc": "Удалить выбранные чаты ({count})? Это действие нельзя отменить.",
+    "settings.historyConfirm.deleteSelectedDesc":
+      "Удалить выбранные чаты ({count})? Это действие нельзя отменить.",
     "settings.historyConfirm.deleteGroupTitle": "Удалить чаты группы",
-    "settings.historyConfirm.deleteGroupDesc": "Удалить все чаты ({count}) в группе «{name}»? Это действие нельзя отменить.",
+    "settings.historyConfirm.deleteGroupDesc":
+      "Удалить все чаты ({count}) в группе «{name}»? Это действие нельзя отменить.",
     "settings.historyConfirm.deleteSingleDesc": "Удалить этот чат? Это действие нельзя отменить.",
     "settings.historyConfirm.clearTitle": "Очистить историю",
-    "settings.historyConfirm.clearDesc": "Очистить всю историю чатов? Это действие нельзя отменить.",
+    "settings.historyConfirm.clearDesc":
+      "Очистить всю историю чатов? Это действие нельзя отменить.",
     "settings.historyConfirm.deleteAllLabel": "Удалить все",
   },
   "de-DE": {
@@ -612,11 +769,13 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.deepseek": "DeepSeek-Anbieter",
     "settings.provider.custom": "Benutzerdefinierter Anbieter",
     "settings.provider.title": "Anbieterkonfigurationen",
-    "settings.provider.description": "Konfigurieren Sie die DeepSeek-API oder benutzerdefinierte OpenAI-kompatible Anbieter.",
+    "settings.provider.description":
+      "Konfigurieren Sie die DeepSeek-API oder benutzerdefinierte OpenAI-kompatible Anbieter.",
     "settings.provider.apiKey": "API-Schlüssel",
     "settings.provider.baseUrl": "Basis-URL",
     "settings.provider.modelsList": "Modellliste",
-    "settings.provider.modelsPlaceholder": "Modell-IDs eingeben, z.B. gpt-4o, llama3 (durch Komma oder Zeilenumbruch getrennt)",
+    "settings.provider.modelsPlaceholder":
+      "Modell-IDs eingeben, z.B. gpt-4o, llama3 (durch Komma oder Zeilenumbruch getrennt)",
     "settings.provider.save": "Einstellungen speichern",
     "settings.provider.saved": "Einstellungen erfolgreich gespeichert",
     "settings.provider.back": "Zurück",
@@ -634,7 +793,8 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.groups.about": "Anwendung",
 
     "settings.fields.colorScheme.title": "Farbschema",
-    "settings.fields.colorScheme.description": "Wählen Sie das allgemeine Farbschema der Anwendung.",
+    "settings.fields.colorScheme.description":
+      "Wählen Sie das allgemeine Farbschema der Anwendung.",
     "settings.fields.language.title": "Sprache",
     "settings.fields.language.description": "Wählen Sie die Anzeigesprache der Oberfläche.",
     "settings.fields.zoom.title": "Oberflächenskalierung",
@@ -642,27 +802,37 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.opacity.title": "Deckkraft",
     "settings.fields.opacity.description": "Passen Sie Fenstertransparenz und Milchglaseffekt an.",
     "settings.fields.deepseekApiKey.title": "API-Schlüssel",
-    "settings.fields.deepseekApiKey.description": "Wird für DeepSeek-Anfragen verwendet und nur lokal gespeichert.",
+    "settings.fields.deepseekApiKey.description":
+      "Wird für DeepSeek-Anfragen verwendet und nur lokal gespeichert.",
     "settings.fields.defaultModel.title": "Standardmodell",
-    "settings.fields.defaultModel.description": "Modell für neue Chats. Die Liste wird über die DeepSeek-API geladen.",
+    "settings.fields.defaultModel.description":
+      "Modell für neue Chats. Die Liste wird über die DeepSeek-API geladen.",
     "settings.fields.multimodalModel.title": "Multimodales Modell",
-    "settings.fields.multimodalModel.description": "Das Modell, das automatisch bei Bild- oder multimodalen Eingaben verwendet wird (z. B. gpt-4o).",
+    "settings.fields.multimodalModel.description":
+      "Das Modell, das automatisch bei Bild- oder multimodalen Eingaben verwendet wird (z. B. gpt-4o).",
     "settings.fields.reasoningEffort.title": "Denkintensität",
     "settings.fields.reasoningEffort.description": "Steuert die Denktiefe von DeepSeek.",
     "settings.fields.reasoningLanguage.title": "Antwortsprache",
-    "settings.fields.reasoningLanguage.description": "Sprache für sichtbare Gedankengänge und endgültige Antworten.",
+    "settings.fields.reasoningLanguage.description":
+      "Sprache für sichtbare Gedankengänge und endgültige Antworten.",
     "settings.fields.passToolReasoning.title": "Tool-Runden-Reasoning zurückgeben",
-    "settings.fields.passToolReasoning.description": "reasoning_content bei Assistant-Turns mit tool_calls mitsenden (für DeepSeek Thinking + Tools nötig; Aus kann zu 400 führen).",
+    "settings.fields.passToolReasoning.description":
+      "reasoning_content bei Assistant-Turns mit tool_calls mitsenden (für DeepSeek Thinking + Tools nötig; Aus kann zu 400 führen).",
     "settings.fields.memoryEnabled.title": "Speicher aktivieren",
-    "settings.fields.memoryEnabled.description": "Ruft relevante Erinnerungen ab und speichert dauerhafte Einstellungen und Projektregeln.",
+    "settings.fields.memoryEnabled.description":
+      "Ruft relevante Erinnerungen ab und speichert dauerhafte Einstellungen und Projektregeln.",
     "settings.fields.mem0ApiKey.title": "mem0-API-Schlüssel",
-    "settings.fields.mem0ApiKey.description": "Verbindet mem0. Leer lassen, um lokalen Speicher zu verwenden.",
+    "settings.fields.mem0ApiKey.description":
+      "Verbindet mem0. Leer lassen, um lokalen Speicher zu verwenden.",
     "settings.fields.mem0UserId.title": "Benutzer-ID",
-    "settings.fields.mem0UserId.description": "Stabile Kennung zur Trennung der Erinnerungen verschiedener Benutzer.",
+    "settings.fields.mem0UserId.description":
+      "Stabile Kennung zur Trennung der Erinnerungen verschiedener Benutzer.",
     "settings.fields.mem0BaseUrl.title": "Basis-URL",
-    "settings.fields.mem0BaseUrl.description": "mem0-API-Adresse für kompatible Dienste oder ein selbst gehostetes Gateway.",
+    "settings.fields.mem0BaseUrl.description":
+      "mem0-API-Adresse für kompatible Dienste oder ein selbst gehostetes Gateway.",
     "settings.fields.webSearchEnabled.title": "Websuche aktivieren",
-    "settings.fields.webSearchEnabled.description": "Stellt web_search dem Modell bereit, wenn aktiviert und der API-Schlüssel des gewählten Anbieters gesetzt ist.",
+    "settings.fields.webSearchEnabled.description":
+      "Stellt web_search dem Modell bereit, wenn aktiviert und der API-Schlüssel des gewählten Anbieters gesetzt ist.",
     "settings.fields.webSearchProvider.title": "Suchanbieter",
     "settings.fields.webSearchProvider.description": "Wählen Sie Serper oder Tavily.",
     "settings.fields.serperApiKey.title": "Serper-API-Schlüssel",
@@ -670,9 +840,11 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.tavilyApiKey.title": "Tavily-API-Schlüssel",
     "settings.fields.tavilyApiKey.description": "Für Tavily-Suche. Nur lokal gespeichert.",
     "settings.fields.toolApprovalMode.title": "Werkzeugfreigabe",
-    "settings.fields.toolApprovalMode.description": "Ask / Auto / Always allow. Gefährliche Shells bleiben blockiert.",
+    "settings.fields.toolApprovalMode.description":
+      "Ask / Auto / Always allow. Gefährliche Shells bleiben blockiert.",
     "settings.fields.lspEnabled.title": "LSP aktivieren",
-    "settings.fields.lspEnabled.description": "Diagnosen und Definitionssprünge bei verfügbaren Sprachservern.",
+    "settings.fields.lspEnabled.description":
+      "Diagnosen und Definitionssprünge bei verfügbaren Sprachservern.",
     "settings.fields.appName.title": "Anwendungsname",
     "settings.fields.appName.description": "Name der installierten Anwendung.",
     "settings.fields.appVersion.title": "Version",
@@ -695,12 +867,16 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.history.deleteLabel": "Löschen",
 
     "settings.historyConfirm.deleteTitle": "Chats löschen",
-    "settings.historyConfirm.deleteSelectedDesc": "Die ausgewählten {count} Chats löschen? Dies kann nicht rückgängig gemacht werden.",
+    "settings.historyConfirm.deleteSelectedDesc":
+      "Die ausgewählten {count} Chats löschen? Dies kann nicht rückgängig gemacht werden.",
     "settings.historyConfirm.deleteGroupTitle": "Gruppenchats löschen",
-    "settings.historyConfirm.deleteGroupDesc": "Alle {count} Chats in „{name}“ löschen? Dies kann nicht rückgängig gemacht werden.",
-    "settings.historyConfirm.deleteSingleDesc": "Diesen Chat löschen? Dies kann nicht rückgängig gemacht werden.",
+    "settings.historyConfirm.deleteGroupDesc":
+      "Alle {count} Chats in „{name}“ löschen? Dies kann nicht rückgängig gemacht werden.",
+    "settings.historyConfirm.deleteSingleDesc":
+      "Diesen Chat löschen? Dies kann nicht rückgängig gemacht werden.",
     "settings.historyConfirm.clearTitle": "Verlauf löschen",
-    "settings.historyConfirm.clearDesc": "Den gesamten Chatverlauf löschen? Dies kann nicht rückgängig gemacht werden.",
+    "settings.historyConfirm.clearDesc":
+      "Den gesamten Chatverlauf löschen? Dies kann nicht rückgängig gemacht werden.",
     "settings.historyConfirm.deleteAllLabel": "Alle löschen",
   },
   "fr-FR": {
@@ -725,11 +901,13 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.deepseek": "Fournisseur DeepSeek",
     "settings.provider.custom": "Fournisseur personnalisé",
     "settings.provider.title": "Configurations du fournisseur",
-    "settings.provider.description": "Configurez l'API DeepSeek ou des fournisseurs personnalisés compatibles OpenAI.",
+    "settings.provider.description":
+      "Configurez l'API DeepSeek ou des fournisseurs personnalisés compatibles OpenAI.",
     "settings.provider.apiKey": "Clé API",
     "settings.provider.baseUrl": "URL de base",
     "settings.provider.modelsList": "Liste des modèles",
-    "settings.provider.modelsPlaceholder": "Entrez les ID de modèles, ex. gpt-4o, llama3 (séparés par des virgules ou retours à la ligne)",
+    "settings.provider.modelsPlaceholder":
+      "Entrez les ID de modèles, ex. gpt-4o, llama3 (séparés par des virgules ou retours à la ligne)",
     "settings.provider.save": "Enregistrer les paramètres",
     "settings.provider.saved": "Paramètres enregistrés avec succès",
     "settings.provider.back": "Retour",
@@ -747,45 +925,63 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.groups.about": "Application",
 
     "settings.fields.colorScheme.title": "Thème de couleurs",
-    "settings.fields.colorScheme.description": "Choisissez le thème de couleurs général de l\u2019application.",
+    "settings.fields.colorScheme.description":
+      "Choisissez le thème de couleurs général de l\u2019application.",
     "settings.fields.language.title": "Langue",
-    "settings.fields.language.description": "Choisissez la langue d\u2019affichage de l\u2019interface.",
+    "settings.fields.language.description":
+      "Choisissez la langue d\u2019affichage de l\u2019interface.",
     "settings.fields.zoom.title": "Zoom de l\u2019interface",
     "settings.fields.zoom.description": "Ajustez la taille des éléments et des polices.",
     "settings.fields.opacity.title": "Opacité",
-    "settings.fields.opacity.description": "Ajustez la transparence et l\u2019effet de verre dépoli.",
+    "settings.fields.opacity.description":
+      "Ajustez la transparence et l\u2019effet de verre dépoli.",
     "settings.fields.deepseekApiKey.title": "Clé API",
-    "settings.fields.deepseekApiKey.description": "Utilisée pour les requêtes DeepSeek et stockée uniquement en local.",
+    "settings.fields.deepseekApiKey.description":
+      "Utilisée pour les requêtes DeepSeek et stockée uniquement en local.",
     "settings.fields.defaultModel.title": "Modèle par défaut",
-    "settings.fields.defaultModel.description": "Modèle utilisé pour les nouvelles discussions. La liste vient de l\u2019API DeepSeek.",
+    "settings.fields.defaultModel.description":
+      "Modèle utilisé pour les nouvelles discussions. La liste vient de l\u2019API DeepSeek.",
     "settings.fields.multimodalModel.title": "Modèle multimodal",
-    "settings.fields.multimodalModel.description": "Le modèle utilisé automatiquement pour les entrées visuelles ou multimodales (ex. gpt-4o).",
+    "settings.fields.multimodalModel.description":
+      "Le modèle utilisé automatiquement pour les entrées visuelles ou multimodales (ex. gpt-4o).",
     "settings.fields.reasoningEffort.title": "Intensité du raisonnement",
-    "settings.fields.reasoningEffort.description": "Contrôle la profondeur de réflexion de DeepSeek.",
+    "settings.fields.reasoningEffort.description":
+      "Contrôle la profondeur de réflexion de DeepSeek.",
     "settings.fields.reasoningLanguage.title": "Langue de réponse",
-    "settings.fields.reasoningLanguage.description": "Langue du raisonnement visible et de la réponse finale.",
+    "settings.fields.reasoningLanguage.description":
+      "Langue du raisonnement visible et de la réponse finale.",
     "settings.fields.passToolReasoning.title": "Renvoyer le raisonnement des tours d\u2019outils",
-    "settings.fields.passToolReasoning.description": "Inclure reasoning_content sur les tours assistant avec tool_calls (requis pour DeepSeek thinking + tools ; le désactiver peut provoquer une erreur 400).",
+    "settings.fields.passToolReasoning.description":
+      "Inclure reasoning_content sur les tours assistant avec tool_calls (requis pour DeepSeek thinking + tools ; le désactiver peut provoquer une erreur 400).",
     "settings.fields.memoryEnabled.title": "Activer la mémoire",
-    "settings.fields.memoryEnabled.description": "Rappelle les souvenirs pertinents et enregistre les préférences durables et les règles du projet.",
+    "settings.fields.memoryEnabled.description":
+      "Rappelle les souvenirs pertinents et enregistre les préférences durables et les règles du projet.",
     "settings.fields.mem0ApiKey.title": "Clé API mem0",
-    "settings.fields.mem0ApiKey.description": "Connecte mem0. Laissez vide pour utiliser la mémoire locale.",
+    "settings.fields.mem0ApiKey.description":
+      "Connecte mem0. Laissez vide pour utiliser la mémoire locale.",
     "settings.fields.mem0UserId.title": "Identifiant utilisateur",
-    "settings.fields.mem0UserId.description": "Identifiant stable permettant d\u2019isoler la mémoire de chaque utilisateur.",
+    "settings.fields.mem0UserId.description":
+      "Identifiant stable permettant d\u2019isoler la mémoire de chaque utilisateur.",
     "settings.fields.mem0BaseUrl.title": "URL de base",
-    "settings.fields.mem0BaseUrl.description": "Adresse de l\u2019API mem0 pour un service compatible ou une passerelle auto-hébergée.",
+    "settings.fields.mem0BaseUrl.description":
+      "Adresse de l\u2019API mem0 pour un service compatible ou une passerelle auto-hébergée.",
     "settings.fields.webSearchEnabled.title": "Activer la recherche web",
-    "settings.fields.webSearchEnabled.description": "Expose web_search au modèle lorsque c\u2019est activé avec une clé API du fournisseur sélectionné.",
+    "settings.fields.webSearchEnabled.description":
+      "Expose web_search au modèle lorsque c\u2019est activé avec une clé API du fournisseur sélectionné.",
     "settings.fields.webSearchProvider.title": "Fournisseur de recherche",
     "settings.fields.webSearchProvider.description": "Choisissez Serper ou Tavily.",
     "settings.fields.serperApiKey.title": "Clé API Serper",
-    "settings.fields.serperApiKey.description": "Pour la recherche Serper. Stockée uniquement en local.",
+    "settings.fields.serperApiKey.description":
+      "Pour la recherche Serper. Stockée uniquement en local.",
     "settings.fields.tavilyApiKey.title": "Clé API Tavily",
-    "settings.fields.tavilyApiKey.description": "Pour la recherche Tavily. Stockée uniquement en local.",
+    "settings.fields.tavilyApiKey.description":
+      "Pour la recherche Tavily. Stockée uniquement en local.",
     "settings.fields.toolApprovalMode.title": "Approbation des outils",
-    "settings.fields.toolApprovalMode.description": "Ask / Auto / Always allow. Les shells dangereux restent bloqués.",
+    "settings.fields.toolApprovalMode.description":
+      "Ask / Auto / Always allow. Les shells dangereux restent bloqués.",
     "settings.fields.lspEnabled.title": "Activer LSP",
-    "settings.fields.lspEnabled.description": "Diagnostics et définition si des serveurs sont disponibles.",
+    "settings.fields.lspEnabled.description":
+      "Diagnostics et définition si des serveurs sont disponibles.",
     "settings.fields.appName.title": "Nom de l\u2019application",
     "settings.fields.appName.description": "Nom de l\u2019application installée.",
     "settings.fields.appVersion.title": "Version",
@@ -808,12 +1004,16 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.history.deleteLabel": "Supprimer",
 
     "settings.historyConfirm.deleteTitle": "Supprimer les discussions",
-    "settings.historyConfirm.deleteSelectedDesc": "Supprimer les {count} discussions sélectionnées ? Cette action est irréversible.",
+    "settings.historyConfirm.deleteSelectedDesc":
+      "Supprimer les {count} discussions sélectionnées ? Cette action est irréversible.",
     "settings.historyConfirm.deleteGroupTitle": "Supprimer les discussions du groupe",
-    "settings.historyConfirm.deleteGroupDesc": "Supprimer les {count} discussions de « {name} » ? Cette action est irréversible.",
-    "settings.historyConfirm.deleteSingleDesc": "Supprimer cette discussion ? Cette action est irréversible.",
+    "settings.historyConfirm.deleteGroupDesc":
+      "Supprimer les {count} discussions de « {name} » ? Cette action est irréversible.",
+    "settings.historyConfirm.deleteSingleDesc":
+      "Supprimer cette discussion ? Cette action est irréversible.",
     "settings.historyConfirm.clearTitle": "Effacer l\u2019historique",
-    "settings.historyConfirm.clearDesc": "Effacer tout l\u2019historique ? Cette action est irréversible.",
+    "settings.historyConfirm.clearDesc":
+      "Effacer tout l\u2019historique ? Cette action est irréversible.",
     "settings.historyConfirm.deleteAllLabel": "Tout supprimer",
   },
   "ko-KR": {
@@ -838,11 +1038,13 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.deepseek": "DeepSeek 제공자",
     "settings.provider.custom": "사용자 정의 제공자",
     "settings.provider.title": "모델 제공자 설정",
-    "settings.provider.description": "DeepSeek API 또는 사용자 정의 OpenAI 호환 제공자를 설정합니다.",
+    "settings.provider.description":
+      "DeepSeek API 또는 사용자 정의 OpenAI 호환 제공자를 설정합니다.",
     "settings.provider.apiKey": "API 키",
     "settings.provider.baseUrl": "기본 URL",
     "settings.provider.modelsList": "모델 목록",
-    "settings.provider.modelsPlaceholder": "모델 ID 입력 (쉼표 또는 줄바꿈으로 구분, 예: gpt-4o, llama3)",
+    "settings.provider.modelsPlaceholder":
+      "모델 ID 입력 (쉼표 또는 줄바꿈으로 구분, 예: gpt-4o, llama3)",
     "settings.provider.save": "설정 저장",
     "settings.provider.saved": "설정이 성공적으로 저장되었습니다",
     "settings.provider.back": "이전",
@@ -870,25 +1072,32 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.deepseekApiKey.title": "API 키",
     "settings.fields.deepseekApiKey.description": "DeepSeek 요청에 사용하며 로컬에만 저장됩니다.",
     "settings.fields.defaultModel.title": "기본 모델",
-    "settings.fields.defaultModel.description": "새 채팅에 사용할 모델입니다. 목록은 DeepSeek API에서 가져옵니다.",
+    "settings.fields.defaultModel.description":
+      "새 채팅에 사용할 모델입니다. 목록은 DeepSeek API에서 가져옵니다.",
     "settings.fields.multimodalModel.title": "멀티모달 모델",
-    "settings.fields.multimodalModel.description": "이미지 등 비주얼 입력이 포함될 때 자동으로 사용되는 모델입니다 (예: gpt-4o).",
+    "settings.fields.multimodalModel.description":
+      "이미지 등 비주얼 입력이 포함될 때 자동으로 사용되는 모델입니다 (예: gpt-4o).",
     "settings.fields.reasoningEffort.title": "추론 강도",
     "settings.fields.reasoningEffort.description": "DeepSeek의 사고 깊이를 조절합니다.",
     "settings.fields.reasoningLanguage.title": "응답 언어",
     "settings.fields.reasoningLanguage.description": "표시되는 추론과 최종 응답의 언어 설정입니다.",
     "settings.fields.passToolReasoning.title": "도구 턴 추론 회수",
-    "settings.fields.passToolReasoning.description": "tool_calls가 있는 assistant 턴에 reasoning_content를 API로 다시 보냅니다(DeepSeek Thinking + 도구에 필요; 끄면 400이 날 수 있음).",
+    "settings.fields.passToolReasoning.description":
+      "tool_calls가 있는 assistant 턴에 reasoning_content를 API로 다시 보냅니다(DeepSeek Thinking + 도구에 필요; 끄면 400이 날 수 있음).",
     "settings.fields.memoryEnabled.title": "메모리 사용",
-    "settings.fields.memoryEnabled.description": "관련 메모리를 불러오고 장기 환경설정과 프로젝트 규칙을 저장합니다.",
+    "settings.fields.memoryEnabled.description":
+      "관련 메모리를 불러오고 장기 환경설정과 프로젝트 규칙을 저장합니다.",
     "settings.fields.mem0ApiKey.title": "mem0 API 키",
-    "settings.fields.mem0ApiKey.description": "mem0 연결에 사용합니다. 비워 두면 로컬 메모리를 사용합니다.",
+    "settings.fields.mem0ApiKey.description":
+      "mem0 연결에 사용합니다. 비워 두면 로컬 메모리를 사용합니다.",
     "settings.fields.mem0UserId.title": "사용자 ID",
     "settings.fields.mem0UserId.description": "사용자별 메모리를 분리하는 고정 식별자입니다.",
     "settings.fields.mem0BaseUrl.title": "기본 URL",
-    "settings.fields.mem0BaseUrl.description": "호환 서비스 또는 자체 호스팅 게이트웨이의 mem0 API 주소입니다.",
+    "settings.fields.mem0BaseUrl.description":
+      "호환 서비스 또는 자체 호스팅 게이트웨이의 mem0 API 주소입니다.",
     "settings.fields.webSearchEnabled.title": "웹 검색 사용",
-    "settings.fields.webSearchEnabled.description": "사용 설정하고 선택한 제공자의 API 키가 있으면 모델에 web_search를 제공합니다.",
+    "settings.fields.webSearchEnabled.description":
+      "사용 설정하고 선택한 제공자의 API 키가 있으면 모델에 web_search를 제공합니다.",
     "settings.fields.webSearchProvider.title": "검색 제공자",
     "settings.fields.webSearchProvider.description": "Serper 또는 Tavily를 선택합니다.",
     "settings.fields.serperApiKey.title": "Serper API 키",
@@ -896,7 +1105,8 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.tavilyApiKey.title": "Tavily API 키",
     "settings.fields.tavilyApiKey.description": "Tavily 검색용. 로컬에만 저장됩니다.",
     "settings.fields.toolApprovalMode.title": "도구 승인",
-    "settings.fields.toolApprovalMode.description": "Ask / Auto / Always allow. 위험한 shell은 계속 차단됩니다.",
+    "settings.fields.toolApprovalMode.description":
+      "Ask / Auto / Always allow. 위험한 shell은 계속 차단됩니다.",
     "settings.fields.lspEnabled.title": "LSP 사용",
     "settings.fields.lspEnabled.description": "언어 서버가 있으면 진단과 정의 이동을 제공합니다.",
     "settings.fields.appName.title": "애플리케이션 이름",
@@ -921,9 +1131,11 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.history.deleteLabel": "삭제",
 
     "settings.historyConfirm.deleteTitle": "채팅 삭제",
-    "settings.historyConfirm.deleteSelectedDesc": "선택한 채팅 {count}개를 삭제할까요? 되돌릴 수 없습니다.",
+    "settings.historyConfirm.deleteSelectedDesc":
+      "선택한 채팅 {count}개를 삭제할까요? 되돌릴 수 없습니다.",
     "settings.historyConfirm.deleteGroupTitle": "그룹 채팅 삭제",
-    "settings.historyConfirm.deleteGroupDesc": "'{name}'의 채팅 {count}개를 모두 삭제할까요? 되돌릴 수 없습니다.",
+    "settings.historyConfirm.deleteGroupDesc":
+      "'{name}'의 채팅 {count}개를 모두 삭제할까요? 되돌릴 수 없습니다.",
     "settings.historyConfirm.deleteSingleDesc": "이 채팅을 삭제할까요? 되돌릴 수 없습니다.",
     "settings.historyConfirm.clearTitle": "기록 지우기",
     "settings.historyConfirm.clearDesc": "모든 채팅 기록을 지울까요? 되돌릴 수 없습니다.",
@@ -964,6 +1176,7 @@ const settingsFieldPaths: Record<"zh-CN" | "en-US", Partial<Record<SettingFieldI
     agentWorkDisplay: "Agent / Work Display",
     lspEnabled: "Agent / Language Server",
     multiModelCollaboration: "Agent / Multi-model collaboration",
+    minimalCoding: "Agent / Minimal coding mode",
     pixpinPinAiEnabled: "Plugins / PixPin pin AI",
     snipastePinAiEnabled: "Plugins / Snipaste pin AI",
     appName: "About › Application Name",
@@ -998,6 +1211,8 @@ const settingsFieldPaths: Record<"zh-CN" | "en-US", Partial<Record<SettingFieldI
     toolApprovalMode: "Agent / 工具审批",
     agentWorkDisplay: "Agent / 工作过程显示",
     lspEnabled: "Agent / 语言服务",
+    multiModelCollaboration: "Agent / 多模型协同",
+    minimalCoding: "Agent / 精简编码模式",
     pixpinPinAiEnabled: "插件 / PixPin 贴图 AI",
     snipastePinAiEnabled: "插件 / Snipaste 贴图 AI",
     appName: "About › Application Name",
@@ -1006,19 +1221,37 @@ const settingsFieldPaths: Record<"zh-CN" | "en-US", Partial<Record<SettingFieldI
   },
 };
 
-const settingsFieldKeywords: Record<"zh-CN" | "en-US", Partial<Record<SettingFieldId, string[]>>> = {
+const settingsFieldKeywords: Record<
+  "zh-CN" | "en-US",
+  Partial<Record<SettingFieldId, string[]>>
+> = {
   "en-US": {
     colorScheme: ["theme", "color", "scheme"],
     language: ["language", "locale"],
     zoom: ["zoom", "scale", "size", "font"],
-    hardwareAccelerationEnabled: ["gpu", "hardware", "acceleration", "webview2", "rendering", "restart"],
+    hardwareAccelerationEnabled: [
+      "gpu",
+      "hardware",
+      "acceleration",
+      "webview2",
+      "rendering",
+      "restart",
+    ],
     opacity: ["opacity", "transparent", "glass", "blur", "acrylic", "appearance"],
     primaryHotkey: ["hotkey", "shortcut", "primary", "double", "alt", "ctrl", "shift", "meta"],
     secondaryHotkey: ["hotkey", "shortcut", "secondary", "ctrl", "alt", "space", "record"],
     deepseekApiKey: ["deepseek", "api", "key", "ai"],
     defaultModel: ["default", "model", "deepseek", "api"],
     multimodalModel: ["multimodal", "model", "vision", "image"],
-    multimodalSplitAnalysis: ["multimodal", "split", "analysis", "vision", "image", "deepseek", "r1"],
+    multimodalSplitAnalysis: [
+      "multimodal",
+      "split",
+      "analysis",
+      "vision",
+      "image",
+      "deepseek",
+      "r1",
+    ],
     largeContextEnabled: ["context", "window", "1m", "million", "token", "compact"],
     reasoningEffort: ["reasoning", "effort", "thinking", "deepseek"],
     reasoningLanguage: ["reasoning", "language", "response"],
@@ -1036,6 +1269,7 @@ const settingsFieldKeywords: Record<"zh-CN" | "en-US", Partial<Record<SettingFie
     agentWorkDisplay: ["display", "detailed", "compact", "timeline", "process", "agent", "work"],
     lspEnabled: ["lsp", "diagnostics", "definition"],
     multiModelCollaboration: ["agent", "model", "collaboration", "subagent"],
+    minimalCoding: ["minimal", "yagni", "reuse", "stdlib", "diff", "agent", "coding"],
     pixpinPinAiEnabled: ["pixpin", "pin", "screenshot", "image", "ai", "button", "plugin"],
     snipastePinAiEnabled: ["snipaste", "pin", "screenshot", "image", "ai", "button", "plugin"],
     appName: ["app", "name"],
@@ -1068,8 +1302,19 @@ const settingsFieldKeywords: Record<"zh-CN" | "en-US", Partial<Record<SettingFie
     serperApiKey: ["联网", "搜索", "serper", "api", "key", "密钥"],
     tavilyApiKey: ["联网", "搜索", "tavily", "api", "key", "密钥"],
     toolApprovalMode: ["审批", "ask", "auto", "一律允许", "approval"],
-    agentWorkDisplay: ["详细", "轻量", "显示", "过程详情", "时间线", "detailed", "compact", "display"],
+    agentWorkDisplay: [
+      "详细",
+      "轻量",
+      "显示",
+      "过程详情",
+      "时间线",
+      "detailed",
+      "compact",
+      "display",
+    ],
     lspEnabled: ["lsp", "语言服务", "diagnostics"],
+    multiModelCollaboration: ["多模型", "协同", "子agent", "collaboration"],
+    minimalCoding: ["精简", "编码", "yagni", "复用", "最小", "改动", "minimal"],
     pixpinPinAiEnabled: ["pixpin", "贴图", "截图", "图片", "ai", "按钮", "插件"],
     snipastePinAiEnabled: ["snipaste", "贴图", "截图", "图片", "ai", "按钮", "插件"],
     appName: ["应用", "名称"],
@@ -1078,7 +1323,11 @@ const settingsFieldKeywords: Record<"zh-CN" | "en-US", Partial<Record<SettingFie
   },
 };
 
-export function getSettingFieldPath(language: AppLanguage, id: SettingFieldId, translatedTitle: string): string {
+export function getSettingFieldPath(
+  language: AppLanguage,
+  id: SettingFieldId,
+  translatedTitle: string,
+): string {
   if (language === "zh-CN" || language === "en-US") {
     return settingsFieldPaths[language][id] ?? settingsFieldPaths["en-US"][id] ?? translatedTitle;
   }

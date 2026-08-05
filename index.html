@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="dark" data-theme="dark" style="color-scheme: dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
@@ -12,7 +12,8 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background: #f7f5f1;
+        background: #1f1f1f;
+        color-scheme: dark;
       }
 
       #boot-splash {
@@ -25,11 +26,13 @@
         justify-content: center;
         gap: 18px;
         background:
-          radial-gradient(120% 80% at 50% -10%, #ffffff 0%, transparent 55%),
-          linear-gradient(180deg, #f7f5f1 0%, #efeae2 52%, #e8e2d8 100%);
-        color: #1c1915;
+          radial-gradient(120% 80% at 50% -10%, #2a2a2a 0%, transparent 55%),
+          linear-gradient(180deg, #1f1f1f 0%, #181818 100%);
+        color: #f3f4f6;
         font-family: "Noto Sans SC", "Segoe UI", sans-serif;
         user-select: none;
+        opacity: 1;
+        will-change: opacity;
       }
 
       #boot-splash[hidden] {
@@ -38,8 +41,8 @@
 
       #boot-splash .boot-logo-wrap {
         position: relative;
-        width: 112px;
-        height: 112px;
+        width: 168px;
+        height: 168px;
         display: grid;
         place-items: center;
       }
@@ -47,23 +50,16 @@
       #boot-splash .boot-logo {
         position: relative;
         z-index: 1;
-        width: 88px;
-        height: 88px;
+        width: 168px;
+        height: 168px;
         object-fit: contain;
+        filter: invert(1);
         animation: boot-breathe 2.2s ease-in-out infinite;
-      }
-
-      #boot-splash .boot-halo {
-        position: absolute;
-        inset: 0;
-        border: 1px solid rgba(28, 25, 21, 0.1);
-        border-radius: 50%;
-        animation: boot-halo 2.2s ease-in-out infinite;
       }
 
       #boot-splash .boot-label {
         margin: 0;
-        color: rgba(28, 25, 21, 0.62);
+        color: rgba(243, 244, 246, 0.62);
         font-size: 14px;
         font-weight: 500;
         letter-spacing: 0.02em;
@@ -74,7 +70,7 @@
         height: 2px;
         overflow: hidden;
         border-radius: 999px;
-        background: rgba(28, 25, 21, 0.08);
+        background: rgba(243, 244, 246, 0.12);
       }
 
       #boot-splash .boot-progress > i {
@@ -82,7 +78,7 @@
         width: 36%;
         height: 100%;
         border-radius: inherit;
-        background: #171411;
+        background: #f3f4f6;
         animation: boot-progress 1.45s ease-in-out infinite;
       }
 
@@ -94,18 +90,6 @@
         }
         50% {
           transform: scale(1.04);
-          opacity: 1;
-        }
-      }
-
-      @keyframes boot-halo {
-        0%,
-        100% {
-          transform: scale(0.92);
-          opacity: 0.55;
-        }
-        50% {
-          transform: scale(1.08);
           opacity: 1;
         }
       }
@@ -126,7 +110,6 @@
 
       @media (prefers-reduced-motion: reduce) {
         #boot-splash .boot-logo,
-        #boot-splash .boot-halo,
         #boot-splash .boot-progress > i {
           animation: none;
         }
@@ -138,7 +121,6 @@
     <div id="boot-splash" aria-live="polite" aria-busy="true">
       <div class="boot-logo-wrap" aria-hidden="true">
         <img class="boot-logo" src="/aaai-logo.svg" alt="" />
-        <span class="boot-halo"></span>
       </div>
       <p class="boot-label">请稍等，正在为您准备……</p>
       <span class="boot-progress" aria-hidden="true"><i></i></span>

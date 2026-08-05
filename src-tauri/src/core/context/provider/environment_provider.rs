@@ -22,6 +22,9 @@ pub fn collect(context: &mut RequestContext) {
         .as_ref()
         .and_then(|workspace| git_status(Path::new(&workspace.root)));
     context.last_shell_execution = last_shell_execution();
+    if let Some(office) = crate::core::office::collect_office_context() {
+        crate::core::office::enrich_request_context(context, office);
+    }
 }
 
 pub fn record_shell_execution(command: &str, cwd: Option<&Path>, result: &str) {

@@ -1,0 +1,10 @@
+dist
+src-tauri
+node_modules
+eval
+pnpm-lock.yaml
+*.msi
+coverage
+public/file-icons
+src-tauri/src/core/token/assets
+*.min.js

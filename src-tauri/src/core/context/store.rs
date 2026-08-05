@@ -223,6 +223,7 @@ fn map_to_request_context(context: Option<&ChatContext>) -> RequestContext {
         git_status: None,
         last_shell_execution: None,
         ide_context: None,
+        office_context: None,
     }
 }
 

@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 
-import type { CategoryId } from "@/pages/Settings/settingsDefinitions";
+import type { CategoryId } from "@/types/setting";
 
 export const useAppStore = defineStore("app", {
   state: () => ({

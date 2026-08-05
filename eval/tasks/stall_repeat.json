@@ -1,0 +1,55 @@
+{
+  "id": "stall_repeat",
+  "prompt": "Inspect README.md carefully.",
+  "setupFiles": [
+    {
+      "path": "README.md",
+      "content": "x"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "README.md"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "README.md"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "README.md"
+          }
+        }
+      ]
+    },
+    {
+      "content": "README is short.",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "statusSeen",
+      "kind": "stall_loop"
+    }
+  ]
+}

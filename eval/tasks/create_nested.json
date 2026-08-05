@@ -1,0 +1,40 @@
+{
+  "id": "create_nested",
+  "prompt": "Create deep/nested/file.txt with nested-ok.",
+  "script": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "deep/nested/file.txt",
+            "content": "nested-ok"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "deep/nested/file.txt"
+          }
+        }
+      ]
+    },
+    {
+      "content": "任务完成",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "fileEquals",
+      "path": "deep/nested/file.txt",
+      "text": "nested-ok"
+    }
+  ]
+}

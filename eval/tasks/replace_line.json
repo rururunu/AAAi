@@ -1,0 +1,47 @@
+{
+  "id": "replace_line",
+  "prompt": "In config.txt change foo=1 to foo=2.",
+  "setupFiles": [
+    {
+      "path": "config.txt",
+      "content": "foo=1\nbar=9\n"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "replace_in_file",
+          "arguments": {
+            "path": "config.txt",
+            "old_string": "foo=1",
+            "new_string": "foo=2"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "config.txt"
+          }
+        }
+      ]
+    },
+    {
+      "content": "任务完成",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "fileContains",
+      "path": "config.txt",
+      "text": "foo=2"
+    }
+  ]
+}

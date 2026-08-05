@@ -67,6 +67,14 @@ pub fn resolve_tool_path(
         return Ok(normalized);
     }
 
+    // Outside-workspace writes are denied by default (sandbox). Opt-in via settings.
+    if access == PathAccess::Write && !super::sandbox::allow_outside_workspace_writes() {
+        return Err(ToolError::new(format!(
+            "write outside workspace denied (enable allowOutsideWorkspaceWrites to permit after approval): {}",
+            normalized.display()
+        )));
+    }
+
     if ctx
         .path_permission_store
         .is_granted(ctx.root_session_id(), &normalized, access)
@@ -92,5 +100,51 @@ mod tests {
         let ws = PathBuf::from("/workspace/project");
         let err = resolve_in_workspace(&ws, "../outside.txt").unwrap_err();
         assert!(err.message.contains("escapes workspace"));
+    }
+
+    #[test]
+    fn outside_workspace_writes_denied_by_default() {
+        use crate::core::chat::conversation_manager::ConversationManager;
+        use crate::core::event::{BusEvent, EventBus};
+        use crate::core::tools::context::{AskStore, PathPermissionStore, ToolContext};
+        use std::sync::{atomic::AtomicBool, Arc, Mutex};
+
+        struct NullBus;
+        impl EventBus for NullBus {
+            fn emit(&self, _event: BusEvent) {}
+        }
+
+        crate::core::tools::sandbox::configure(false, false, 120);
+        let db = std::env::temp_dir().join(format!("peek-path-{}.db", uuid::Uuid::new_v4()));
+        let ws = std::env::temp_dir().join(format!("peek-ws-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::create_dir_all(&ws);
+        let ctx = ToolContext {
+            workspace_root: ws,
+            request_context: Default::default(),
+            session_id: "s".into(),
+            assistant_message_id: "a".into(),
+            conversation: Arc::new(ConversationManager::new(db)),
+            event_bus: Arc::new(NullBus),
+            tasks: Arc::new(Mutex::new(Vec::new())),
+            ask_store: Arc::new(AskStore::new()),
+            path_permission_store: Arc::new(PathPermissionStore::new()),
+            registry: None,
+            provider: None,
+            subagent_depth: 0,
+            max_subagent_depth: 1,
+            subagent_id: None,
+            parent_activity_id: None,
+            app_handle: None,
+            cancelled: Arc::new(AtomicBool::new(false)),
+        };
+        let outside = std::env::temp_dir().join("peek-outside-write.txt");
+        let err = resolve_tool_path(
+            &ctx,
+            outside.to_str().unwrap_or("C:\\outside.txt"),
+            PathAccess::Write,
+            "write_file",
+        )
+        .unwrap_err();
+        assert!(err.message.contains("write outside workspace denied"));
     }
 }

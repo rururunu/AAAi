@@ -29,7 +29,21 @@ impl Tool for ApplyPatchTool {
     }
 
     fn description(&self) -> &str {
-        "Use for structural insertions/deletions, connected block rewrites, or coordinated multi-hunk/multi-file edits. Hunks contain ONLY changed lines plus the minimal context needed; never echo an entire file. Do not use for one or several localized replacements that replace_in_file or replace_many_in_file can express directly. Apply a Codex-style patch (NOT unified git diff). Wrap with `*** Begin Patch` / `*** End Patch`. File ops must use three asterisks: `*** Update File: path`, `*** Add File: path`, `*** Delete File: path`. Hunks use `@@` then lines starting with ` ` / `-` / `+`. Example:\n*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+new\n*** End Patch"
+        "Apply a Codex-style patch for structural insertions/deletions, connected block rewrites, or coordinated multi-hunk/multi-file edits. Not a unified git diff.
+
+Usage:
+- Do NOT use for one or several localized replacements — use replace_in_file or replace_many_in_file instead.
+- Hunks contain ONLY changed lines plus the minimal context needed; never echo an entire file.
+- Wrap with `*** Begin Patch` / `*** End Patch`.
+- File ops use three asterisks: `*** Update File: path`, `*** Add File: path`, `*** Delete File: path`.
+- Hunks use `@@` then lines starting with ` ` / `-` / `+`.
+- Example:
+*** Begin Patch
+*** Update File: README.md
+@@
+-old
++new
+*** End Patch"
     }
 
     fn parameters_schema(&self) -> Value {

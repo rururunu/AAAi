@@ -1,0 +1,33 @@
+{
+  "id": "read_only_q",
+  "prompt": "What is in README.md?",
+  "setupFiles": [
+    {
+      "path": "README.md",
+      "content": "Eval Kit\n"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "README.md"
+          }
+        }
+      ]
+    },
+    {
+      "content": "README.md says Eval Kit",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "answerContains",
+      "text": "Eval Kit"
+    }
+  ]
+}

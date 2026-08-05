@@ -183,22 +183,7 @@ fn load_rule_file(
 }
 
 fn reject_dangerous_shell(command: &str) -> Result<(), ToolError> {
-    let normalized = command.to_lowercase();
-    let denied = [
-        "git reset --hard",
-        "git clean -fd",
-        "remove-item -recurse -force",
-        "format-volume",
-        "clear-disk",
-        "shutdown /s",
-        "stop-computer",
-    ];
-    if let Some(rule) = denied.iter().find(|rule| normalized.contains(**rule)) {
-        return Err(ToolError::new(format!(
-            "rule denied dangerous shell command: {rule}"
-        )));
-    }
-    Ok(())
+    crate::core::tools::sandbox::reject_dangerous_shell(command)
 }
 
 #[cfg(test)]

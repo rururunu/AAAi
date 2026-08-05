@@ -1,6 +1,7 @@
-use std::fmt;
+use thiserror::Error;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
+#[error("{message}")]
 pub struct ToolError {
     pub message: String,
     terminal: bool,
@@ -40,14 +41,6 @@ impl ToolError {
         self.cancelled
     }
 }
-
-impl fmt::Display for ToolError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for ToolError {}
 
 impl From<std::io::Error> for ToolError {
     fn from(value: std::io::Error) -> Self {

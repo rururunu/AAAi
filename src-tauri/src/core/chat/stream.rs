@@ -250,10 +250,25 @@ impl StreamManager {
                         });
                     }
                     StreamEvent::Status { kind } => {
-                        if kind == "soft_injected" {
+                        if kind.starts_with("stream_retry") {
+                            content.clear();
+                            reasoning.clear();
+                            if let Ok(mut guard) = content_ref.lock() {
+                                guard.clear();
+                            }
+                            if let Ok(mut guard) = reasoning_ref.lock() {
+                                guard.clear();
+                            }
+                            conversation.update_message(
+                                &session_id,
+                                &assistant_message_id,
+                                MessageStatus::Streaming,
+                                Some(String::new()),
+                                Some(None),
+                            );
+                        } else if kind == "soft_injected" {
                             turn_span.soft_inject(0);
-                        }
-                        if kind.starts_with("tools:") {
+                        } else if kind.starts_with("tools:") {
                             if let Ok(count) = kind.trim_start_matches("tools:").parse::<u32>() {
                                 turn_span.add_tools(count);
                             }

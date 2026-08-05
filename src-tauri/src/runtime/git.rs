@@ -13,7 +13,7 @@ impl Tool for GitTool {
         "git"
     }
     fn description(&self) -> &str {
-        "Inspect the active Git repository (read-only). Supports current_branch, status, diff, and log actions. Use git_commit for commits."
+        "Inspect the active Git repository (read-only): current_branch, status, diff, and log. Prefer this over shell git for those actions. Use git_commit for commits; never invent commit success without a tool result."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -69,7 +69,7 @@ impl Tool for GitCommitTool {
         "git_commit"
     }
     fn description(&self) -> &str {
-        "Commit the staged changes in the active repository with a message."
+        "Commit staged changes in the active repository with a message. Prefer this over shell git commit. Only call when the user asked to commit; do not invent permission for publishing or force-push."
     }
     fn parameters_schema(&self) -> Value {
         json!({

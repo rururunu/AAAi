@@ -1,0 +1,24 @@
+{
+  "id": "empty_claim",
+  "prompt": "Edit src/hello.txt to say hi and finish.",
+  "script": [
+    {
+      "content": "任务完成",
+      "tool_calls": []
+    },
+    {
+      "content": "任务完成",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "statusSeen",
+      "kind": "reject_empty_completion"
+    },
+    {
+      "type": "finishReason",
+      "reason": "unverified_completion"
+    }
+  ]
+}

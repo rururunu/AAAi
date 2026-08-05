@@ -33,6 +33,19 @@
   --peek-shadow: rgb(0 0 0 / 28%);
   --peek-scrollbar: rgba(255, 255, 255, 0.14);
   --peek-scrollbar-hover: rgba(255, 255, 255, 0.28);
+  --peek-code-fg: #e6edf3;
+  --peek-code-muted: #8b949e;
+  --peek-code-selection: #264f78;
+  --peek-syntax-comment: #8b949e;
+  --peek-syntax-keyword: #ff7b72;
+  --peek-syntax-string: #a5d6ff;
+  --peek-syntax-number: #79c0ff;
+  --peek-syntax-function: #d2a8ff;
+  --peek-syntax-type: #ffa657;
+  --peek-syntax-variable: #ffa198;
+  --peek-syntax-property: #79c0ff;
+  --peek-syntax-operator: #ff7b72;
+  --peek-syntax-punctuation: #c9d1d9;
 }
 
 [data-theme="light"] {
@@ -68,6 +81,19 @@
   --peek-shadow: rgb(0 0 0 / 18%);
   --peek-scrollbar: rgba(0, 0, 0, 0.16);
   --peek-scrollbar-hover: rgba(0, 0, 0, 0.3);
+  --peek-code-fg: #1f2328;
+  --peek-code-muted: #656d76;
+  --peek-code-selection: #add6ff;
+  --peek-syntax-comment: #6e7781;
+  --peek-syntax-keyword: #cf222e;
+  --peek-syntax-string: #0a3069;
+  --peek-syntax-number: #0550ae;
+  --peek-syntax-function: #8250df;
+  --peek-syntax-type: #953800;
+  --peek-syntax-variable: #953800;
+  --peek-syntax-property: #0550ae;
+  --peek-syntax-operator: #cf222e;
+  --peek-syntax-punctuation: #1f2328;
 }
 
 :root,
@@ -78,19 +104,19 @@
   --foreground: var(--peek-text);
   --card: var(--peek-surface);
   --card-foreground: var(--peek-text);
-  --popover: var(--peek-list-bg);
+  --popover: var(--peek-surface);
   --popover-foreground: var(--peek-text);
   --primary: var(--peek-accent);
   --primary-foreground: var(--peek-primary-foreground, var(--peek-send-active-fg));
   --secondary: var(--peek-surface);
   --secondary-foreground: var(--peek-text);
-  --muted: color-mix(in srgb, var(--peek-surface) 86%, var(--peek-bg));
+  --muted: color-mix(in srgb, var(--peek-surface) 72%, var(--peek-bg));
   --muted-foreground: var(--peek-muted);
   --accent: var(--peek-list-active);
   --accent-foreground: var(--peek-text);
   --destructive: var(--peek-danger);
   --border: var(--peek-border);
-  --input: color-mix(in srgb, var(--peek-input-bg) 82%, var(--peek-text) 18%);
+  --input: var(--peek-input-bg);
   --ring: var(--peek-focus);
   --sidebar: var(--peek-sidebar);
   --sidebar-foreground: var(--peek-text);
@@ -101,4 +127,5 @@
   --sidebar-border: var(--peek-border);
   --sidebar-ring: var(--peek-focus);
   --peek-hover-bg: color-mix(in srgb, var(--peek-icon) 9%, transparent);
+  --peek-dialog-bg: var(--peek-surface);
 }

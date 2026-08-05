@@ -1,0 +1,24 @@
+{
+  "id": "english_claim",
+  "prompt": "Fix main.rs please",
+  "script": [
+    {
+      "content": "Task completed successfully.",
+      "tool_calls": []
+    },
+    {
+      "content": "All done.",
+      "tool_calls": []
+    }
+  ],
+  "assertions": [
+    {
+      "type": "statusSeen",
+      "kind": "reject_empty_completion"
+    },
+    {
+      "type": "finishReason",
+      "reason": "unverified_completion"
+    }
+  ]
+}

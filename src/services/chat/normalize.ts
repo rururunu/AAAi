@@ -1,4 +1,10 @@
-import type { ChatMessage, MessageStatus, Role, ToolActivity, ToolPreviewPayload } from "@/types/chat";
+import type {
+  ChatMessage,
+  MessageStatus,
+  Role,
+  ToolActivity,
+  ToolPreviewPayload,
+} from "@/types/chat";
 import { isSoftInjectContent } from "@/services/chat/softInject";
 
 type RawMessage = Partial<ChatMessage> & {
@@ -14,9 +20,8 @@ export type RawChatStarted = {
   assistant_message?: RawMessage;
 };
 
-export function resolveSessionId(
-  ...candidates: Array<string | undefined>
-): string {
+/** Pick the first non-empty session id from camelCase / snake_case IPC payloads. */
+export function resolveSessionId(...candidates: Array<string | undefined>): string {
   for (const candidate of candidates) {
     if (candidate?.trim()) {
       return candidate;
@@ -25,22 +30,16 @@ export function resolveSessionId(
   return "";
 }
 
+/** Normalize mixed-case / unknown role strings into a known chat role. */
 export function normalizeRole(role: Role | string | undefined): Role {
   const value = String(role ?? "assistant").toLowerCase();
-  if (
-    value === "user" ||
-    value === "assistant" ||
-    value === "system" ||
-    value === "tool"
-  ) {
+  if (value === "user" || value === "assistant" || value === "system" || value === "tool") {
     return value;
   }
   return "assistant";
 }
 
-export function normalizeStatus(
-  status: MessageStatus | string | undefined,
-): MessageStatus {
+export function normalizeStatus(status: MessageStatus | string | undefined): MessageStatus {
   const value = String(status ?? "done").toLowerCase();
   if (
     value === "pending" ||
@@ -62,11 +61,7 @@ export function normalizeMessage(
     return null;
   }
 
-  const sessionId = resolveSessionId(
-    raw.sessionId,
-    raw.session_id,
-    fallbackSessionId,
-  );
+  const sessionId = resolveSessionId(raw.sessionId, raw.session_id, fallbackSessionId);
   if (!sessionId) {
     return null;
   }
@@ -97,10 +92,7 @@ export function normalizeChatStarted(raw: RawChatStarted) {
     raw.assistantMessage?.sessionId,
     raw.assistant_message?.session_id,
   );
-  const userMessage = normalizeMessage(
-    raw.userMessage ?? raw.user_message,
-    sessionId,
-  );
+  const userMessage = normalizeMessage(raw.userMessage ?? raw.user_message, sessionId);
   const assistantMessage = normalizeMessage(
     raw.assistantMessage ?? raw.assistant_message,
     sessionId,
@@ -136,9 +128,7 @@ type RawToolActivityEvent = {
   status?: string;
 };
 
-export function normalizeToolActivityEvent(
-  raw: RawToolActivityEvent,
-): {
+export function normalizeToolActivityEvent(raw: RawToolActivityEvent): {
   sessionId: string;
   messageId: string;
   activity: ToolActivity;
@@ -152,9 +142,7 @@ export function normalizeToolActivityEvent(
 
   const statusRaw = String(raw.status ?? "done").toLowerCase();
   const status =
-    statusRaw === "running" || statusRaw === "done" || statusRaw === "error"
-      ? statusRaw
-      : "done";
+    statusRaw === "running" || statusRaw === "done" || statusRaw === "error" ? statusRaw : "done";
 
   return {
     sessionId,

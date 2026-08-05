@@ -171,8 +171,11 @@ pub fn init_logging(config_dir: &Path) {
     let logs_dir = config_dir.join("logs");
     let _ = std::fs::create_dir_all(&logs_dir);
 
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,peek=debug,peek.turn=info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(
+            "info,peek=debug,peek.turn=info,peek.agent=info,peek.tool=info,peek.provider=info",
+        )
+    });
 
     let file_appender = tracing_appender::rolling::daily(&logs_dir, "peek.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);

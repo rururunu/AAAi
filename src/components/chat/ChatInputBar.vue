@@ -8,6 +8,7 @@
       'workbench-composer': props.appearance === 'workbench',
       'overlay-composer': props.appearance === 'overlay',
       'picker-open': interactivePickerOpen && !chipPickerOpen,
+      'file-suggestion-open': showFileSuggestions,
       'chip-picker-open': chipPickerOpen,
       'interaction-request-open': interactionRequestOpen,
     }"
@@ -169,7 +170,11 @@
       @dragleave="onFileDragLeave"
       @drop.prevent="onFileDrop"
     >
-      <div v-if="attachedImages.length" class="input-images peek-scrollbar" data-tauri-drag-region="false">
+      <div
+        v-if="attachedImages.length"
+        class="input-images peek-scrollbar"
+        data-tauri-drag-region="false"
+      >
         <div
           v-for="(img, idx) in attachedImages"
           :key="idx"
@@ -195,7 +200,11 @@
         </div>
       </div>
 
-      <div v-if="attachedFiles.length" class="input-files peek-scrollbar" data-tauri-drag-region="false">
+      <div
+        v-if="attachedFiles.length"
+        class="input-files peek-scrollbar"
+        data-tauri-drag-region="false"
+      >
         <div
           v-for="(file, idx) in attachedFiles"
           :key="`${file.path}-${idx}`"
@@ -204,7 +213,13 @@
           data-tauri-drag-region="false"
           :title="file.skippedReason ? `${file.path} (${file.skippedReason})` : file.path"
         >
-          <File :size="12" :stroke-width="1.75" class="file-chip-icon" aria-hidden="true" />
+          <img
+            v-if="fileIconForPath(file.path)"
+            class="file-chip-icon-img"
+            :src="fileIconForPath(file.path) || ''"
+            alt=""
+          />
+          <File v-else :size="12" :stroke-width="1.75" class="file-chip-icon" aria-hidden="true" />
           <span class="file-chip-name">{{ file.name }}</span>
           <button
             type="button"
@@ -217,275 +232,294 @@
         </div>
       </div>
 
-      <div class="input-content">
-      <span
-        v-if="prefixText"
-        class="input-prefix"
-        data-tauri-drag-region="false"
-        @click="focusInput"
-      >{{ prefixText }}</span>
-      <span
-        v-if="props.selectionLines"
-        class="selection-tag"
-        data-tauri-drag-region="false"
-        :title="`Selected ${props.selectionLines} lines`"
-      >
-        <span>select-{{ props.selectionLines }}</span>
-      </span>
-      <span
-        v-if="pastedLineCount"
-        class="selection-tag text-tag"
-        data-tauri-drag-region="false"
-        :title="`Pasted ${pastedLineCount} lines`"
-      >
-        <span>text-{{ pastedLineCount }}</span>
-      </span>
-      <span v-if="mentionedFiles.length" class="file-mention-tags peek-scrollbar">
-        <span
-          v-for="path in mentionedFiles"
-          :key="path"
-          class="selection-tag file-mention-tag"
+      <div class="input-content peek-scrollbar">
+        <template v-for="(seg, segIdx) in composerSegments" :key="`seg-${segIdx}-${seg.kind}`">
+          <span
+            v-if="seg.kind === 'text'"
+            class="input-prefix"
+            data-tauri-drag-region="false"
+            @click="focusInput"
+          >
+            {{ seg.text }}
+          </span>
+          <span
+            v-else-if="seg.kind === 'selection'"
+            class="selection-tag"
+            data-tauri-drag-region="false"
+            :title="`Selected ${seg.lines} lines`"
+          >
+            <span>select-{{ seg.lines }}</span>
+          </span>
+          <span
+            v-else-if="seg.kind === 'paste' && pasteLineCount(seg.text) > 5"
+            class="selection-tag text-tag"
+            data-tauri-drag-region="false"
+            :title="`Pasted ${pasteLineCount(seg.text)} lines`"
+          >
+            <span>text-{{ pasteLineCount(seg.text) }}</span>
+          </span>
+          <span
+            v-else-if="seg.kind === 'paste'"
+            class="input-prefix"
+            data-tauri-drag-region="false"
+            @click="focusInput"
+          >
+            {{ seg.text }}
+          </span>
+          <span
+            v-else-if="seg.kind === 'mention'"
+            class="selection-tag file-mention-tag"
+            data-tauri-drag-region="false"
+            :title="seg.path"
+          >
+            <img
+              v-if="fileIconForPath(seg.path)"
+              class="file-chip-icon-img"
+              :src="fileIconForPath(seg.path) || ''"
+              alt=""
+            />
+            <File v-else :size="12" />
+            <span class="file-mention-name">@{{ fileName(seg.path) }}</span>
+          </span>
+        </template>
+        <textarea
+          v-if="props.appearance === 'workbench'"
+          ref="inputRef"
+          v-model="message"
+          :placeholder="inputPlaceholder"
+          class="chat-input workbench-textarea peek-scrollbar"
           data-tauri-drag-region="false"
-          :title="path"
-        >
-          <File :size="11" />
-          <span class="file-mention-name">@{{ fileName(path) }}</span>
-        </span>
-      </span>
-      <textarea
-        v-if="props.appearance === 'workbench'"
-        ref="inputRef"
-        v-model="message"
-        :placeholder="inputPlaceholder"
-        class="chat-input workbench-textarea peek-scrollbar"
-        data-tauri-drag-region="false"
-        spellcheck="false"
-        autocomplete="off"
-        rows="2"
-        role="combobox"
-        aria-autocomplete="list"
-        :aria-expanded="showSuggestions || interactivePickerOpen"
-        :readonly="inputLockedForTyping"
-        @input="resizeWorkbenchInput"
-        @keydown="handleKeydown"
-        @paste="handlePaste"
-      />
-      <input
-        v-else
-        ref="inputRef"
-        v-model="message"
-        type="text"
-        :placeholder="inputPlaceholder"
-        class="chat-input"
-        data-tauri-drag-region="false"
-        spellcheck="false"
-        autocomplete="off"
-        role="combobox"
-        aria-autocomplete="list"
-        :aria-expanded="showSuggestions || interactivePickerOpen"
-        :readonly="inputLockedForTyping"
-        @keydown="handleKeydown"
-        @paste="handlePaste"
-      />
+          spellcheck="false"
+          autocomplete="off"
+          rows="1"
+          role="combobox"
+          aria-autocomplete="list"
+          :aria-expanded="showSuggestions || interactivePickerOpen"
+          :readonly="inputLockedForTyping"
+          @input="resizeWorkbenchInput"
+          @keydown="handleKeydown"
+          @paste="handlePaste"
+        />
+        <input
+          v-else
+          ref="inputRef"
+          v-model="message"
+          type="text"
+          :placeholder="inputPlaceholder"
+          class="chat-input"
+          data-tauri-drag-region="false"
+          spellcheck="false"
+          autocomplete="off"
+          role="combobox"
+          aria-autocomplete="list"
+          :aria-expanded="showSuggestions || interactivePickerOpen"
+          :readonly="inputLockedForTyping"
+          @keydown="handleKeydown"
+          @paste="handlePaste"
+        />
       </div>
 
       <div class="input-footer">
         <div class="input-footer-primary">
-      <div
-        v-if="props.showWorkspaceButton"
-        class="workspace-control"
-        :class="{ active: Boolean(currentWorkspace), open: workspacePickerOpen }"
-      >
-        <button
-          type="button"
-          class="workspace-btn"
-          data-tauri-drag-region="false"
-          :title="workspaceTooltip"
-          @click.stop="toggleWorkspacePicker"
-        >
-          <Folder :size="14" />
-          <span v-if="currentWorkspace" class="workspace-name">{{ currentWorkspace.name }}</span>
-          <span v-else class="workspace-name">{{ tr(language, "workspace") }}</span>
-        </button>
-        <button
-          v-if="currentWorkspace"
-          type="button"
-          class="workspace-exit-btn"
-          data-tauri-drag-region="false"
-          :title="tr(language, 'chatInput.exitWorkspace')"
-          :aria-label="tr(language, 'chatInput.exitWorkspace')"
-          @click.stop="exitCurrentWorkspace"
-        >
-          <X :size="13" />
-        </button>
-      </div>
+          <div
+            v-if="props.showWorkspaceButton"
+            class="workspace-control"
+            :class="{ active: Boolean(currentWorkspace), open: workspacePickerOpen }"
+          >
+            <button
+              type="button"
+              class="workspace-btn"
+              data-picker-trigger
+              data-tauri-drag-region="false"
+              :title="workspaceTooltip"
+              @click.stop="toggleWorkspacePicker"
+            >
+              <Folder :size="14" />
+              <span v-if="currentWorkspace" class="workspace-name">
+                {{ currentWorkspace.name }}
+              </span>
+              <span v-else class="workspace-name">{{ tr(language, "workspace") }}</span>
+            </button>
+            <button
+              v-if="currentWorkspace"
+              type="button"
+              class="workspace-exit-btn"
+              data-tauri-drag-region="false"
+              :title="tr(language, 'chatInput.exitWorkspace')"
+              :aria-label="tr(language, 'chatInput.exitWorkspace')"
+              @click.stop="exitCurrentWorkspace"
+            >
+              <X :size="13" />
+            </button>
+          </div>
 
-      <div class="model-picker">
-        <button
-          ref="chatModeButtonRef"
-          type="button"
-          class="model-badge footer-chip"
-          data-tauri-drag-region="false"
-          :class="{ open: chatModePickerOpen }"
-          :title="chatModeBadgeTitle"
-          :aria-label="chatModeBadgeTitle"
-          aria-haspopup="listbox"
-          :aria-expanded="chatModePickerOpen"
-          @mousedown.stop
-          @click.stop="toggleChatModeMenu"
-        >
-          <component
-            :is="chatModeIcon"
-            :size="13"
-            class="footer-chip-icon"
-          />
-          <span class="model-name">{{ chatModeLabel }}</span>
-          <ChevronDown :size="11" class="model-chevron" />
-        </button>
-      </div>
+          <div class="model-picker">
+            <button
+              ref="chatModeButtonRef"
+              type="button"
+              class="model-badge footer-chip"
+              data-picker-trigger
+              data-tauri-drag-region="false"
+              :class="{ open: chatModePickerOpen }"
+              :title="chatModeBadgeTitle"
+              :aria-label="chatModeBadgeTitle"
+              aria-haspopup="listbox"
+              :aria-expanded="chatModePickerOpen"
+              @mousedown.stop
+              @click.stop="toggleChatModeMenu"
+            >
+              <component :is="chatModeIcon" :size="13" class="footer-chip-icon" />
+              <span class="model-name">{{ chatModeLabel }}</span>
+              <ChevronDown :size="11" class="model-chevron" />
+            </button>
+          </div>
 
-      <div class="model-picker">
-        <button
-          ref="modelButtonRef"
-          type="button"
-          class="model-badge footer-chip"
-          data-tauri-drag-region="false"
-          :class="{ open: modelPickerOpen, confirm: modelChipConfirm }"
-          :title="modelBadgeTitle"
-          :aria-label="modelBadgeTitle"
-          aria-haspopup="listbox"
-          :aria-expanded="modelPickerOpen"
-          @mousedown.stop
-          @click.stop="toggleModelMenu"
-        >
-          <span class="footer-chip-icon-slot" aria-hidden="true">
-            <component
-              :is="currentModelProviderIcon"
-              v-if="currentModelProviderIcon"
-              :size="13"
-              class="footer-chip-icon"
-            />
-          </span>
-          <span class="model-name" :key="currentModelDisplayName">{{ currentModelDisplayName }}</span>
-          <ChevronDown :size="11" class="model-chevron" />
-        </button>
-      </div>
+          <div class="model-picker">
+            <button
+              ref="modelButtonRef"
+              type="button"
+              class="model-badge footer-chip"
+              data-picker-trigger
+              data-tauri-drag-region="false"
+              :class="{ open: modelPickerOpen, confirm: modelChipConfirm }"
+              :title="modelBadgeTitle"
+              :aria-label="modelBadgeTitle"
+              aria-haspopup="listbox"
+              :aria-expanded="modelPickerOpen"
+              @mousedown.stop
+              @click.stop="toggleModelMenu"
+            >
+              <span class="footer-chip-icon-slot" aria-hidden="true">
+                <component
+                  :is="currentModelProviderIcon"
+                  v-if="currentModelProviderIcon"
+                  :size="13"
+                  class="footer-chip-icon"
+                />
+              </span>
+              <span class="model-name" :key="currentModelDisplayName">
+                {{ currentModelDisplayName }}
+              </span>
+              <ChevronDown :size="11" class="model-chevron" />
+            </button>
+          </div>
 
-      <div
-        class="model-picker thinking-tier-slot"
-        :class="{ dormant: !showThinkingTierPicker }"
-        :aria-hidden="!showThinkingTierPicker"
-      >
-        <button
-          ref="thinkingTierButtonRef"
-          type="button"
-          class="model-badge footer-chip"
-          data-tauri-drag-region="false"
-          :class="{ open: thinkingTierPickerOpen }"
-          :title="thinkingTierBadgeTitle"
-          :aria-label="thinkingTierBadgeTitle"
-          aria-haspopup="listbox"
-          :aria-expanded="thinkingTierPickerOpen"
-          :tabindex="showThinkingTierPicker ? 0 : -1"
-          :disabled="!showThinkingTierPicker"
-          @mousedown.stop
-          @click.stop="toggleThinkingTierMenu"
-        >
-          <Brain :size="13" class="footer-chip-icon" />
-          <span class="model-name">{{ currentThinkingTierLabel || "—" }}</span>
-          <ChevronDown :size="11" class="model-chevron" />
-        </button>
-      </div>
+          <div
+            class="model-picker thinking-tier-slot"
+            :class="{ dormant: !showThinkingTierPicker }"
+            :aria-hidden="!showThinkingTierPicker"
+          >
+            <button
+              ref="thinkingTierButtonRef"
+              type="button"
+              class="model-badge footer-chip"
+              data-picker-trigger
+              data-tauri-drag-region="false"
+              :class="{ open: thinkingTierPickerOpen }"
+              :title="thinkingTierBadgeTitle"
+              :aria-label="thinkingTierBadgeTitle"
+              aria-haspopup="listbox"
+              :aria-expanded="thinkingTierPickerOpen"
+              :tabindex="showThinkingTierPicker ? 0 : -1"
+              :disabled="!showThinkingTierPicker"
+              @mousedown.stop
+              @click.stop="toggleThinkingTierMenu"
+            >
+              <Brain :size="13" class="footer-chip-icon" />
+              <span class="model-name">{{ currentThinkingTierLabel || "—" }}</span>
+              <ChevronDown :size="11" class="model-chevron" />
+            </button>
+          </div>
 
-      <div
-        class="model-picker approval-slot"
-        :class="{ dormant: sessionChatMode === 'ask' }"
-        :aria-hidden="sessionChatMode === 'ask'"
-      >
-        <button
-          ref="approvalButtonRef"
-          type="button"
-          class="model-badge footer-chip"
-          data-tauri-drag-region="false"
-          :class="{ open: approvalPickerOpen }"
-          :title="approvalBadgeTitle"
-          :aria-label="approvalBadgeTitle"
-          aria-haspopup="listbox"
-          :aria-expanded="approvalPickerOpen"
-          :tabindex="sessionChatMode === 'ask' ? -1 : 0"
-          :disabled="sessionChatMode === 'ask'"
-          @mousedown.stop
-          @click.stop="toggleApprovalMenu"
-        >
-          <component
-            :is="getApprovalIcon(sessionToolApprovalMode)"
-            :size="13"
-            class="footer-chip-icon"
-          />
-          <span class="model-name">{{ approvalModeLabel }}</span>
-          <ChevronDown :size="11" class="model-chevron" />
-        </button>
-      </div>
-
+          <div
+            class="model-picker approval-slot"
+            :class="{ dormant: sessionChatMode === 'ask' }"
+            :aria-hidden="sessionChatMode === 'ask'"
+          >
+            <button
+              ref="approvalButtonRef"
+              type="button"
+              class="model-badge footer-chip"
+              data-picker-trigger
+              data-tauri-drag-region="false"
+              :class="{ open: approvalPickerOpen }"
+              :title="approvalBadgeTitle"
+              :aria-label="approvalBadgeTitle"
+              aria-haspopup="listbox"
+              :aria-expanded="approvalPickerOpen"
+              :tabindex="sessionChatMode === 'ask' ? -1 : 0"
+              :disabled="sessionChatMode === 'ask'"
+              @mousedown.stop
+              @click.stop="toggleApprovalMenu"
+            >
+              <component
+                :is="getApprovalIcon(sessionToolApprovalMode)"
+                :size="13"
+                class="footer-chip-icon"
+              />
+              <span class="model-name">{{ approvalModeLabel }}</span>
+              <ChevronDown :size="11" class="model-chevron" />
+            </button>
+          </div>
         </div>
 
         <div class="input-footer-actions">
           <slot name="actions" />
 
-      <span
-        v-if="conversationTokenCount"
-        class="conversation-token-count"
-        :title="conversationTokenTitle"
-      >
-        ≈ {{ formatTokenCount(conversationTokenCount) }} tokens
-      </span>
+          <span
+            v-if="conversationTokenCount"
+            class="conversation-token-count"
+            :title="conversationTokenTitle"
+          >
+            ≈ {{ formatTokenCount(conversationTokenCount) }} tokens
+          </span>
 
-      <button
-        v-if="sending && canSend"
-        type="button"
-        class="send-btn pause"
-        data-tauri-drag-region="false"
-        :aria-label="tr(language, 'pause')"
-        :disabled="interactivePickerOpen"
-        @click="emit('pause')"
-      >
-        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M5.25 4.5V11.5M10.75 4.5V11.5"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
-          />
-        </svg>
-      </button>
+          <button
+            v-if="sending && canSend"
+            type="button"
+            class="send-btn pause"
+            data-tauri-drag-region="false"
+            :aria-label="tr(language, 'pause')"
+            :disabled="interactivePickerOpen"
+            @click="emit('pause')"
+          >
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M5.25 4.5V11.5M10.75 4.5V11.5"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
 
-      <button
-        type="button"
-        class="send-btn"
-        data-tauri-drag-region="false"
-        :class="showPauseIcon ? 'pause' : canSend ? 'active' : ''"
-        :aria-label="tr(language, showPauseIcon ? 'pause' : 'send')"
-        :title="sending && canSend ? tr(language, 'attachInjectHint') : undefined"
-        :disabled="interactivePickerOpen"
-        @click="submit"
-      >
-        <svg v-if="!showPauseIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M8 2.25L9.35 6.15L13.25 7.5L9.35 8.85L8 12.75L6.65 8.85L2.75 7.5L6.65 6.15L8 2.25Z"
-            stroke="currentColor"
-            stroke-width="1.35"
-            stroke-linejoin="round"
-          />
-        </svg>
-        <svg v-else viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M5.25 4.5V11.5M10.75 4.5V11.5"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
-          />
-        </svg>
-      </button>
+          <button
+            type="button"
+            class="send-btn"
+            data-tauri-drag-region="false"
+            :class="showPauseIcon ? 'pause' : canSend ? 'active' : ''"
+            :aria-label="tr(language, showPauseIcon ? 'pause' : 'send')"
+            :title="sending && canSend ? tr(language, 'attachInjectHint') : undefined"
+            :disabled="interactivePickerOpen"
+            @click="submit"
+          >
+            <svg v-if="!showPauseIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M8 2.25L9.35 6.15L13.25 7.5L9.35 8.85L8 12.75L6.65 8.85L2.75 7.5L6.65 6.15L8 2.25Z"
+                stroke="currentColor"
+                stroke-width="1.35"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <svg v-else viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M5.25 4.5V11.5M10.75 4.5V11.5"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
         </div>
       </div>
     </div>
@@ -497,7 +531,19 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useDebounceFn, useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { gsapPickerEnter, gsapPickerLeave } from "@/services/motion/gsapPresets";
-import { ChevronDown, File, Folder, X, Zap, Bot, MessageCircle, Brain, ShieldQuestion, Shield, Unlock } from "@lucide/vue";
+import {
+  ChevronDown,
+  File,
+  Folder,
+  X,
+  Zap,
+  Bot,
+  MessageCircle,
+  Brain,
+  ShieldQuestion,
+  Shield,
+  Unlock,
+} from "@lucide/vue";
 import HistoryPicker from "./input/HistoryPicker.vue";
 import ModelPicker from "./input/ModelPicker.vue";
 import OptionPicker from "./input/OptionPicker.vue";
@@ -510,6 +556,7 @@ import WorkspacePickerPanel from "./input/WorkspacePickerPanel.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { executeSlashCommand, fetchEnvironmentContext, slashCommands } from "@/commands/slash";
 import { getContextUsage, setOverlayPopupOpen } from "@/services/ipc";
+import { createLogger } from "@/services/logger";
 import { tr } from "@/services/i18n";
 import {
   formatAttachedFilesForMessage,
@@ -517,6 +564,14 @@ import {
   readAttachedFile,
   type AttachedFileChip,
 } from "@/services/chat/attachFiles";
+import { codeLanguageForPath } from "@/services/chat/codeLanguage";
+import {
+  appendComposerSegment,
+  flushLiveMessageToSegments,
+  pasteLineCount,
+  serializeComposerSegments as serializeSegments,
+  type ComposerSegment,
+} from "@/services/chat/composerSegments";
 import { estimateMessageTokens } from "@/services/chat/tokenEstimate";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useChatModelStore } from "@/stores/chatModel";
@@ -580,6 +635,7 @@ export interface PathPermissionSession {
 }
 
 const ASK_SKIP_MARKER = "__user_supplement__";
+const log = createLogger("chat-input");
 
 const props = withDefaults(
   defineProps<{
@@ -648,12 +704,31 @@ const emit = defineEmits<{
 }>();
 
 const message = ref("");
-const prefixText = ref("");
-const pastedText = ref("");
-const mentionedFiles = ref<string[]>([]);
+const composerSegments = ref<ComposerSegment[]>([]);
 const attachedImages = ref<string[]>([]);
 const attachedFiles = ref<AttachedFileChip[]>([]);
 const fileDragOver = ref(false);
+
+/** Flatten frozen chips + live textarea into the outbound message body. */
+function serializeComposerSegments() {
+  return serializeSegments(composerSegments.value, message.value);
+}
+
+/** Move trailing typed text into a frozen text segment so a new chip can sit after it. */
+function flushMessageToSegments() {
+  const next = flushLiveMessageToSegments(composerSegments.value, message.value);
+  composerSegments.value = next.segments;
+  message.value = next.liveMessage;
+}
+
+/** Append a chip, merging adjacent text/paste segments when possible. */
+function pushComposerSegment(segment: ComposerSegment) {
+  appendComposerSegment(composerSegments.value, segment);
+}
+
+function clearComposerSegments() {
+  composerSegments.value = [];
+}
 
 /** Draft persistence is per-conversation: switching chats never loses input
  * and one conversation's draft is not shared with others. */
@@ -693,14 +768,13 @@ function removeAttachedImage(index: number) {
 
 function removeAttachedFile(index: number) {
   attachedFiles.value.splice(index, 1);
-  collapsePrefixIfNeeded();
   emitLayoutChange();
 }
 
 async function ingestDroppedOrPastedFiles(files: FileList | File[]) {
   const list = Array.from(files);
   if (list.length === 0) return;
-  lockPrefixFromMessage();
+  flushMessageToSegments();
   for (const file of list) {
     if (isImageFile(file)) {
       const dataUrl = await new Promise<string | null>((resolve) => {
@@ -740,9 +814,7 @@ async function applyCapturedImages(images?: string[]) {
   if (!images?.length) {
     return;
   }
-  const compressed = await Promise.all(
-    images.map((url) => compressImageDataUrl(url)),
-  );
+  const compressed = await Promise.all(images.map((url) => compressImageDataUrl(url)));
   attachedImages.value = compressed;
   emitLayoutChange();
 }
@@ -825,8 +897,7 @@ function emptyContextUsage(): ContextUsageSnapshot {
 }
 
 function buildDraftMessage() {
-  const parts = [prefixText.value, message.value].filter(Boolean);
-  return parts.join(" ").trim();
+  return serializeComposerSegments().trim();
 }
 
 let contextUsageRequestId = 0;
@@ -883,20 +954,33 @@ function sessionMessagesFingerprint(sessionId: string) {
 }
 
 watch(
-  () => [
-    props.sessionId,
-    props.capturedContext,
-    settingStore.largeContextEnabled,
-    props.sessionId ? sessionMessagesFingerprint(props.sessionId) : "",
-  ] as const,
+  () =>
+    [
+      props.sessionId,
+      props.capturedContext,
+      settingStore.largeContextEnabled,
+      props.sessionId ? sessionMessagesFingerprint(props.sessionId) : "",
+    ] as const,
   () => {
     void refreshContextUsage();
   },
 );
 
-watch([message, prefixText], () => {
-  void refreshContextUsage();
-});
+watch(
+  [message, composerSegments],
+  () => {
+    void refreshContextUsage();
+  },
+  { deep: true },
+);
+
+watch(
+  composerSegments,
+  () => {
+    emitLayoutChange();
+  },
+  { deep: true },
+);
 
 watch(
   () => props.capturedContext?.selectedImages,
@@ -909,19 +993,19 @@ watch(
 function formatTime(timestamp: number) {
   const date = new Date(timestamp);
   const now = new Date();
-  
+
   const isToday = date.toDateString() === now.toDateString();
   if (isToday) {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
   }
-  
+
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
   const isYesterday = date.toDateString() === yesterday.toDateString();
   if (isYesterday) {
     return tr(language.value, "yesterday");
   }
-  
+
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
@@ -967,9 +1051,7 @@ const availableModels = computed(() => {
   if (
     current &&
     models.length > 0 &&
-    !models.some((model) =>
-      isModelEntrySelected(model, current, chatModelProvider.value),
-    )
+    !models.some((model) => isModelEntrySelected(model, current, chatModelProvider.value))
   ) {
     models.unshift({ id: current, ownedBy: "", provider: chatModelProvider.value });
   }
@@ -1093,9 +1175,7 @@ const currentModelDisplayName = computed(() => {
   if (!match && chatModelStore.models.length === 0) {
     return tr(language.value, "chooseModel");
   }
-  return getModelDisplayLabel(
-    match ?? { id: current, provider: "", displayName: undefined },
-  );
+  return getModelDisplayLabel(match ?? { id: current, provider: "", displayName: undefined });
 });
 
 const modelBadgeTitle = computed(() => {
@@ -1105,9 +1185,7 @@ const modelBadgeTitle = computed(() => {
   }
   const match = currentModelEntry.value;
   return tr(language.value, "currentModel", {
-    model: getModelDisplayLabel(
-      match ?? { id: current, provider: "", displayName: undefined },
-    ),
+    model: getModelDisplayLabel(match ?? { id: current, provider: "", displayName: undefined }),
   });
 });
 const chatModeLabel = computed(() =>
@@ -1120,16 +1198,12 @@ const chatModeBadgeTitle = computed(() =>
     ? tr(language.value, "currentChatModeAsk")
     : tr(language.value, "currentChatModeAgent"),
 );
-const chatModeIcon = computed(() =>
-  sessionChatMode.value === "ask" ? MessageCircle : Bot,
-);
+const chatModeIcon = computed(() => (sessionChatMode.value === "ask" ? MessageCircle : Bot));
 
 /** Per-conversation mode/approval choices; sessionless overlay falls back to
  * global settings so its pickers keep working without a conversation. */
 const sessionChatMode = computed(() =>
-  props.sessionId
-    ? chatStore.ensureCompose(props.sessionId).chatMode
-    : settingStore.chatMode,
+  props.sessionId ? chatStore.ensureCompose(props.sessionId).chatMode : settingStore.chatMode,
 );
 const sessionToolApprovalMode = computed(() =>
   props.sessionId
@@ -1139,10 +1213,7 @@ const sessionToolApprovalMode = computed(() =>
 
 function updateCompose(
   patch: Partial<
-    Pick<
-      SessionCompose,
-      "chatModel" | "chatModelProvider" | "chatMode" | "toolApprovalMode"
-    >
+    Pick<SessionCompose, "chatModel" | "chatModelProvider" | "chatMode" | "toolApprovalMode">
   >,
 ) {
   if (props.sessionId) {
@@ -1201,7 +1272,6 @@ const showHistoryPicker = computed(() => Array.isArray(props.historySessions));
 
 const historyItems = computed(() => props.historySessions ?? []);
 
-
 const historyPickerRowCount = computed(() =>
   showHistoryPicker.value ? Math.max(historyItems.value.length, 1) : 0,
 );
@@ -1259,9 +1329,24 @@ const pathPermissionQuestion = computed(() => {
 });
 
 const pathPermissionOptions = computed(() => [
-  { slug: "yes", label: tr(language.value, "allowOnce"), description: tr(language.value, "allowOnceDesc"), decision: "allow_once" as const },
-  { slug: "always", label: tr(language.value, "allowAlways"), description: tr(language.value, "allowAlwaysDesc"), decision: "allow_always" as const },
-  { slug: "no", label: tr(language.value, "deny"), description: tr(language.value, "denyDesc"), decision: "deny" as const },
+  {
+    slug: "yes",
+    label: tr(language.value, "allowOnce"),
+    description: tr(language.value, "allowOnceDesc"),
+    decision: "allow_once" as const,
+  },
+  {
+    slug: "always",
+    label: tr(language.value, "allowAlways"),
+    description: tr(language.value, "allowAlwaysDesc"),
+    decision: "allow_always" as const,
+  },
+  {
+    slug: "no",
+    label: tr(language.value, "deny"),
+    description: tr(language.value, "denyDesc"),
+    decision: "deny" as const,
+  },
 ]);
 
 const showToolApprovalPicker = computed(() => Boolean(props.toolApproval));
@@ -1289,20 +1374,13 @@ const toolApprovalOptions = computed(() => [
   },
 ]);
 
-const showAskUserPicker = computed(
-  () =>
-    Boolean(
-      props.askUser &&
-        props.askUser.questions.length > 0 &&
-        !askUserFinishing.value,
-    ),
+const showAskUserPicker = computed(() =>
+  Boolean(props.askUser && props.askUser.questions.length > 0 && !askUserFinishing.value),
 );
 
 const askQuestionCount = computed(() => props.askUser?.questions.length ?? 0);
 
-const activeAskQuestion = computed(
-  () => props.askUser?.questions[askQuestionIndex.value],
-);
+const activeAskQuestion = computed(() => props.askUser?.questions[askQuestionIndex.value]);
 
 function toAskSlug(label: string) {
   return label
@@ -1356,10 +1434,7 @@ const interactivePickerOpen = computed(
 
 /** Ask / path / tool-approval requests — these need reserved vertical room. */
 const interactionRequestOpen = computed(
-  () =>
-    showAskUserPicker.value ||
-    showPathPermissionPicker.value ||
-    showToolApprovalPicker.value,
+  () => showAskUserPicker.value || showPathPermissionPicker.value || showToolApprovalPicker.value,
 );
 
 /** Pickers that must keep the input read-only (model picker allows typing to filter). */
@@ -1384,23 +1459,13 @@ const askPickerRowCount = computed(() => {
   return 2 + optionRows + confirmRow;
 });
 
-const pastedLineCount = computed(() =>
-  pastedText.value ? pastedText.value.split(/\r\n|\r|\n/).length : 0,
-);
 const hasInlineAttachmentTags = computed(
-  () =>
-    Boolean(props.selectionLines) ||
-    Boolean(pastedText.value) ||
-    mentionedFiles.value.length > 0 ||
-    attachedFiles.value.length > 0,
-);
-const hasAttachmentTags = computed(
-  () => hasInlineAttachmentTags.value || attachedImages.value.length > 0,
+  () => composerSegments.value.some((seg) => seg.kind !== "text") || attachedFiles.value.length > 0,
 );
 
 const inputPlaceholder = computed(() => {
   // Images sit above the text field — keep the hint when only images are attached.
-  if (prefixText.value || hasInlineAttachmentTags.value) {
+  if (composerSegments.value.length > 0 || hasInlineAttachmentTags.value) {
     return "";
   }
   if (props.sending && !interactivePickerOpen.value) {
@@ -1426,68 +1491,46 @@ const inputPlaceholder = computed(() => {
   return props.placeholder || tr(language.value, "askAnything");
 });
 
-const canSend = computed(() =>
-  prefixText.value.trim().length > 0 ||
-  message.value.trim().length > 0 ||
-  pastedText.value.length > 0 ||
-  mentionedFiles.value.length > 0 ||
-  attachedFiles.value.length > 0 ||
-  attachedImages.value.length > 0,
+const canSend = computed(
+  () =>
+    serializeComposerSegments().trim().length > 0 ||
+    attachedFiles.value.length > 0 ||
+    attachedImages.value.length > 0,
 );
 
 const showPauseIcon = computed(() => props.sending && !canSend.value);
 
-function composeVisibleText() {
-  const pre = prefixText.value;
-  const post = message.value;
-  if (!pre) return post;
-  if (!post) return pre;
-  if (/\s$/.test(pre) || /^\s/.test(post)) return `${pre}${post}`;
-  return `${pre} ${post}`;
-}
-
-/** Move typed text before the first attachment tag so chips sit mid-line. */
-function lockPrefixFromMessage() {
-  if (!message.value || hasAttachmentTags.value || prefixText.value) {
-    return;
-  }
-  prefixText.value = message.value;
-  message.value = "";
-}
-
-function collapsePrefixIfNeeded() {
-  if (hasAttachmentTags.value || !prefixText.value) {
-    return;
-  }
-  message.value = composeVisibleText();
-  prefixText.value = "";
-}
-
 function removeTrailingAttachment(): boolean {
   if (attachedImages.value.length > 0) {
     attachedImages.value.pop();
-    collapsePrefixIfNeeded();
     return true;
   }
   if (attachedFiles.value.length > 0) {
     attachedFiles.value.pop();
-    collapsePrefixIfNeeded();
     return true;
   }
-  if (mentionedFiles.value.length > 0) {
-    mentionedFiles.value.pop();
-    collapsePrefixIfNeeded();
-    return true;
-  }
-  if (pastedText.value) {
-    pastedText.value = "";
-    collapsePrefixIfNeeded();
+  const last = composerSegments.value[composerSegments.value.length - 1];
+  if (last) {
+    composerSegments.value.pop();
+    if (last.kind === "selection") {
+      emit("removeSelection");
+      return true;
+    }
+    if (last.kind === "text") {
+      message.value = `${last.text}${message.value}`;
+      void nextTick(() => {
+        const input = inputRef.value;
+        if (input) {
+          const pos = last.text.length;
+          input.setSelectionRange(pos, pos);
+        }
+      });
+      return true;
+    }
     return true;
   }
   if (props.selectionLines) {
     emit("removeSelection");
-    // selectionLines is a prop; collapse on next tick after parent clears it
-    void nextTick(() => collapsePrefixIfNeeded());
     return true;
   }
   return false;
@@ -1505,7 +1548,6 @@ function emitLayoutChange() {
     flushLayoutChange();
   });
 }
-
 
 /** Last measured picker list height — refined after paint so tall/desc rows fit. */
 let measuredPickerHeight = 0;
@@ -1527,19 +1569,14 @@ function estimateActivePickerHeight(pickerRows: number): number {
   }
   if (showModelPicker.value) {
     const models = Math.max(modelPickerModels.value.length, 1);
-    const groups = Math.max(
-      groupModelsByProvider(modelPickerModels.value).length,
-      1,
-    );
+    const groups = Math.max(groupModelsByProvider(modelPickerModels.value).length, 1);
     return 6 + groups * 24 + models * 32 + 34;
   }
   if (showHistoryPicker.value) {
     return 10 + Math.max(historyItems.value.length, 1) * 32;
   }
   if (showAskUserPicker.value) {
-    const options =
-      activeAskOptions.value.length +
-      (activeAskQuestion.value?.multiSelect ? 1 : 0);
+    const options = activeAskOptions.value.length + (activeAskQuestion.value?.multiSelect ? 1 : 0);
     return 10 + 26 + 48 + options * 30;
   }
   if (showPathPermissionPicker.value) {
@@ -1587,9 +1624,7 @@ function schedulePickerHeightMeasure() {
       measuredPickerHeight = 0;
       return;
     }
-    const list = document.querySelector(
-      ".chat-input-shell .command-list",
-    ) as HTMLElement | null;
+    const list = document.querySelector(".chat-input-shell .command-list") as HTMLElement | null;
     if (list && interactionRequestOpen.value) {
       list.scrollTop = 0;
     }
@@ -1641,9 +1676,7 @@ function flushLayoutChange() {
   }
 
   const pickerHeight =
-    pickerRows > 0
-      ? Math.max(measuredPickerHeight, estimateActivePickerHeight(pickerRows))
-      : 0;
+    pickerRows > 0 ? Math.max(measuredPickerHeight, estimateActivePickerHeight(pickerRows)) : 0;
 
   emit("layoutChange", {
     showSuggestions: showSuggestions.value,
@@ -1738,6 +1771,30 @@ function closeThinkingTierMenu(_immediate = false) {
   closeThinkingTierPicker();
 }
 
+function dismissFloatingPickers() {
+  const hadChip = chipPickerOpen.value;
+  const hadWorkspace = workspacePickerOpen.value;
+  if (!hadChip && !hadWorkspace) return;
+  closeChipPickers();
+  if (hadWorkspace) {
+    workspacePickerOpen.value = false;
+    workspaceQuickSelectOnly.value = false;
+  }
+  void syncPopupState(false);
+  emitLayoutChange();
+}
+
+function handleDocumentPointerDown(event: PointerEvent) {
+  if (event.button !== 0) return;
+  if (!chipPickerOpen.value && !workspacePickerOpen.value) return;
+  if (interactionRequestOpen.value) return;
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  if (target.closest(".command-list")) return;
+  if (target.closest("[data-picker-trigger]")) return;
+  dismissFloatingPickers();
+}
+
 async function prepareChipPicker() {
   if (showHistoryPicker.value) {
     emit("historyClose");
@@ -1747,10 +1804,7 @@ async function prepareChipPicker() {
   closeChipPickers();
 }
 
-async function positionChipPicker(
-  button: HTMLButtonElement | null,
-  preferredWidth: number,
-) {
+async function positionChipPicker(button: HTMLButtonElement | null, preferredWidth: number) {
   if (props.appearance !== "workbench") return;
   await nextTick();
   const shell = chatInputShellRef.value;
@@ -1829,9 +1883,7 @@ async function openThinkingTierPicker() {
     return;
   }
   await prepareChipPicker();
-  const idx = thinkingTierPickerOptions.value.findIndex(
-    (option) => option.id === chatModel.value,
-  );
+  const idx = thinkingTierPickerOptions.value.findIndex((option) => option.id === chatModel.value);
   selectedIndex.value = idx >= 0 ? idx : 0;
   thinkingTierPickerOpen.value = true;
   await positionChipPicker(thinkingTierButtonRef.value, 240);
@@ -1907,11 +1959,7 @@ function applyFallbackModelIfNeeded() {
   if (chatModelStore.models.length === 0) return;
   if (
     chatModel.value.trim() &&
-    isKnownModelSelection(
-      chatModelStore.models,
-      chatModel.value,
-      chatModelProvider.value,
-    )
+    isKnownModelSelection(chatModelStore.models, chatModel.value, chatModelProvider.value)
   ) {
     return;
   }
@@ -1974,15 +2022,12 @@ function selectThinkingTier(variantId: string) {
 }
 
 onMounted(async () => {
-  console.debug("slash command registration", {
+  log.debug("slash command registration", {
     commands: slashCommands.map((item) => item.command),
     available: props.enableCommands && props.contextReady,
   });
   await chatModelStore.fetch();
-  if (
-    chatModelStore.models.length === 0 &&
-    chatModel.value.trim() === "deepseek-chat"
-  ) {
+  if (chatModelStore.models.length === 0 && chatModel.value.trim() === "deepseek-chat") {
     chatModel.value = "";
     chatModelProvider.value = "";
     const composeFallback = props.sessionId
@@ -2008,7 +2053,11 @@ onMounted(async () => {
   try {
     unlistenFocus = await getCurrentWebviewWindow().onFocusChanged(({ payload: focused }) => {
       if (focused) {
-        restorePickerFocus();
+        if (props.appearance === "overlay") {
+          void focusInput();
+        } else {
+          restorePickerFocus();
+        }
       }
     });
   } catch (error) {
@@ -2037,6 +2086,7 @@ useEventListener(window, "focus", restorePickerFocus);
 useEventListener(window, "resize", () => {
   updateInteractionPickerMaxHeight();
 });
+useEventListener(document, "pointerdown", handleDocumentPointerDown);
 useEventListener(document, "visibilitychange", () => {
   if (document.visibilityState === "visible") {
     restorePickerFocus();
@@ -2071,7 +2121,7 @@ const isCommandMode = computed(
 watch(
   () => [props.enableCommands, props.contextReady] as const,
   ([enabled, ready]) => {
-    console.debug("slash command availability", {
+    log.debug("slash command availability", {
       enabled,
       contextReady: ready,
       available: enabled && ready,
@@ -2106,10 +2156,7 @@ const workspaceFiles = ref<string[]>([]);
 const workspaceFilesLoading = ref(false);
 const workspaceFilesRoot = ref("");
 const activeFileMention = computed(() => {
-  if (
-    !currentWorkspace.value ||
-    interactivePickerOpen.value
-  ) {
+  if (!currentWorkspace.value || interactivePickerOpen.value) {
     return null;
   }
   const match = message.value.match(/(?:^|\s)@([^\s]*)$/);
@@ -2117,7 +2164,7 @@ const activeFileMention = computed(() => {
 });
 const fileSuggestions = computed(() => {
   const mention = activeFileMention.value;
-  if (!mention) return [];
+  if (!mention || mention.query.trim().length === 0) return [];
   const query = mention.query.toLowerCase();
   return workspaceFiles.value
     .filter((path) => path.toLowerCase().includes(query))
@@ -2130,10 +2177,8 @@ const fileSuggestions = computed(() => {
     })
     .slice(0, 12);
 });
-const showFileSuggestions = computed(() => activeFileMention.value !== null);
-const showSuggestions = computed(
-  () => showFileSuggestions.value || showCommandSuggestions.value,
-);
+const showFileSuggestions = computed(() => (activeFileMention.value?.query.trim().length ?? 0) > 0);
+const showSuggestions = computed(() => showFileSuggestions.value || showCommandSuggestions.value);
 const suggestionCount = computed(() =>
   showFileSuggestions.value
     ? Math.max(fileSuggestions.value.length, 1)
@@ -2160,16 +2205,18 @@ function selectWorkspaceFile(path: string) {
   const mention = activeFileMention.value;
   if (!mention) return;
   message.value = message.value.slice(0, mention.start);
-  lockPrefixFromMessage();
-  if (!mentionedFiles.value.includes(path)) {
-    mentionedFiles.value.push(path);
-  }
+  flushMessageToSegments();
+  pushComposerSegment({ kind: "mention", path });
   selectedIndex.value = 0;
   void nextTick(() => focusInput());
 }
 
 function fileName(path: string) {
   return path.split("/").pop() || path;
+}
+
+function fileIconForPath(path: string) {
+  return codeLanguageForPath(path).icon;
 }
 
 async function focusInput() {
@@ -2204,12 +2251,12 @@ function restorePickerFocus() {
 
 async function executeCommand(command: string) {
   if (!props.enableCommands || !props.contextReady) {
-    console.debug("slash command blocked", { command, contextReady: props.contextReady });
+    log.debug("slash command blocked", { command, contextReady: props.contextReady });
     return;
   }
   message.value = "";
   persistDraft();
-  prefixText.value = "";
+  clearComposerSegments();
   selectedIndex.value = 0;
   emitLayoutChange();
   const action = await executeSlashCommand(command);
@@ -2233,7 +2280,10 @@ async function executeCommand(command: string) {
     try {
       emit("showContext", await fetchEnvironmentContext());
     } catch (error) {
-      console.error("Failed to invoke get_environment_context; using resolved overlay snapshot:", error);
+      console.error(
+        "Failed to invoke get_environment_context; using resolved overlay snapshot:",
+        error,
+      );
       emit("showContext", props.capturedContext ?? {});
     }
     return;
@@ -2250,6 +2300,8 @@ const workspacePickerOpen = ref(false);
 const workspaceQuickSelectOnly = ref(false);
 const workspaceSaving = ref(false);
 const workspaceError = ref("");
+/** Overlay-only: user explicitly picked a workspace for this summon session. */
+const overlayWorkspaceOverride = ref<Workspace | null>(null);
 let unlistenWorkspaces: UnlistenFn | null = null;
 let unlistenChatFinished: UnlistenFn | null = null;
 let unlistenChatStarted: UnlistenFn | null = null;
@@ -2266,13 +2318,38 @@ const workspacePickerRowCount = computed(() => {
   return 2 + Math.max(workspaces.value.length, 1);
 });
 
+function normalizeWorkspaceRoot(root: string) {
+  return root.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function syncOverlayWorkspaceFromContext() {
+  if (props.appearance !== "overlay" || overlayWorkspaceOverride.value) {
+    return;
+  }
+  // Overlay should not inherit workbench workspace.
+  // Only use an explicitly reported IDE workspace when present.
+  const ideRoot = props.capturedContext?.ideContext?.workspace;
+  if (!ideRoot) {
+    currentWorkspace.value = null;
+    workspaceFiles.value = [];
+    workspaceFilesRoot.value = "";
+    return;
+  }
+  const normalized = normalizeWorkspaceRoot(ideRoot);
+  currentWorkspace.value =
+    workspaces.value.find((workspace) => normalizeWorkspaceRoot(workspace.root) === normalized) ??
+    null;
+}
+
 async function loadWorkspaceState() {
   try {
-    const [items, current] = await Promise.all([
-      listWorkspaces(),
-      getCurrentWorkspace(),
-    ]);
+    const items = await listWorkspaces();
     workspaces.value = items;
+    if (props.appearance === "overlay") {
+      syncOverlayWorkspaceFromContext();
+      return;
+    }
+    const current = await getCurrentWorkspace();
     if (current?.root !== currentWorkspace.value?.root) {
       workspaceFiles.value = [];
       workspaceFilesRoot.value = "";
@@ -2330,7 +2407,12 @@ async function addWorkspaceFromFolder() {
     const root = await selectWorkspaceFolder();
     if (!root) return;
     const workspace = await createWorkspace(root);
-    currentWorkspace.value = await switchWorkspace(workspace.id);
+    if (props.appearance === "overlay") {
+      overlayWorkspaceOverride.value = workspace;
+      currentWorkspace.value = workspace;
+    } else {
+      currentWorkspace.value = await switchWorkspace(workspace.id);
+    }
     await loadWorkspaceState();
     workspacePickerOpen.value = false;
     await syncPopupState(false);
@@ -2345,7 +2427,10 @@ async function addWorkspaceFromFolder() {
 }
 
 async function chooseWorkspace(workspace: Workspace) {
-  if (workspace.id !== currentWorkspace.value?.id) {
+  if (props.appearance === "overlay") {
+    overlayWorkspaceOverride.value = workspace;
+    currentWorkspace.value = workspace;
+  } else if (workspace.id !== currentWorkspace.value?.id) {
     try {
       currentWorkspace.value = await switchWorkspace(workspace.id);
     } catch (error) {
@@ -2363,7 +2448,10 @@ async function chooseWorkspace(workspace: Workspace) {
 async function exitCurrentWorkspace() {
   workspaceError.value = "";
   try {
-    await clearCurrentWorkspace();
+    if (props.appearance !== "overlay") {
+      await clearCurrentWorkspace();
+    }
+    overlayWorkspaceOverride.value = null;
     currentWorkspace.value = null;
     workspacePickerOpen.value = false;
     workspaceQuickSelectOnly.value = false;
@@ -2381,6 +2469,18 @@ function selectHistorySession(sessionId: string) {
 
 function closeHistoryPicker() {
   emit("historyClose");
+}
+
+function resolveSendWorkspaceOptions(): { workspaceId?: string; quickAsk?: boolean } {
+  const active = overlayWorkspaceOverride.value ?? currentWorkspace.value;
+  if (active) {
+    return { workspaceId: active.id, quickAsk: false };
+  }
+  const contextRoot = props.capturedContext?.workspace?.root;
+  if (contextRoot) {
+    return { workspaceId: contextRoot, quickAsk: false };
+  }
+  return { quickAsk: true };
 }
 
 async function submit() {
@@ -2446,10 +2546,7 @@ async function submit() {
   }
 
   if (showAskUserPicker.value) {
-    if (
-      activeAskQuestion.value?.multiSelect &&
-      selectedIndex.value === askConfirmRowIndex.value
-    ) {
+    if (activeAskQuestion.value?.multiSelect && selectedIndex.value === askConfirmRowIndex.value) {
       confirmAskSelection();
       return;
     }
@@ -2461,14 +2558,8 @@ async function submit() {
     return;
   }
 
-  const text = composeVisibleText().trim();
-  if (
-    !text &&
-    !pastedText.value &&
-    mentionedFiles.value.length === 0 &&
-    attachedFiles.value.length === 0 &&
-    attachedImages.value.length === 0
-  ) {
+  const text = serializeComposerSegments().trim();
+  if (!text && attachedFiles.value.length === 0 && attachedImages.value.length === 0) {
     return;
   }
 
@@ -2495,20 +2586,15 @@ async function submit() {
     return;
   }
 
-  const fileMentions = mentionedFiles.value
-    .map((path) => (/\s/.test(path) ? `@"${path}"` : `@${path}`))
-    .join(" ");
   const attachedFileBlocks = formatAttachedFilesForMessage(attachedFiles.value);
-  const imageTags = attachedImages.value.map(img => `![image](${img})`).join("\n");
-  const submittedText = [text, fileMentions, attachedFileBlocks, pastedText.value, imageTags]
+  const imageTags = attachedImages.value.map((img) => `![image](${img})`).join("\n");
+  const submittedText = [text, attachedFileBlocks, imageTags]
     .filter((part) => part.length > 0)
     .join("\n\n");
   emit("submit", submittedText);
   message.value = "";
   persistDraft();
-  prefixText.value = "";
-  pastedText.value = "";
-  mentionedFiles.value = [];
+  clearComposerSegments();
   attachedFiles.value = [];
   attachedImages.value = [];
   emitLayoutChange();
@@ -2536,10 +2622,9 @@ function handlePaste(event: ClipboardEvent) {
   event.preventDefault();
   const normalized = text.replace(/\r\n|\r/g, "\n").trim();
   if (!normalized) return;
-  lockPrefixFromMessage();
-  pastedText.value = pastedText.value
-    ? `${pastedText.value}\n${normalized}`
-    : normalized;
+  flushMessageToSegments();
+  pushComposerSegment({ kind: "paste", text: normalized });
+  emitLayoutChange();
 }
 
 function selectPathPermission(decision: PathPermissionDecision) {
@@ -2557,15 +2642,11 @@ function handleKeydown(event: KeyboardEvent) {
 
   if ((event.key === "Backspace" || event.key === "Delete") && !showModelPicker.value) {
     const input = inputRef.value;
-    const caretAtStart =
-      Boolean(input) &&
-      input!.selectionStart === 0 &&
-      input!.selectionEnd === 0;
+    const caretAtStart = Boolean(input) && input!.selectionStart === 0 && input!.selectionEnd === 0;
     const empty = message.value.length === 0;
     // Backspace at start (or empty) / Delete when empty removes file / text / selection tags.
     const shouldRemoveTag =
-      (event.key === "Backspace" && caretAtStart) ||
-      (event.key === "Delete" && empty);
+      (event.key === "Backspace" && caretAtStart) || (event.key === "Delete" && empty);
     if (shouldRemoveTag && removeTrailingAttachment()) {
       event.preventDefault();
       return;
@@ -2573,10 +2654,10 @@ function handleKeydown(event: KeyboardEvent) {
   }
 
   if (
-    props.appearance === "workbench"
-    && event.key === "Enter"
-    && event.shiftKey
-    && !interactivePickerOpen.value
+    props.appearance === "workbench" &&
+    event.key === "Enter" &&
+    event.shiftKey &&
+    !interactivePickerOpen.value
   ) {
     return;
   }
@@ -2746,8 +2827,7 @@ function handleKeydown(event: KeyboardEvent) {
 
   if (showAskUserPicker.value) {
     const totalRows =
-      activeAskOptions.value.length +
-      (activeAskQuestion.value?.multiSelect ? 1 : 0);
+      activeAskOptions.value.length + (activeAskQuestion.value?.multiSelect ? 1 : 0);
 
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -2899,8 +2979,7 @@ function handleKeydown(event: KeyboardEvent) {
     if (event.key === "ArrowUp") {
       event.preventDefault();
       selectedIndex.value =
-        (selectedIndex.value - 1 + filteredCommands.value.length) %
-        filteredCommands.value.length;
+        (selectedIndex.value - 1 + filteredCommands.value.length) % filteredCommands.value.length;
       return;
     }
 
@@ -2933,9 +3012,7 @@ function handleKeydown(event: KeyboardEvent) {
 
 function reset() {
   message.value = "";
-  prefixText.value = "";
-  pastedText.value = "";
-  mentionedFiles.value = [];
+  clearComposerSegments();
   attachedFiles.value = [];
   attachedImages.value = [];
   selectedIndex.value = 0;
@@ -2945,14 +3022,16 @@ function reset() {
   closeThinkingTierMenu();
   workspacePickerOpen.value = false;
   workspaceQuickSelectOnly.value = false;
+  if (props.appearance === "overlay") {
+    overlayWorkspaceOverride.value = null;
+    syncOverlayWorkspaceFromContext();
+  }
   emitLayoutChange();
   void nextTick(resizeWorkbenchInput);
 }
 
 function setMessage(text: string) {
-  prefixText.value = "";
-  pastedText.value = "";
-  mentionedFiles.value = [];
+  clearComposerSegments();
   attachedFiles.value = [];
   attachedImages.value = [];
   message.value = text;
@@ -3012,10 +3091,7 @@ function completeAskUserWithSkip() {
   finishAskUser(answers, true);
 }
 
-function finishAskUser(
-  answers: Record<number, string[]>,
-  skipped = false,
-) {
+function finishAskUser(answers: Record<number, string[]>, skipped = false) {
   if (!props.askUser || askUserFinishing.value) {
     return;
   }
@@ -3030,9 +3106,7 @@ function finishAskUser(
       return {
         header: question.header,
         question: question.question,
-        selected: userSupplement
-          ? []
-          : selected.filter((item) => item !== ASK_SKIP_MARKER),
+        selected: userSupplement ? [] : selected.filter((item) => item !== ASK_SKIP_MARKER),
         userSupplement,
       };
     }),
@@ -3073,12 +3147,25 @@ watch(
   () => props.selectionLines,
   (lines, previous) => {
     if (lines && !previous) {
-      lockPrefixFromMessage();
+      flushMessageToSegments();
+      // Avoid duplicate selection chips if one is already present.
+      if (!composerSegments.value.some((seg) => seg.kind === "selection")) {
+        pushComposerSegment({ kind: "selection", lines });
+      }
+      emitLayoutChange();
     }
     if (!lines) {
-      collapsePrefixIfNeeded();
+      composerSegments.value = composerSegments.value.filter((seg) => seg.kind !== "selection");
+      emitLayoutChange();
+    } else if (previous) {
+      for (const seg of composerSegments.value) {
+        if (seg.kind === "selection") {
+          seg.lines = lines;
+        }
+      }
     }
   },
+  { immediate: true },
 );
 
 watch(filteredCommands, () => {
@@ -3099,19 +3186,16 @@ watch(fileSuggestions, () => {
   }
 });
 
-watch(
-  [() => chatModelStore.loading, () => chatModelStore.error, modelPickerModels],
-  () => {
-    if (!modelPickerOpen.value) {
-      return;
-    }
-    const maxIndex = modelPickerModels.value.length; // refresh row
-    if (selectedIndex.value > maxIndex) {
-      selectedIndex.value = 0;
-    }
-    emitLayoutChange();
-  },
-);
+watch([() => chatModelStore.loading, () => chatModelStore.error, modelPickerModels], () => {
+  if (!modelPickerOpen.value) {
+    return;
+  }
+  const maxIndex = modelPickerModels.value.length; // refresh row
+  if (selectedIndex.value > maxIndex) {
+    selectedIndex.value = 0;
+  }
+  emitLayoutChange();
+});
 
 watch(
   () => message.value,
@@ -3128,21 +3212,25 @@ watch(
   },
 );
 
-watch(showSuggestions, () => {
-  if (showSuggestions.value && modelPickerOpen.value) {
-    closeModelPicker();
-  }
-  if (showSuggestions.value && approvalPickerOpen.value) {
-    closeApprovalMenu();
-  }
-  if (showSuggestions.value && chatModePickerOpen.value) {
-    closeChatModeMenu();
-  }
-  if (showSuggestions.value && thinkingTierPickerOpen.value) {
-    closeThinkingTierMenu();
-  }
-  emitLayoutChange();
-}, { immediate: true });
+watch(
+  showSuggestions,
+  () => {
+    if (showSuggestions.value && modelPickerOpen.value) {
+      closeModelPicker();
+    }
+    if (showSuggestions.value && approvalPickerOpen.value) {
+      closeApprovalMenu();
+    }
+    if (showSuggestions.value && chatModePickerOpen.value) {
+      closeChatModeMenu();
+    }
+    if (showSuggestions.value && thinkingTierPickerOpen.value) {
+      closeThinkingTierMenu();
+    }
+    emitLayoutChange();
+  },
+  { immediate: true },
+);
 
 watch(showAskUserPicker, async (open) => {
   if (open && modelPickerOpen.value) {
@@ -3245,7 +3333,22 @@ watch(
     emitLayoutChange();
   },
 );
-defineExpose({ focusInput, reset, setMessage });
+function insertFileMention(path: string) {
+  flushMessageToSegments();
+  pushComposerSegment({ kind: "mention", path });
+  void nextTick(() => focusInput());
+}
+
+watch(
+  () => props.capturedContext?.workspace?.root,
+  () => {
+    if (props.appearance === "overlay") {
+      void loadWorkspaceState();
+    }
+  },
+);
+
+defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWorkspaceOptions });
 </script>
 
 <style scoped>
@@ -3266,6 +3369,15 @@ defineExpose({ focusInput, reset, setMessage });
   border-bottom: 0;
   border-radius: 8px 8px 0 0;
   box-shadow: 0 -10px 28px color-mix(in srgb, #000 24%, transparent);
+}
+
+/* File mention list should float above the input with a visible gap, and keep
+   full border so it doesn't visually merge with (or cover) the input frame. */
+.chat-input-shell.overlay-pickers :deep(.file-suggestion-list) {
+  bottom: calc(100% + 6px);
+  max-height: min(320px, 42vh);
+  border-bottom: 1px solid var(--peek-border);
+  border-radius: 8px;
 }
 
 /* Ask / permission / approval: in-flow so the question header cannot be clipped
@@ -3298,7 +3410,6 @@ defineExpose({ focusInput, reset, setMessage });
   gap: 8px;
 }
 
-.input-content,
 .input-footer,
 .input-footer-primary,
 .input-footer-actions {
@@ -3307,23 +3418,27 @@ defineExpose({ focusInput, reset, setMessage });
 }
 
 .input-content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
   width: 100%;
   min-height: 28px;
-  flex-wrap: wrap;
-  gap: 4px;
-  row-gap: 3px;
+  line-height: 24px;
 }
 
 .input-prefix {
+  display: inline-flex;
+  align-items: center;
   flex: none;
-  max-width: 55%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: none;
+  min-height: 24px;
+  overflow: visible;
+  white-space: pre-wrap;
   color: var(--peek-text);
   font-family: var(--peek-font-sans);
   font-size: 14px;
-  line-height: 20px;
+  line-height: 24px;
   cursor: text;
 }
 
@@ -3358,8 +3473,14 @@ defineExpose({ focusInput, reset, setMessage });
 }
 
 .chat-input {
-  flex: 1;
-  min-width: 48px;
+  /* Prefer filling leftover space after chips; if < ~half a line remains,
+     wrap onto the next row instead of squeezing text into a narrow column. */
+  flex: 1 1 50%;
+  display: block;
+  width: auto;
+  min-width: min(100%, 50%);
+  max-width: 100%;
+  height: 24px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -3368,13 +3489,15 @@ defineExpose({ focusInput, reset, setMessage });
   color: var(--peek-text);
   font-family: var(--peek-font-sans);
   font-size: 14px;
-  line-height: 20px;
+  line-height: 24px;
   caret-color: var(--peek-accent);
 }
 
 .chat-input::placeholder {
   color: var(--peek-placeholder);
-  transition: color 160ms ease, opacity 160ms ease;
+  transition:
+    color 160ms ease,
+    opacity 160ms ease;
 }
 
 .workbench-composer .input-bar {
@@ -3383,37 +3506,41 @@ defineExpose({ focusInput, reset, setMessage });
   padding: 13px 13px 10px;
   gap: 9px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--peek-accent) 24%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--peek-surface) 97%, transparent);
-  box-shadow:
-    0 16px 40px color-mix(in srgb, #000 20%, transparent),
-    0 1px 0 color-mix(in srgb, white 4%, transparent) inset;
+  border: 1px solid color-mix(in srgb, var(--peek-text) 16%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--peek-text) 7%, var(--peek-surface));
+  box-shadow: 0 14px 36px color-mix(in srgb, #000 18%, transparent);
 }
 
 .workbench-composer .input-bar:focus-within {
-  border-color: color-mix(in srgb, var(--peek-accent) 30%, transparent);
-  box-shadow:
-    0 18px 42px color-mix(in srgb, #000 22%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--peek-accent) 9%, transparent);
+  border-color: color-mix(in srgb, var(--peek-text) 28%, transparent);
+  box-shadow: 0 16px 40px color-mix(in srgb, #000 22%, transparent);
 }
 
 .workbench-composer .input-content {
   min-height: 52px;
-  align-items: flex-start;
+  /* Hard cap so long input scrolls in place instead of growing the composer
+     over whatever sits above it. */
+  max-height: min(168px, 34vh);
+  align-content: flex-start;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .workbench-composer .workbench-textarea {
-  width: 100%;
-  min-width: 100%;
-  min-height: 48px;
+  flex: 1 1 50%;
+  display: block;
+  width: auto;
+  min-width: min(100%, 50%);
+  max-width: 100%;
+  min-height: 24px;
+  height: auto;
   max-height: 144px;
-  padding: 1px 2px;
+  padding: 0;
   overflow-y: auto;
   resize: none;
   font-size: 14px;
-  line-height: 22px;
+  line-height: 24px;
   white-space: pre-wrap;
 }
 
@@ -3442,18 +3569,27 @@ defineExpose({ focusInput, reset, setMessage });
   border-radius: 6px;
 }
 
-.workbench-composer .model-badge { max-width: 164px; }
+.workbench-composer .model-badge {
+  max-width: 164px;
+}
 
 .workbench-composer.overlay-pickers :deep(.command-list) {
   bottom: calc(100% - 1px);
   max-height: min(420px, 52vh);
   overflow-y: auto;
   padding: 6px;
-  border: 1px solid color-mix(in srgb, var(--peek-text) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--peek-text) 16%, transparent);
   border-bottom: 0;
-  border-radius: 10px 10px 0 0;
-  background: color-mix(in srgb, var(--peek-surface) 97%, transparent);
+  border-radius: 16px 16px 0 0;
+  background: color-mix(in srgb, var(--peek-text) 7%, var(--peek-surface));
   box-shadow: 0 -14px 32px color-mix(in srgb, #000 14%, transparent);
+}
+
+.workbench-composer.overlay-pickers :deep(.file-suggestion-list) {
+  bottom: calc(100% + 6px);
+  max-height: min(320px, 42vh);
+  border-bottom: 1px solid color-mix(in srgb, var(--peek-text) 7%, transparent);
+  border-radius: 10px;
 }
 
 /* Interaction requests: full-width panel stacked above the composer (in-flow). */
@@ -3492,11 +3628,11 @@ defineExpose({ focusInput, reset, setMessage });
   background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
 }
 
-.workbench-composer.picker-open .input-bar {
-  border-color: color-mix(in srgb, var(--peek-accent) 24%, transparent);
+.workbench-composer.picker-open:not(.file-suggestion-open) .input-bar {
+  border-color: color-mix(in srgb, var(--peek-text) 16%, transparent);
   border-top-color: transparent;
-  border-radius: 0 0 10px 10px;
-  box-shadow: 0 16px 40px color-mix(in srgb, #000 20%, transparent);
+  border-radius: 0 0 16px 16px;
+  box-shadow: 0 14px 36px color-mix(in srgb, #000 18%, transparent);
 }
 
 .workbench-composer.interaction-request-open.picker-open .input-bar {
@@ -3542,8 +3678,7 @@ defineExpose({ focusInput, reset, setMessage });
   --command-list-visible-rows: 8;
   max-height: min(
     calc(
-      var(--command-row-height) * var(--command-list-visible-rows) +
-        var(--command-list-padding) +
+      var(--command-row-height) * var(--command-list-visible-rows) + var(--command-list-padding) +
         34px
     ),
     72vh
@@ -3564,21 +3699,46 @@ defineExpose({ focusInput, reset, setMessage });
 }
 
 @media (max-width: 760px) {
-  .workbench-composer .input-footer { align-items: flex-end; }
-  .workbench-composer .model-name { max-width: 88px; }
+  .workbench-composer .input-footer {
+    align-items: flex-end;
+  }
+  .workbench-composer .model-name {
+    max-width: 88px;
+  }
 }
 
 @media (max-height: 700px) {
-  .workbench-composer .input-bar { min-height: 88px; padding-top: 9px; }
-  .workbench-composer .input-content { min-height: 30px; }
-  .workbench-composer .workbench-textarea { min-height: 28px; max-height: 64px; }
+  .workbench-composer .input-bar {
+    min-height: 88px;
+    padding-top: 9px;
+  }
+  .workbench-composer .input-content {
+    min-height: 30px;
+  }
+  .workbench-composer .workbench-textarea {
+    min-height: 28px;
+    max-height: 64px;
+  }
 }
 
 @media (max-height: 420px) {
-  .workbench-composer .input-bar { min-height: 76px; padding: 7px 10px 6px; gap: 5px; }
-  .workbench-composer .input-content { min-height: 24px; }
-  .workbench-composer .workbench-textarea { min-height: 24px; max-height: 44px; line-height: 20px; }
-  .workbench-composer .input-footer { min-height: 28px; padding-top: 0; }
+  .workbench-composer .input-bar {
+    min-height: 76px;
+    padding: 7px 10px 6px;
+    gap: 5px;
+  }
+  .workbench-composer .input-content {
+    min-height: 24px;
+  }
+  .workbench-composer .workbench-textarea {
+    min-height: 24px;
+    max-height: 44px;
+    line-height: 20px;
+  }
+  .workbench-composer .input-footer {
+    min-height: 28px;
+    padding-top: 0;
+  }
 }
 
 .model-picker {
@@ -3635,7 +3795,9 @@ defineExpose({ focusInput, reset, setMessage });
 .footer-chip-icon {
   flex: none;
   opacity: 0.78;
-  transition: opacity 140ms ease, color 140ms ease;
+  transition:
+    opacity 140ms ease,
+    color 140ms ease;
 }
 
 .footer-chip:hover .footer-chip-icon,
@@ -3655,21 +3817,23 @@ defineExpose({ focusInput, reset, setMessage });
   border-radius: 6px;
   background: transparent;
   color: var(--peek-muted);
-  transition: background 120ms ease, color 120ms ease;
-}
-
-.file-mention-tags {
-  display: flex;
-  flex: none;
-  gap: 3px;
-  max-width: 42%;
-  overflow-x: auto;
-  overflow-y: hidden;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 
 .file-mention-tag {
-  gap: 3px;
-  max-width: 120px;
+  gap: 5px;
+  max-width: min(220px, 100%);
+  height: 24px;
+  margin: 0;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--peek-text);
+  border-color: color-mix(in srgb, var(--peek-border) 88%, transparent);
+  background: color-mix(in srgb, var(--peek-input-bg) 78%, var(--peek-surface));
 }
 
 .file-mention-name {
@@ -3677,6 +3841,7 @@ defineExpose({ focusInput, reset, setMessage });
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 24px;
 }
 
 .input-bar.drag-over {
@@ -3728,6 +3893,14 @@ defineExpose({ focusInput, reset, setMessage });
   color: var(--peek-muted);
 }
 
+.file-chip-icon-img {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  display: block;
+}
+
 .file-chip-name {
   min-width: 0;
   overflow: hidden;
@@ -3752,7 +3925,10 @@ defineExpose({ focusInput, reset, setMessage });
   color: var(--peek-muted);
   cursor: pointer;
   opacity: 0.55;
-  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
 }
 
 .file-chip:hover .file-chip-remove {
@@ -3769,16 +3945,16 @@ defineExpose({ focusInput, reset, setMessage });
   display: inline-flex;
   flex: none;
   align-items: center;
-  height: 20px;
+  height: 24px;
   margin: 0;
-  padding: 0 5px;
-  border: 1px solid color-mix(in srgb, var(--peek-accent) 34%, var(--peek-border));
-  border-radius: 4px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--peek-accent) 28%, var(--peek-border));
+  border-radius: 6px;
   background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
   color: var(--peek-accent);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 24px;
   white-space: nowrap;
 }
 
@@ -3904,7 +4080,9 @@ defineExpose({ focusInput, reset, setMessage });
 .model-chevron {
   flex: none;
   opacity: 0.45;
-  transition: transform 160ms ease, opacity 140ms ease;
+  transition:
+    transform 160ms ease,
+    opacity 140ms ease;
 }
 
 .model-badge:hover .model-chevron,
@@ -4060,7 +4238,9 @@ defineExpose({ focusInput, reset, setMessage });
   border: none;
   padding: 0;
   opacity: 0.8;
-  transition: opacity 120ms ease, background 120ms ease;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease;
 }
 
 .image-thumb-container:hover .image-remove-btn {

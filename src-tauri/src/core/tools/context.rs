@@ -139,7 +139,8 @@ impl ToolContext {
         let subagent_id = uuid::Uuid::new_v4().to_string();
         ToolContext {
             workspace_root: self.workspace_root.clone(),
-            request_context: self.request_context.clone(),
+            // Minimal context: do not inherit IDE/clipboard/git from the parent turn.
+            request_context: Default::default(),
             session_id: format!("{}-sub-{subagent_id}", self.session_id),
             assistant_message_id: self.assistant_message_id.clone(),
             conversation: Arc::clone(&self.conversation),
@@ -178,8 +179,10 @@ impl ToolContext {
         }
     }
 
+    /// Depth 0 is the root agent. Spawning is allowed while `subagent_depth < max_subagent_depth`.
+    /// With the default `max_subagent_depth = 1`, only the root may spawn (children cannot nest).
     pub fn can_spawn_subagent(&self) -> bool {
-        self.subagent_depth == 0 && self.subagent_depth < self.max_subagent_depth
+        self.subagent_depth < self.max_subagent_depth
     }
 }
 
