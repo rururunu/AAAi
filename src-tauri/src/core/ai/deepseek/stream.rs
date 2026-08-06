@@ -200,6 +200,7 @@ async fn read_sse_stream(
     tx: &Sender<StreamEvent>,
 ) -> Result<StreamReadOutcome, ProviderError> {
     let mut stream = response.bytes_stream();
+    let mut pending_utf8 = Vec::new();
     let mut buffer = String::new();
     let mut outcome = StreamReadOutcome::default();
     let mut content = String::new();
@@ -216,7 +217,7 @@ async fn read_sse_stream(
             Err(_) => return Err(ProviderError::message(USER_STREAM_STALLED)),
         };
 
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
+        crate::runtime::encoding::append_utf8_chunk(&mut pending_utf8, &chunk, &mut buffer);
 
         while let Some(line) = next_sse_line(&mut buffer) {
             let Some(payload) = line.strip_prefix("data:") else {
@@ -420,4 +421,24 @@ fn next_sse_line(buffer: &mut String) -> Option<String> {
         line.pop();
     }
     Some(line)
+}
+
+#[cfg(test)]
+mod utf8_stream_tests {
+    use crate::runtime::encoding::append_utf8_chunk;
+
+    #[test]
+    fn sse_buffer_survives_split_multibyte_utf8() {
+        // Simulate JSON SSE payload containing CJK split across TCP chunks.
+        let payload = "data: {\"choices\":[{\"delta\":{\"content\":\"你好\"}}]}\n\n";
+        let bytes = payload.as_bytes();
+        let mut pending = Vec::new();
+        let mut buffer = String::new();
+        for window in bytes.chunks(3) {
+            append_utf8_chunk(&mut pending, window, &mut buffer);
+        }
+        assert!(pending.is_empty());
+        assert!(buffer.contains("你好"));
+        assert!(!buffer.contains('\u{FFFD}'));
+    }
 }

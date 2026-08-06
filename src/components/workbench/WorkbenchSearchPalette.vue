@@ -40,7 +40,9 @@
                   @mouseenter="selectedIndex = index"
                   @mousedown.prevent="selectSession(item.sessionId)"
                 >
-                  <span class="search-item-title">{{ item.preview || copy.untitled }}</span>
+                  <span class="search-item-title">
+                    {{ formatSessionPreview(item.preview || "") || copy.untitled }}
+                  </span>
                   <span class="search-item-meta">{{ workspaceLabel(item.workspaceId) }}</span>
                   <kbd v-if="index < 9" class="search-shortcut">
                     {{ shortcutPrefix }}{{ index + 1 }}
@@ -77,6 +79,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { SquarePen } from "@lucide/vue";
 import type { Workspace } from "@/commands/workspace";
+import { formatSessionPreview } from "@/services/chat/sessionPreview";
 import type { ChatSessionSummary } from "@/types/chat";
 
 const props = defineProps<{

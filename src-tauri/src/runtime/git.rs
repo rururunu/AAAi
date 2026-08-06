@@ -100,8 +100,10 @@ fn run_git(mut command: Command, action: &str) -> Result<String, ToolError> {
     let output = command
         .output()
         .map_err(|error| ToolError::new(error.to_string()))?;
-    let mut text = String::from_utf8_lossy(&output.stdout).to_string();
-    text.push_str(&String::from_utf8_lossy(&output.stderr));
+    let mut text = crate::runtime::encoding::decode_process_bytes(&output.stdout);
+    text.push_str(&crate::runtime::encoding::decode_process_bytes(
+        &output.stderr,
+    ));
     if !output.status.success() {
         return Err(ToolError::new(format!(
             "git {action} failed: {}",

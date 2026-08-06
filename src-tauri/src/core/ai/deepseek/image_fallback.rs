@@ -2,9 +2,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::core::runtime::{ChatRequest, Role, StreamEvent};
 
-use super::multimodal::{
-    describe_image, multimodal_http_client, resolve_multimodal_endpoint,
-};
+use super::multimodal::{describe_image, multimodal_http_client, resolve_multimodal_endpoint};
 use super::ProviderError;
 
 pub(super) enum FallbackPlan {

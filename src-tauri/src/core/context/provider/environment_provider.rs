@@ -90,7 +90,9 @@ fn git_status(root: &Path) -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    let status = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let status = crate::runtime::encoding::decode_process_bytes(&output.stdout)
+        .trim()
+        .to_string();
     (!status.is_empty()).then_some(status)
 }
 

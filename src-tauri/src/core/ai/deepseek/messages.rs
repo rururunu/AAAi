@@ -88,7 +88,9 @@ pub(super) fn is_tool_continuation(messages: &[crate::core::runtime::ChatMessage
     false
 }
 
-pub(super) fn messages_have_tool_call_reasoning(messages: &[crate::core::runtime::ChatMessage]) -> bool {
+pub(super) fn messages_have_tool_call_reasoning(
+    messages: &[crate::core::runtime::ChatMessage],
+) -> bool {
     messages.iter().any(|message| {
         message
             .tool_calls

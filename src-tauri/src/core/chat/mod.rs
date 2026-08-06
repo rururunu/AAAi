@@ -2,7 +2,7 @@
 //!
 //! Hot path: [`service::ChatService`] → [`stream::StreamManager`] →
 //! [`agent::AgentRunner`] → [`agent_loop`]. Run lifecycle shell is
-//! [`crate::core::agent::AgentRuntime`] (see `docs/rust-architecture.md`).
+//! [`crate::core::agent::AgentRuntime`]. Overview: `docs/architecture-overview.md`.
 
 pub mod agent;
 mod agent_loop;

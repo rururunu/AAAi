@@ -55,10 +55,7 @@ pub fn collect_office_context() -> Option<OfficeContext> {
                 "app={} foreground={} doc={} selection={}",
                 context.app,
                 context.is_foreground,
-                context
-                    .document_name
-                    .as_deref()
-                    .unwrap_or("<none>"),
+                context.document_name.as_deref().unwrap_or("<none>"),
                 context
                     .selected_text
                     .as_ref()
@@ -119,7 +116,9 @@ fn try_collect_app(app: &str, is_foreground: bool) -> Result<Option<OfficeContex
                 pending_revisions: snapshot.pending_revisions,
                 ..OfficeContext::default()
             })),
-            Err(WordError::Com(error)) if matches!(error, super::com::ComError::NotRunning(_, _)) => {
+            Err(WordError::Com(error))
+                if matches!(error, super::com::ComError::NotRunning(_, _)) =>
+            {
                 Ok(None)
             }
             Err(WordError::NoActiveDocument) => Ok(None),
@@ -247,7 +246,7 @@ fn tool_hint_for_app(app: &str) -> String {
     match app {
         "excel" => "Prefer excel_* tools (excel_get_selection, excel_get_used_range, excel_set_selection, excel_save_workbook) for Excel tasks.".to_string(),
         "powerpoint" => "Prefer ppt_* tools (ppt_get_selection, ppt_get_slide_text, ppt_replace_selection, ppt_insert_text, ppt_save_presentation) for PowerPoint tasks.".to_string(),
-        _ => "Prefer word_* tools (word_get_selection, word_get_document_content, word_get_document_range, word_replace_selection, word_insert_text, word_list_comments, word_accept_all_revisions, word_save_document) for Word tasks.".to_string(),
+        _ => "Prefer word_* tools for live Word editing. For new/edit .docx files use #skill:docx; for md↔docx conversion use #skill:pandoc; for simple python-docx use generate_word; for 技术标 use generate_bid_tech.".to_string(),
     }
 }
 
@@ -265,7 +264,10 @@ fn foreground_office_app() -> Option<&'static str> {
 }
 
 fn non_empty(value: &Option<String>) -> Option<&str> {
-    value.as_deref().map(str::trim).filter(|value| !value.is_empty())
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn truncate_chars(text: &str, max_chars: usize) -> String {

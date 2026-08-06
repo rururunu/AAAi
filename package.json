@@ -1,7 +1,7 @@
 {
   "name": "AAAi",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "AAAi — Windows overlay AI assistant",
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "posttauri": "node scripts/rename-msi.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build && node scripts/rename-msi.mjs",
+    "release:json": "node scripts/generate-latest-json.mjs",
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -20,6 +21,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "sync-skills": "node scripts/sync-external-skills.mjs",
     "prepare": "simple-git-hooks"
   },
   "simple-git-hooks": {
@@ -59,6 +61,8 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-process": "~2.3.1",
+    "@tauri-apps/plugin-updater": "~2.10.1",
     "@vueuse/core": "^14.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

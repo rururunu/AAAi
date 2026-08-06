@@ -143,11 +143,9 @@ impl Tool for ListFailureCandidatesTool {
             ),
         }
         .map_err(ToolError::new)?;
-        let path = crate::core::chat::trajectory::write_candidate_report(
-            &ctx.workspace_root,
-            &report,
-        )
-        .map_err(ToolError::new)?;
+        let path =
+            crate::core::chat::trajectory::write_candidate_report(&ctx.workspace_root, &report)
+                .map_err(ToolError::new)?;
         Ok(format!(
             "candidates={} report={}",
             report.candidates.len(),

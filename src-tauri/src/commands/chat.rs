@@ -5,9 +5,9 @@ use crate::core::agent::AgentDebugEvent;
 use crate::core::ai::deepseek;
 use crate::core::chat::SendPreferences;
 use crate::models::chat::{
-    ChatCancelRequest, ChatHistoryRequest, ChatHistoryResponse, ChatModelInfo,
-    ChatSendOverrides, ChatSendRequest, ChatSendResponse, ContextUsageRequest,
-    ContextUsageResponse, ListChatSessionsResponse,
+    ChatCancelRequest, ChatHistoryRequest, ChatHistoryResponse, ChatModelInfo, ChatSendOverrides,
+    ChatSendRequest, ChatSendResponse, ContextUsageRequest, ContextUsageResponse,
+    ListChatSessionsResponse,
 };
 use crate::services::gemini_oauth;
 use crate::services::settings_store::{apply_chat_request_settings, get_settings};

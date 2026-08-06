@@ -28,6 +28,9 @@ export default defineConfig(async () => ({
         warn(warning);
       },
       output: {
+        // Keep vendor splits explicit: MessageList pulls Markdown + FileDiff +
+        // CodeDiffEditor, and without this the CodeMirror language packs alone
+        // land in a ~1.4 MB app chunk and trip Vite's 500 kB warning.
         onlyExplicitManualChunks: true,
         manualChunks(id) {
           const normalized = id.replaceAll("\\", "/");
@@ -36,11 +39,40 @@ export default defineConfig(async () => ({
 
           const parts = modulePath.split("/");
           const packageName = parts[0]?.startsWith("@") ? `${parts[0]}/${parts[1]}` : parts[0];
+          if (!packageName) return undefined;
 
           if (packageName === "katex") return "vendor-katex";
           if (packageName === "highlight.js") return "vendor-highlight";
           if (["marked", "marked-katex-extension", "dompurify"].includes(packageName)) {
             return "vendor-markdown";
+          }
+          // Language grammars are dynamically imported by CodeDiffEditor — leave
+          // them (and their @lezer/* parsers) out of the shared vendor chunk.
+          if (packageName.startsWith("@codemirror/lang-")) return undefined;
+          if (
+            packageName === "@codemirror/state" ||
+            packageName === "@codemirror/view" ||
+            packageName === "@codemirror/language" ||
+            packageName === "@codemirror/commands" ||
+            packageName === "@lezer/highlight" ||
+            packageName === "@lezer/common" ||
+            packageName === "@lezer/lr"
+          ) {
+            return "vendor-codemirror";
+          }
+          if (packageName.startsWith("@codemirror/") || packageName.startsWith("@lezer/")) {
+            return undefined;
+          }
+          if (packageName === "gsap") return "vendor-gsap";
+          if (packageName === "vue" || packageName === "vue-router" || packageName === "pinia") {
+            return "vendor-vue";
+          }
+          if (
+            packageName === "reka-ui" ||
+            packageName === "@vueuse/core" ||
+            packageName === "@lucide/vue"
+          ) {
+            return "vendor-ui";
           }
           return undefined;
         },

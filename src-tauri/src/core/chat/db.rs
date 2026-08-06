@@ -301,7 +301,9 @@ mod session_workspace_tests {
         .unwrap();
 
         init_chat_session_schema(&pool).await.unwrap();
-        save_session_title(&pool, "s1", "修复工具循环熔断").await.unwrap();
+        save_session_title(&pool, "s1", "修复工具循环熔断")
+            .await
+            .unwrap();
         save_session_title(&pool, "s1", "更新标题").await.unwrap();
         save_session_title(&pool, "s2", "  ").await.unwrap();
 

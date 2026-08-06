@@ -11,9 +11,14 @@ const MAX_RULE_FILES: usize = 8;
 const MAX_RULE_DEPTH: usize = 3;
 const MAX_RULE_CHARS: usize = 24_000;
 
+/// Prefer lowercase `agent.md` (user-facing), then keep `AGENTS.md` compatibility.
+const PROJECT_RULE_CANDIDATES: &[&str] = &["agent.md", "Agent.md", "AGENTS.md", "agents.md"];
+
 pub struct TaskRules {
     pub recalled_memories: Option<String>,
     pub project_rules: Option<String>,
+    /// Explicit `#skill:` / `#mcp:` selections from the user message.
+    pub preferred_resources: Option<String>,
     pub memory_decision: MemoryDecision,
 }
 
@@ -29,7 +34,10 @@ impl RuleEngine {
             recalled_memories: should_recall_memory(user_message, is_new_session)
                 .then(|| shared_memory_store().recall_block(user_message))
                 .flatten(),
+            // Always attempt project rules when a workspace is active.
+            // Missing files are ignored (returns None).
             project_rules: workspace_root.and_then(load_project_rules),
+            preferred_resources: format_preferred_resources(user_message),
             memory_decision: MemoryRuleEngine::evaluate(user_message, false),
         }
     }
@@ -126,17 +134,81 @@ fn is_low_information_message(message: &str) -> bool {
 
 fn load_project_rules(root: &Path) -> Option<String> {
     let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-    let entry = root.join("AGENTS.md");
-    if !entry.is_file() {
-        return None;
-    }
+    let entry = PROJECT_RULE_CANDIDATES
+        .iter()
+        .map(|name| root.join(name))
+        .find(|path| path.is_file())?;
     let mut visited = HashSet::new();
     let mut output = String::new();
     load_rule_file(&root, &entry, 0, &mut visited, &mut output);
-    (!output.trim().is_empty()).then(|| format!(
-        "<project-rules>\nRules loaded from the active workspace. Follow them for this task.\n{}\n</project-rules>",
-        output.trim()
-    ))
+    (!output.trim().is_empty()).then(|| {
+        format!(
+            "<project-rules source=\"{}\">\nRules loaded from the active workspace. Follow them for this task.\n{}\n</project-rules>",
+            entry
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("agent.md"),
+            output.trim()
+        )
+    })
+}
+
+/// Parse `#skill:name` / `#mcp:id` tokens into a system hint block.
+fn format_preferred_resources(user_message: &str) -> Option<String> {
+    let mut skills = Vec::new();
+    let mut mcps = Vec::new();
+    let mut rest = user_message;
+    while let Some(hash) = rest.find('#') {
+        rest = &rest[hash + 1..];
+        let (kind, after_kind) = if let Some(rest_skill) = rest.strip_prefix("skill:") {
+            ("skill", rest_skill)
+        } else if let Some(rest_mcp) = rest.strip_prefix("mcp:") {
+            ("mcp", rest_mcp)
+        } else {
+            continue;
+        };
+        let id: String = after_kind
+            .chars()
+            .take_while(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
+            .collect();
+        if id.is_empty() {
+            continue;
+        }
+        let id_len = id.len();
+        match kind {
+            "skill" => {
+                if !skills.iter().any(|existing: &String| existing == &id) {
+                    skills.push(id);
+                }
+            }
+            "mcp" => {
+                if !mcps.iter().any(|existing: &String| existing == &id) {
+                    mcps.push(id);
+                }
+            }
+            _ => {}
+        }
+        rest = &after_kind[id_len.min(after_kind.len())..];
+    }
+    if skills.is_empty() && mcps.is_empty() {
+        return None;
+    }
+    let mut lines = vec![
+        "<preferred-resources>".to_string(),
+        "The user explicitly selected these resources for this task. Prefer them over alternatives.".to_string(),
+    ];
+    for name in &skills {
+        lines.push(format!(
+            "- Skill `{name}`: load with `load_skill` / `run_skill`, or call the dedicated skill tool when available."
+        ));
+    }
+    for id in &mcps {
+        lines.push(format!(
+            "- MCP server `{id}`: prefer tools whose names start with `mcp__{id}__`."
+        ));
+    }
+    lines.push("</preferred-resources>".to_string());
+    Some(lines.join("\n"))
 }
 
 fn load_rule_file(
@@ -241,5 +313,33 @@ mod tests {
         assert!(rules.contains("Use rtk for compact output."));
         assert!(!rules.contains("## ../outside.md"));
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn prefers_agent_md_over_agents_md() {
+        let root = std::env::temp_dir().join(format!("peek-rules-agent-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("agent.md"), "From agent.md").unwrap();
+        fs::write(root.join("AGENTS.md"), "From AGENTS.md").unwrap();
+        let rules = load_project_rules(&root).unwrap();
+        assert!(rules.contains("From agent.md"));
+        assert!(!rules.contains("From AGENTS.md"));
+        assert!(rules.contains("source=\"agent.md\""));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn formats_preferred_skill_and_mcp_tokens() {
+        let block =
+            format_preferred_resources("Use #skill:generate_bid_tech and #mcp:filesystem please")
+                .unwrap();
+        assert!(block.contains("generate_bid_tech"));
+        assert!(block.contains("mcp__filesystem__"));
+        assert!(block.contains("<preferred-resources>"));
+    }
+
+    #[test]
+    fn ignores_messages_without_hash_resources() {
+        assert!(format_preferred_resources("just a normal question").is_none());
     }
 }

@@ -9,5 +9,7 @@ pub mod tools;
 pub mod word;
 pub mod worker;
 
-pub use context::{collect_office_context, enrich_request_context, office_app_available, OfficeContext};
+pub use context::{
+    collect_office_context, enrich_request_context, office_app_available, OfficeContext,
+};
 pub use tools::register_tools;

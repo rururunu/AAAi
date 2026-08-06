@@ -5,7 +5,9 @@ use crate::core::chat::limits::{
 };
 use crate::core::runtime::{ChatMessage, MessageStatus, RequestContext, Role};
 
-use crate::core::chat::prompts::{MINIMAL_CODING_PROMPT, MULTI_MODEL_COLLABORATION_PROMPT, SYSTEM_PROMPT};
+use crate::core::chat::prompts::{
+    MINIMAL_CODING_PROMPT, MULTI_MODEL_COLLABORATION_PROMPT, SYSTEM_PROMPT,
+};
 
 /// Slot [4]: optional strategies in fixed relative order. Disabled strategies
 /// omit their message entirely, but never insert ahead of slots [0]–[3].
@@ -60,7 +62,11 @@ pub(super) fn inject_system_block(
     });
 }
 
-pub(super) fn inject_memories(messages: &mut Vec<ChatMessage>, session_id: &str, memories: Option<&str>) {
+pub(super) fn inject_memories(
+    messages: &mut Vec<ChatMessage>,
+    session_id: &str,
+    memories: Option<&str>,
+) {
     let Some(content) = memories
         .map(str::trim)
         .filter(|content| !content.is_empty())
@@ -101,7 +107,9 @@ pub(super) fn system_message(session_id: &str) -> ChatMessage {
     }
 }
 
-pub(super) fn split_current_user(history: &[ChatMessage]) -> (Vec<ChatMessage>, Option<ChatMessage>) {
+pub(super) fn split_current_user(
+    history: &[ChatMessage],
+) -> (Vec<ChatMessage>, Option<ChatMessage>) {
     if history.is_empty() {
         return (Vec::new(), None);
     }
@@ -118,7 +126,11 @@ pub(super) fn split_current_user(history: &[ChatMessage]) -> (Vec<ChatMessage>, 
     (history.to_vec(), None)
 }
 
-pub(super) fn inject_context(messages: &mut Vec<ChatMessage>, session_id: &str, context: &RequestContext) {
+pub(super) fn inject_context(
+    messages: &mut Vec<ChatMessage>,
+    session_id: &str,
+    context: &RequestContext,
+) {
     let mut blocks = Vec::new();
 
     if let Some(ide) = &context.ide_context {
@@ -157,7 +169,9 @@ pub(super) fn inject_context(messages: &mut Vec<ChatMessage>, session_id: &str, 
         blocks.push(format!("[IDE Context]\n{}", lines.join("\n\n")));
     }
     if let Some(office) = &context.office_context {
-        blocks.push(crate::core::office::context::format_office_context_block(office));
+        blocks.push(crate::core::office::context::format_office_context_block(
+            office,
+        ));
     }
     if let Some(workspace) = &context.workspace {
         blocks.push(format!(

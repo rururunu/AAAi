@@ -2,13 +2,14 @@
 //!
 //! Not to be confused with [`crate::core::runtime`] (chat protocol types:
 //! `ChatMessage`, `StreamEvent`) or [`crate::core::agent::runtime`] (agent run
-//! lifecycle). See `docs/rust-architecture.md`.
+//! lifecycle). Overview: `docs/architecture-overview.md`.
 
 pub mod ai;
 pub mod browser;
 pub mod config;
 pub mod context;
 pub mod conversation;
+pub mod encoding;
 pub mod event;
 pub mod file;
 pub mod git;

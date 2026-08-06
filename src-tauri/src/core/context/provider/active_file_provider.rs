@@ -53,7 +53,9 @@ fn git_root(start: &Path) -> Option<PathBuf> {
     if !output.status.success() {
         return None;
     }
-    let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let root = crate::runtime::encoding::decode_process_bytes(&output.stdout)
+        .trim()
+        .to_string();
     (!root.is_empty()).then(|| PathBuf::from(root))
 }
 

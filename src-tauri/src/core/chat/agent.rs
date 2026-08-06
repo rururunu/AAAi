@@ -106,7 +106,9 @@ impl AgentRunner {
         cancelled: Arc<AtomicBool>,
         soft_queue: Arc<Mutex<VecDeque<String>>>,
     ) -> Result<(), ProviderError> {
-        request.tools = self.tools.schemas_for_request(&request, tool_ctx.root_session_id());
+        request.tools = self
+            .tools
+            .schemas_for_request(&request, tool_ctx.root_session_id());
         let tool_executor = ToolExecutor::new(Arc::clone(&self.tools), self.tool_output_max_chars);
         let mut steps = 0u32;
         let mut failure_breaker = FailureBreaker::new();

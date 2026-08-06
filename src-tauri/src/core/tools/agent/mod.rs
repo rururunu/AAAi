@@ -32,6 +32,10 @@ pub fn is_async_runtime_tool(name: &str) -> bool {
             | "review_code"
             | "review_security"
             | "generate_word"
+            | "generate_bid_tech"
+            | "review_bid_tech"
+            | "docx"
+            | "pandoc"
     )
 }
 
@@ -294,9 +298,18 @@ pub async fn execute_async_tool(
         "run_skill" => {
             let skill = args["name"].as_str().unwrap_or("");
             let task = args["task"].as_str().unwrap_or("");
-            let body = crate::core::tools::skills::resolve_skill_body(skill)?;
-            let prompt = format!("{body}\n\n## Task\n{task}");
-            let read_only = args["read_only"].as_bool().unwrap_or(false);
+            let prompt = if matches!(skill, "generate_bid_tech" | "bid_tech" | "tech_bid") {
+                crate::core::tools::skills::build_bid_tech_prompt(task, &ctx.workspace_root)?
+            } else if matches!(skill, "review_bid_tech" | "bid_tech_review") {
+                crate::core::tools::skills::build_review_bid_tech_prompt(task, &ctx.workspace_root)?
+            } else if matches!(skill, "docx" | "docx_skill" | "word_docx") {
+                crate::core::tools::skills::build_docx_prompt(task, &ctx.workspace_root)?
+            } else {
+                let body = crate::core::tools::skills::resolve_skill_body(skill)?;
+                format!("{body}\n\n## Task\n{task}")
+            };
+            let default_ro = matches!(skill, "review_bid_tech" | "bid_tech_review");
+            let read_only = args["read_only"].as_bool().unwrap_or(default_ro);
             run_subagent(ctx, &prompt, read_only, args["model"].as_str()).await
         }
         "explore_codebase" => {
@@ -325,6 +338,28 @@ pub async fn execute_async_tool(
                 false,
             )
             .await
+        }
+        "generate_bid_tech" => {
+            let task = args["task"].as_str().unwrap_or("");
+            let prompt =
+                crate::core::tools::skills::build_bid_tech_prompt(task, &ctx.workspace_root)?;
+            run_subagent(ctx, &prompt, false, None).await
+        }
+        "review_bid_tech" => {
+            let task = args["task"].as_str().unwrap_or("");
+            let prompt = crate::core::tools::skills::build_review_bid_tech_prompt(
+                task,
+                &ctx.workspace_root,
+            )?;
+            run_subagent(ctx, &prompt, true, None).await
+        }
+        "docx" => {
+            let task = args["task"].as_str().unwrap_or("");
+            let prompt = crate::core::tools::skills::build_docx_prompt(task, &ctx.workspace_root)?;
+            run_subagent(ctx, &prompt, false, None).await
+        }
+        "pandoc" => {
+            run_builtin_skill(ctx, "pandoc", args["task"].as_str().unwrap_or(""), false).await
         }
         other => Err(ToolError::new(format!(
             "tool `{other}` is not an async-runtime tool"

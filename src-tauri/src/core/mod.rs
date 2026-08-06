@@ -1,8 +1,8 @@
 //! Domain core: chat, agent orchestration, AI providers, tools, context, office.
 //!
-//! Request flow overview: `docs/rust-architecture.md`.
+//! Request flow overview: `docs/architecture-overview.md`.
 //! Chat protocol types live in [`runtime`]; pluggable tool adapters live in
-//! the crate-root `crate::runtime` module (different meaning — see docs).
+//! the crate-root `crate::runtime` module (different meaning — see that overview).
 
 pub mod agent;
 pub mod ai;

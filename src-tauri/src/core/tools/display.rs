@@ -38,11 +38,26 @@ pub fn build_activity_view(
                 ))
             }
         }
-        "read_file" | "list_folder" | "find_files" | "search_files" | "list_symbols"
-        | "search_codebase" | "fetch_url" | "web_search" | "browser_read" | "get_context"
-        | "get_workspace" | "word_get_document_content" | "word_get_selection"
-        | "word_get_document_range" | "word_get_document_paragraphs" | "word_list_comments"
-        | "excel_get_selection" | "excel_get_used_range" | "ppt_get_selection" | "ppt_get_slide_text" => result
+        "read_file"
+        | "list_folder"
+        | "find_files"
+        | "search_files"
+        | "list_symbols"
+        | "search_codebase"
+        | "fetch_url"
+        | "web_search"
+        | "browser_read"
+        | "get_context"
+        | "get_workspace"
+        | "word_get_document_content"
+        | "word_get_selection"
+        | "word_get_document_range"
+        | "word_get_document_paragraphs"
+        | "word_list_comments"
+        | "excel_get_selection"
+        | "excel_get_used_range"
+        | "ppt_get_selection"
+        | "ppt_get_slide_text" => result
             .filter(|value| !should_hide_result_detail(tool_name, value))
             .map(str::to_string),
         _ => result
@@ -117,16 +132,40 @@ fn activity_kind(tool_name: &str) -> String {
         }
         "delete_text_range" | "delete_go_symbol" => "delete".into(),
         "move_path" => "move".into(),
-        "read_file" | "list_folder" | "find_files" | "search_files" | "list_symbols"
-        | "search_codebase" | "lsp" | "fetch_url" | "web_search" | "browser_read"
-        | "get_context" | "get_workspace" | "word_get_document_content" | "word_get_selection"
-        | "word_get_document_range" | "word_get_document_paragraphs" | "word_list_comments"
-        | "excel_get_selection" | "excel_get_used_range" | "ppt_get_selection" | "ppt_get_slide_text"
-        => "read".into(),
-        "word_replace_selection" | "word_insert_text" | "word_save_document"
-        | "word_add_comment" | "word_accept_all_revisions" | "word_reject_all_revisions"
-        | "excel_set_selection" | "excel_save_workbook"
-        | "ppt_replace_selection" | "ppt_insert_text" | "ppt_save_presentation" => "edit".into(),
+        "read_file"
+        | "list_folder"
+        | "find_files"
+        | "search_files"
+        | "list_symbols"
+        | "search_codebase"
+        | "lsp"
+        | "fetch_url"
+        | "web_search"
+        | "browser_read"
+        | "get_context"
+        | "get_workspace"
+        | "word_get_document_content"
+        | "word_get_selection"
+        | "word_get_document_range"
+        | "word_get_document_paragraphs"
+        | "word_list_comments"
+        | "excel_get_selection"
+        | "excel_get_used_range"
+        | "ppt_get_selection"
+        | "ppt_get_slide_text" => "read".into(),
+        "word_replace_selection"
+        | "word_insert_text"
+        | "word_insert_table"
+        | "word_apply_font"
+        | "word_save_document"
+        | "word_add_comment"
+        | "word_accept_all_revisions"
+        | "word_reject_all_revisions"
+        | "excel_set_selection"
+        | "excel_save_workbook"
+        | "ppt_replace_selection"
+        | "ppt_insert_text"
+        | "ppt_save_presentation" => "edit".into(),
         _ => "other".into(),
     }
 }
@@ -159,8 +198,14 @@ fn build_title(tool_name: &str, args: &Value) -> String {
             }
         }
         "list_folder" => format!("List {}", display_path(path_arg(args))),
-        "find_files" => format!("Find {}", truncate(args["pattern"].as_str().unwrap_or("*"), 80)),
-        "search_files" => format!("Search {}", truncate(args["pattern"].as_str().unwrap_or(""), 80)),
+        "find_files" => format!(
+            "Find {}",
+            truncate(args["pattern"].as_str().unwrap_or("*"), 80)
+        ),
+        "search_files" => format!(
+            "Search {}",
+            truncate(args["pattern"].as_str().unwrap_or(""), 80)
+        ),
         "list_symbols" => format!("Symbols {}", display_path(path_arg(args))),
         "search_codebase" => {
             let q = args["query"]
@@ -290,6 +335,8 @@ fn build_title(tool_name: &str, args: &Value) -> String {
         "word_list_comments" => "List Word comments".into(),
         "word_replace_selection" => "Edit Word selection".into(),
         "word_insert_text" => "Insert Word text".into(),
+        "word_insert_table" => "Insert Word table".into(),
+        "word_apply_font" => "Apply Word font".into(),
         "word_add_comment" => "Add Word comment".into(),
         "word_accept_all_revisions" => "Accept Word revisions".into(),
         "word_reject_all_revisions" => "Reject Word revisions".into(),
@@ -394,7 +441,10 @@ fn build_detail_from_args(tool_name: &str, args: &Value) -> Option<String> {
                     if content.is_empty() {
                         return None;
                     }
-                    let status = task["status"].as_str().unwrap_or("pending").to_ascii_lowercase();
+                    let status = task["status"]
+                        .as_str()
+                        .unwrap_or("pending")
+                        .to_ascii_lowercase();
                     let marker = match status.as_str() {
                         "completed" | "done" | "complete" => "[x]",
                         "in_progress" | "in-progress" | "active" | "running" => "[~]",
@@ -596,11 +646,8 @@ mod tests {
 
     #[test]
     fn search_and_find_titles_are_compact() {
-        let search = build_activity_view(
-            "search_files",
-            &json!({ "pattern": "build_title" }),
-            None,
-        );
+        let search =
+            build_activity_view("search_files", &json!({ "pattern": "build_title" }), None);
         assert_eq!(search.title, "Search build_title");
         let find = build_activity_view("find_files", &json!({ "pattern": "**/*.rs" }), None);
         assert_eq!(find.title, "Find **/*.rs");

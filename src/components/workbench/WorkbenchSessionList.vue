@@ -12,7 +12,7 @@
       @keydown.enter="emit('select', session.sessionId)"
       @keydown.space.prevent="emit('select', session.sessionId)"
     >
-      <strong>{{ session.preview || untitledLabel }}</strong>
+      <strong>{{ displayPreview(session) }}</strong>
       <span
         class="session-status"
         role="status"
@@ -29,10 +29,7 @@
           :size="13"
           class="running-icon"
         />
-        <span
-          v-else-if="unreadSessionIds.includes(session.sessionId)"
-          class="unread-dot"
-        />
+        <span v-else-if="unreadSessionIds.includes(session.sessionId)" class="unread-dot" />
       </span>
       <button
         type="button"
@@ -48,6 +45,7 @@
 
 <script setup lang="ts">
 import { LoaderCircle, ShieldAlert, Trash2 } from "@lucide/vue";
+import { formatSessionPreview } from "@/services/chat/sessionPreview";
 import type { ChatSessionSummary } from "@/types/chat";
 import type { AppLanguage } from "@/types/setting";
 
@@ -67,6 +65,9 @@ const emit = defineEmits<{
   delete: [sessionId: string];
 }>();
 
+function displayPreview(session: ChatSessionSummary) {
+  return formatSessionPreview(session.preview || "") || props.untitledLabel;
+}
 function formatSessionTime(timestamp: number) {
   return new Intl.DateTimeFormat(props.language, {
     year: "numeric",
@@ -102,8 +103,12 @@ function sessionStatusLabel(sessionId: string) {
 </script>
 
 <style scoped>
-.workbench-session-list.is-workspace { padding: 2px 0 2px 22px; }
-.workbench-session-list.is-quick { padding: 3px 0 0; }
+.workbench-session-list.is-workspace {
+  padding: 2px 0 2px 22px;
+}
+.workbench-session-list.is-quick {
+  padding: 3px 0 0;
+}
 .session-row {
   position: relative;
   width: 100%;
@@ -117,9 +122,15 @@ function sessionStatusLabel(sessionId: string) {
   cursor: pointer;
   text-align: left;
 }
-.session-row:hover { background: color-mix(in srgb, var(--peek-text) 6%, transparent); }
-.session-row.active { background: color-mix(in srgb, var(--peek-accent) 13%, transparent); }
-.is-quick .session-row { padding-left: 9px; }
+.session-row:hover {
+  background: color-mix(in srgb, var(--peek-text) 6%, transparent);
+}
+.session-row.active {
+  background: color-mix(in srgb, var(--peek-accent) 13%, transparent);
+}
+.is-quick .session-row {
+  padding-left: 9px;
+}
 .session-row > strong {
   min-width: 0;
   display: block;
@@ -138,8 +149,12 @@ function sessionStatusLabel(sessionId: string) {
   place-items: center;
   color: var(--peek-accent);
 }
-.running-icon { animation: session-running-spin 0.9s linear infinite; }
-.attention-icon { color: var(--peek-warning, #d97706); }
+.running-icon {
+  animation: session-running-spin 0.9s linear infinite;
+}
+.attention-icon {
+  color: var(--peek-warning, #d97706);
+}
 .unread-dot {
   width: 7px;
   height: 7px;
@@ -160,10 +175,22 @@ function sessionStatusLabel(sessionId: string) {
   cursor: pointer;
   opacity: 0;
 }
-.session-row:hover .delete-session, .session-row:focus-within .delete-session { opacity: 1; }
-.delete-session:hover { color: var(--peek-danger); background: color-mix(in srgb, var(--peek-danger) 12%, transparent); }
-@keyframes session-running-spin { to { transform: rotate(360deg); } }
+.session-row:hover .delete-session,
+.session-row:focus-within .delete-session {
+  opacity: 1;
+}
+.delete-session:hover {
+  color: var(--peek-danger);
+  background: color-mix(in srgb, var(--peek-danger) 12%, transparent);
+}
+@keyframes session-running-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .running-icon { animation-duration: 1.8s; }
+  .running-icon {
+    animation-duration: 1.8s;
+  }
 }
 </style>

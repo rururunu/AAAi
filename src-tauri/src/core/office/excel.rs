@@ -52,8 +52,14 @@ pub fn collect_excel_snapshot() -> Result<ExcelSnapshot, ExcelError> {
 
 fn collect_excel_snapshot_inner(app: &ComDispatch) -> Result<ExcelSnapshot, ComError> {
     let workbook = active_workbook(app)?;
-    let sheet = app.get("ActiveSheet").ok().and_then(|v| v.into_dispatch().ok());
-    let selection = app.get("Selection").ok().and_then(|v| v.into_dispatch().ok());
+    let sheet = app
+        .get("ActiveSheet")
+        .ok()
+        .and_then(|v| v.into_dispatch().ok());
+    let selection = app
+        .get("Selection")
+        .ok()
+        .and_then(|v| v.into_dispatch().ok());
 
     let workbook_name = optional_string(workbook.get("Name").ok());
     let workbook_path = optional_string(workbook.get("FullName").ok());
@@ -63,9 +69,7 @@ fn collect_excel_snapshot_inner(app: &ComDispatch) -> Result<ExcelSnapshot, ComE
     let cell_address = selection
         .as_ref()
         .and_then(|s| optional_string(s.get("Address").ok()));
-    let selected_text = selection
-        .as_ref()
-        .and_then(|s| cell_text(s).ok());
+    let selected_text = selection.as_ref().and_then(|s| cell_text(s).ok());
 
     Ok(ExcelSnapshot {
         workbook_path,
@@ -99,7 +103,10 @@ pub fn set_selection_value(text: &str) -> Result<String, ExcelError> {
     worker::with_app_value(EXCEL_PROG_ID, move |app| {
         let selection = app.get("Selection")?.into_dispatch()?;
         selection.set("Value", VARIANT::from(payload.as_str()))?;
-        Ok(format!("Updated selection ({} chars)", payload.chars().count()))
+        Ok(format!(
+            "Updated selection ({} chars)",
+            payload.chars().count()
+        ))
     })
     .map_err(ExcelError::from)
 }

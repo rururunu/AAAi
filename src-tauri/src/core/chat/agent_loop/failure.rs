@@ -44,7 +44,8 @@ impl FailureBreaker {
                         break;
                     }
                     _ => {
-                        self.repeated_tool_errors.insert(key, outcome.result.clone());
+                        self.repeated_tool_errors
+                            .insert(key, outcome.result.clone());
                     }
                 }
             } else {

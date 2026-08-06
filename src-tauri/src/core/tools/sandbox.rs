@@ -13,7 +13,11 @@ static RESTRICTED_SHELL: AtomicBool = AtomicBool::new(false);
 static SHELL_TIMEOUT_SECS: AtomicU64 = AtomicU64::new(120);
 
 /// Process-wide sandbox knobs — updated from settings without AppHandle.
-pub fn configure(allow_outside_workspace_writes: bool, restricted_shell: bool, shell_timeout_secs: u64) {
+pub fn configure(
+    allow_outside_workspace_writes: bool,
+    restricted_shell: bool,
+    shell_timeout_secs: u64,
+) {
     ALLOW_OUTSIDE_WRITES.store(allow_outside_workspace_writes, Ordering::Relaxed);
     RESTRICTED_SHELL.store(restricted_shell, Ordering::Relaxed);
     SHELL_TIMEOUT_SECS.store(shell_timeout_secs.max(5), Ordering::Relaxed);
@@ -120,8 +124,16 @@ fn escape_write_path_candidates(command: &str) -> Vec<String> {
     let mut out = Vec::new();
     // Out-file / Set-Content / > / >> style targets.
     let markers = [
-        ">", ">>", "| out-file", "| set-content", "out-file ", "set-content ", "copy-item ",
-        "move-item ", "ni ", "new-item ",
+        ">",
+        ">>",
+        "| out-file",
+        "| set-content",
+        "out-file ",
+        "set-content ",
+        "copy-item ",
+        "move-item ",
+        "ni ",
+        "new-item ",
     ];
     let lower = command.to_ascii_lowercase();
     for marker in markers {
@@ -195,8 +207,8 @@ fn assign_job_windows(child: &mut std::process::Child) -> Result<(), String> {
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
-        JobObjectExtendedLimitInformation, JOBOBJECT_BASIC_LIMIT_INFORMATION,
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_BASIC_LIMIT_INFORMATION,
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_PROCESS_MEMORY,
         JOB_OBJECT_LIMIT_PROCESS_TIME, JOB_OBJECT_LIMIT_WORKINGSET,
     };
@@ -258,11 +270,10 @@ mod tests {
     #[test]
     fn rejects_write_redirects_outside_workspace() {
         let ws = PathBuf::from(r"C:\projects\app");
-        assert!(reject_workspace_escape_writes(
-            r#"echo hi > C:\Windows\Temp\out.txt"#,
-            Some(&ws)
-        )
-        .is_err());
+        assert!(
+            reject_workspace_escape_writes(r#"echo hi > C:\Windows\Temp\out.txt"#, Some(&ws))
+                .is_err()
+        );
         assert!(reject_workspace_escape_writes(r#"echo hi > .\out.txt"#, Some(&ws)).is_ok());
     }
 }

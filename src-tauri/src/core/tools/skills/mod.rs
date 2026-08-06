@@ -11,6 +11,63 @@ use crate::core::tools::error::ToolError;
 use crate::core::tools::memory::skills_dir;
 use crate::core::tools::registry::ToolRegistry;
 
+mod bid_tech_assets;
+mod docx_assets;
+
+/// Materialize `.aaai/bid_tech` helpers for async skill runners outside this module.
+pub(crate) fn materialize_bid_tech_for_workspace(
+    workspace_root: &Path,
+) -> Result<PathBuf, ToolError> {
+    bid_tech_assets::materialize_bid_tech_lib(workspace_root)
+}
+
+pub(crate) fn materialize_docx_for_workspace(workspace_root: &Path) -> Result<PathBuf, ToolError> {
+    docx_assets::materialize_docx_skill(workspace_root)
+}
+
+/// Build the full generate_bid_tech prompt (playbook + asset paths + task).
+pub(crate) fn build_bid_tech_prompt(
+    task: &str,
+    workspace_root: &Path,
+) -> Result<String, ToolError> {
+    let lib_dir = materialize_bid_tech_for_workspace(workspace_root)?;
+    let body = resolve_skill_body("generate_bid_tech")?;
+    Ok(format!(
+        "{body}\n\n{}\n## Task\n{task}",
+        bid_tech_runtime_preamble(&lib_dir)
+    ))
+}
+
+/// Build the read-only review_bid_tech prompt (materialize helpers for inspect/gate).
+pub(crate) fn build_review_bid_tech_prompt(
+    task: &str,
+    workspace_root: &Path,
+) -> Result<String, ToolError> {
+    let lib_dir = materialize_bid_tech_for_workspace(workspace_root)?;
+    let body = resolve_skill_body("review_bid_tech")?;
+    Ok(format!(
+        "{body}\n\n{}\n## Task\n{task}",
+        bid_tech_runtime_preamble(&lib_dir)
+    ))
+}
+
+/// Build the docx skill prompt (playbook + materialized OOXML helper scripts).
+pub(crate) fn build_docx_prompt(task: &str, workspace_root: &Path) -> Result<String, ToolError> {
+    let skill_dir = materialize_docx_for_workspace(workspace_root)?;
+    let scripts = skill_dir.join("scripts");
+    let body = resolve_skill_body("docx")?;
+    Ok(format!(
+        "{body}\n\n## Runtime assets\n\
+         Docx helper scripts materialized to:\n\
+         `{dir}`\n\n\
+         Set `SCRIPTS` = `{scripts}` in all shell examples (replace `{{SCRIPTS}}` placeholders).\n\
+         Example: `python \"{scripts}/merge_runs.py\" file.docx`\n\n\
+         ## Task\n{task}",
+        dir = skill_dir.display(),
+        scripts = scripts.display(),
+    ))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillInfo {
@@ -27,6 +84,11 @@ const RESEARCH_SKILL: &str = include_str!("../../../../prompts/skills/research.m
 const REVIEW_SKILL: &str = include_str!("../../../../prompts/skills/review.md");
 const SECURITY_REVIEW_SKILL: &str = include_str!("../../../../prompts/skills/security_review.md");
 const GENERATE_WORD_SKILL: &str = include_str!("../../../../prompts/skills/generate_word.md");
+const GENERATE_BID_TECH_SKILL: &str =
+    include_str!("../../../../prompts/skills/generate_bid_tech.md");
+const REVIEW_BID_TECH_SKILL: &str = include_str!("../../../../prompts/skills/review_bid_tech.md");
+const DOCX_SKILL: &str = include_str!("../../../../prompts/skills/docx.md");
+const PANDOC_SKILL: &str = include_str!("../../../../prompts/skills/pandoc.md");
 
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Arc::new(LoadSkillTool));
@@ -39,6 +101,10 @@ pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Arc::new(ReviewCodeTool));
     registry.register(Arc::new(ReviewSecurityTool));
     registry.register(Arc::new(GenerateWordTool));
+    registry.register(Arc::new(GenerateBidTechTool));
+    registry.register(Arc::new(ReviewBidTechTool));
+    registry.register(Arc::new(DocxSkillTool));
+    registry.register(Arc::new(PandocSkillTool));
 }
 
 fn builtin_skill_body(name: &str) -> Option<&'static str> {
@@ -48,6 +114,10 @@ fn builtin_skill_body(name: &str) -> Option<&'static str> {
         "review" | "review_code" => Some(REVIEW_SKILL),
         "security_review" | "review_security" => Some(SECURITY_REVIEW_SKILL),
         "generate_word" | "generate_docx" | "word" => Some(GENERATE_WORD_SKILL),
+        "generate_bid_tech" | "bid_tech" | "tech_bid" => Some(GENERATE_BID_TECH_SKILL),
+        "review_bid_tech" | "bid_tech_review" => Some(REVIEW_BID_TECH_SKILL),
+        "docx" | "docx_skill" | "word_docx" => Some(DOCX_SKILL),
+        "pandoc" | "convert_document" | "md2docx" => Some(PANDOC_SKILL),
         _ => None,
     }
 }
@@ -112,7 +182,35 @@ fn list_builtin_names() -> Vec<&'static str> {
         "review",
         "security_review",
         "generate_word",
+        "generate_bid_tech",
+        "review_bid_tech",
+        "docx",
+        "pandoc",
     ]
+}
+
+/// Prefix injected into bid-tech skill runs so the agent knows where helpers live.
+fn bid_tech_runtime_preamble(lib_dir: &Path) -> String {
+    format!(
+        "## Runtime assets\n\
+         Bid-tech Python helpers were materialized to:\n\
+         `{dir}`\n\n\
+         In every generation / gate script:\n\
+         ```python\n\
+         import sys\n\
+         from pathlib import Path\n\
+         sys.path.insert(0, str(Path(r\"{parent}\").resolve()))\n\
+         from bid_tech import style, tables, planner, gate, quality, docx_inspect, align\n\
+         ```\n\
+         CLI: `python \"{dir}/cli.py\" outline|inspect|gate|align ...`\n\n\
+         After quantity+quality gates pass, spawn read-only `review_bid_tech` \
+         (or `run_skill` name=review_bid_tech) to discuss reasonableness before claiming done.\n",
+        dir = lib_dir.display(),
+        parent = lib_dir
+            .parent()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| ".".to_string()),
+    )
 }
 
 /// Parse a short title + first paragraph from skill markdown (or YAML frontmatter).
@@ -375,9 +473,22 @@ impl Tool for RunSkillTool {
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         let name = args["name"].as_str().unwrap_or("");
         let task = args["task"].as_str().unwrap_or("");
-        let body = resolve_skill_body(name)?;
-        let prompt = format!("{body}\n\n## Task\n{task}");
-        run_subagent_sync(ctx, &prompt, args["read_only"].as_bool().unwrap_or(false))
+        let prompt = if matches!(name, "generate_bid_tech" | "bid_tech" | "tech_bid") {
+            build_bid_tech_prompt(task, &ctx.workspace_root)?
+        } else if matches!(name, "review_bid_tech" | "bid_tech_review") {
+            build_review_bid_tech_prompt(task, &ctx.workspace_root)?
+        } else if matches!(name, "docx" | "docx_skill" | "word_docx") {
+            build_docx_prompt(task, &ctx.workspace_root)?
+        } else {
+            let body = resolve_skill_body(name)?;
+            format!("{body}\n\n## Task\n{task}")
+        };
+        let default_ro = matches!(name, "review_bid_tech" | "bid_tech_review");
+        run_subagent_sync(
+            ctx,
+            &prompt,
+            args["read_only"].as_bool().unwrap_or(default_ro),
+        )
     }
 }
 
@@ -547,7 +658,7 @@ impl Tool for GenerateWordTool {
         "generate_word"
     }
     fn description(&self) -> &str {
-        "Generate a .docx Word document with the generate_word skill (python-docx)."
+        "Generate a .docx Word document with the generate_word skill (python-docx). For scoring-table technical bids prefer generate_bid_tech."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -562,6 +673,135 @@ impl Tool for GenerateWordTool {
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         let task = args["task"].as_str().unwrap_or("");
         let body = resolve_skill_body("generate_word")?;
+        let prompt = format!("{body}\n\n## Task\n{task}");
+        run_subagent_sync(ctx, &prompt, false)
+    }
+}
+
+/// Table-first technical-bid generator: materializes helpers, then runs the skill playbook.
+struct GenerateBidTechTool;
+
+impl Tool for GenerateBidTechTool {
+    fn name(&self) -> &str {
+        "generate_bid_tech"
+    }
+    fn description(&self) -> &str {
+        "Generate a scoring-table technical bid (.docx) with table-first templates, chapter planner, research-to-cells rules, and hard completion gates."
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Bid task: tender path, reference path, scoring chapters to cover, output path"
+                }
+            },
+            "required": ["task"]
+        })
+    }
+    fn read_only(&self) -> bool {
+        false
+    }
+    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        let task = args["task"].as_str().unwrap_or("");
+        let prompt = build_bid_tech_prompt(task, &ctx.workspace_root)?;
+        run_subagent_sync(ctx, &prompt, false)
+    }
+}
+
+/// Read-only reasonableness review after a technical bid is generated.
+struct ReviewBidTechTool;
+
+impl Tool for ReviewBidTechTool {
+    fn name(&self) -> &str {
+        "review_bid_tech"
+    }
+    fn description(&self) -> &str {
+        "Read a generated technical-bid .docx and discuss schedule/insurance/org/safety reasonableness. Use after generate_bid_tech gates pass."
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Path to the .docx, optional gate report path, and any tender constraints to check against"
+                }
+            },
+            "required": ["task"]
+        })
+    }
+    fn read_only(&self) -> bool {
+        true
+    }
+    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        let task = args["task"].as_str().unwrap_or("");
+        let prompt = build_review_bid_tech_prompt(task, &ctx.workspace_root)?;
+        run_subagent_sync(ctx, &prompt, true)
+    }
+}
+
+/// Anthropic-style docx skill: docx-js creation + OOXML edit/validate helpers.
+struct DocxSkillTool;
+
+impl Tool for DocxSkillTool {
+    fn name(&self) -> &str {
+        "docx"
+    }
+    fn description(&self) -> &str {
+        "Create or edit Word .docx with the docx skill (docx-js, OOXML unzip/edit, tracked changes, comments, validate). Materializes helper scripts to .aaai/docx. For 技术标 prefer generate_bid_tech."
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Docx task: create, edit, redline, comment, extract, validate"
+                }
+            },
+            "required": ["task"]
+        })
+    }
+    fn read_only(&self) -> bool {
+        false
+    }
+    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        let task = args["task"].as_str().unwrap_or("");
+        let prompt = build_docx_prompt(task, &ctx.workspace_root)?;
+        run_subagent_sync(ctx, &prompt, false)
+    }
+}
+
+/// Pandoc format conversion (md↔docx/pdf/html).
+struct PandocSkillTool;
+
+impl Tool for PandocSkillTool {
+    fn name(&self) -> &str {
+        "pandoc"
+    }
+    fn description(&self) -> &str {
+        "Convert documents with pandoc (Markdown, DOCX, PDF, HTML). Use for md→docx/pdf and docx→md extraction. For OOXML surgery use docx; for 技术标 use generate_bid_tech."
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Conversion task: input/output paths, formats, reference-doc, toc"
+                }
+            },
+            "required": ["task"]
+        })
+    }
+    fn read_only(&self) -> bool {
+        false
+    }
+    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        let task = args["task"].as_str().unwrap_or("");
+        let body = resolve_skill_body("pandoc")?;
         let prompt = format!("{body}\n\n## Task\n{task}");
         run_subagent_sync(ctx, &prompt, false)
     }

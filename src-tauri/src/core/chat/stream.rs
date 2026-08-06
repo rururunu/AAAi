@@ -14,7 +14,9 @@ use crate::core::chat::error::ChatError;
 use crate::core::chat::limits::truncate_chars;
 use crate::core::chat::telemetry::TurnSpan;
 use crate::core::event::{BusEvent, EventBus};
-use crate::core::runtime::{ChatMessage, ChatRequest, MessageStatus, RequestContext, Role, StreamEvent};
+use crate::core::runtime::{
+    ChatMessage, ChatRequest, MessageStatus, RequestContext, Role, StreamEvent,
+};
 use crate::core::token::AccountingProvider;
 use crate::core::tools::context::{AskStore, PathPermissionStore, TaskItem, ToolContext};
 use crate::runtime::ToolManager;
@@ -716,7 +718,9 @@ fn clean_title(value: &str) -> String {
             break;
         }
     }
-    for suffix in ['"', '\'', '」', '』', '》', '”', '’', '.', '。', '!', '！', '?', '？', ':'] {
+    for suffix in [
+        '"', '\'', '」', '』', '》', '”', '’', '.', '。', '!', '！', '?', '？', ':',
+    ] {
         if let Some(rest) = cleaned.strip_suffix(suffix) {
             cleaned = rest.trim_end().to_string();
             break;

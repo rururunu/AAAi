@@ -9,6 +9,7 @@ import {
   showInteractionNotification,
 } from "@/services/ipc";
 import { tr } from "@/services/i18n";
+import { formatSessionPreview } from "@/services/chat/sessionPreview";
 import { useChatStore } from "@/stores/chat";
 import { useSettingStore } from "@/stores/setting";
 import type {
@@ -97,10 +98,9 @@ export function useWorkbenchInteractions(options: UseWorkbenchInteractionsOption
   }
 
   function sessionDisplayName(sessionId: string) {
-    return (
-      sessions.value.find((session) => session.sessionId === sessionId)?.preview ||
-      labels.value.untitled
-    );
+    const preview =
+      sessions.value.find((session) => session.sessionId === sessionId)?.preview || "";
+    return formatSessionPreview(preview) || labels.value.untitled;
   }
 
   async function showActionableWindowsNotification(

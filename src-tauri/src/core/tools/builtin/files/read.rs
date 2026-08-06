@@ -205,7 +205,7 @@ impl Tool for SearchFilesTool {
         prepare_command(&mut rg);
         if let Some(output) = run_command_cancellable(ctx, &mut rg)? {
             if output.status.success() || !output.stdout.is_empty() {
-                let text = String::from_utf8_lossy(&output.stdout);
+                let text = crate::runtime::encoding::decode_process_bytes(&output.stdout);
                 let lines: Vec<_> = text.lines().take(200).collect();
                 return Ok(lines.join("\n"));
             }

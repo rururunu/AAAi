@@ -5,13 +5,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::runtime::terminal::prepare_command;
+use crate::runtime::encoding::decode_process_bytes;
+use crate::runtime::terminal::{prepare_command, prepare_powershell};
 
 use super::error::ToolError;
 
 const WAIT_POLL: Duration = Duration::from_millis(100);
 const WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const BACKGROUND_OUTPUT_MAX_CHARS: usize = 256 * 1024;
+const BACKGROUND_OUTPUT_MAX_BYTES: usize = BACKGROUND_OUTPUT_MAX_CHARS * 4;
 
 #[derive(Debug)]
 pub struct ShellJob {
@@ -20,6 +22,7 @@ pub struct ShellJob {
     #[allow(dead_code)]
     pub command: String,
     pub output: String,
+    raw_output: Vec<u8>,
     pub done: bool,
     pub exit_code: Option<i32>,
     cwd: Option<std::path::PathBuf>,
@@ -47,16 +50,14 @@ impl ShellJobStore {
         cancelled: Arc<AtomicBool>,
     ) -> Result<String, ToolError> {
         let mut cmd = Command::new("powershell");
-        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &command])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        prepare_powershell(&mut cmd, &command);
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         if let Some(dir) = cwd {
             cmd.current_dir(dir);
         }
         if crate::core::tools::sandbox::restricted_shell() {
             crate::core::tools::sandbox::scrub_sensitive_env(&mut cmd);
         }
-        prepare_command(&mut cmd);
         let mut child = cmd.spawn()?;
         if crate::core::tools::sandbox::restricted_shell() {
             crate::core::tools::sandbox::assign_restricted_job(&mut child);
@@ -84,6 +85,7 @@ impl ShellJobStore {
                     id: id.clone(),
                     command,
                     output: String::new(),
+                    raw_output: Vec::new(),
                     done: false,
                     exit_code: None,
                     cwd: cwd.map(std::path::Path::to_path_buf),
@@ -258,10 +260,9 @@ fn spawn_output_reader<R: Read + Send + 'static>(
             match stream.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(read) => {
-                    let chunk = String::from_utf8_lossy(&buffer[..read]);
                     if let Ok(mut jobs) = store.jobs.lock() {
                         if let Some(job) = jobs.get_mut(&job_id) {
-                            append_bounded(&mut job.output, &chunk);
+                            append_raw_bounded(job, &buffer[..read]);
                         }
                     }
                 }
@@ -269,6 +270,20 @@ fn spawn_output_reader<R: Read + Send + 'static>(
             }
         }
     })
+}
+
+fn append_raw_bounded(job: &mut ShellJob, chunk: &[u8]) {
+    job.raw_output.extend_from_slice(chunk);
+    if job.raw_output.len() > BACKGROUND_OUTPUT_MAX_BYTES {
+        let keep = BACKGROUND_OUTPUT_MAX_BYTES;
+        let drain = job.raw_output.len() - keep;
+        job.raw_output.drain(..drain);
+    }
+    job.output = decode_process_bytes(&job.raw_output);
+    let count = job.output.chars().count();
+    if count > BACKGROUND_OUTPUT_MAX_CHARS {
+        job.output = take_tail_chars(&job.output, BACKGROUND_OUTPUT_MAX_CHARS);
+    }
 }
 
 fn append_bounded(output: &mut String, chunk: &str) {
@@ -324,16 +339,20 @@ pub fn background_allowed(command: &str) -> bool {
 }
 
 fn collect_child_output(child: &mut Child) -> (String, String, Option<i32>) {
-    let mut stdout = String::new();
+    let mut stdout_bytes = Vec::new();
     if let Some(mut out) = child.stdout.take() {
-        let _ = out.read_to_string(&mut stdout);
+        let _ = out.read_to_end(&mut stdout_bytes);
     }
-    let mut stderr = String::new();
+    let mut stderr_bytes = Vec::new();
     if let Some(mut err) = child.stderr.take() {
-        let _ = err.read_to_string(&mut stderr);
+        let _ = err.read_to_end(&mut stderr_bytes);
     }
     let status = child.wait().ok();
-    (stdout, stderr, status.and_then(|s| s.code()))
+    (
+        decode_process_bytes(&stdout_bytes),
+        decode_process_bytes(&stderr_bytes),
+        status.and_then(|s| s.code()),
+    )
 }
 
 fn format_streams(stdout: &str, stderr: &str) -> String {
@@ -348,16 +367,14 @@ pub fn run_foreground(
     let restricted = crate::core::tools::sandbox::restricted_shell();
     let timeout = Duration::from_secs(crate::core::tools::sandbox::shell_timeout_secs());
     let mut cmd = Command::new("powershell");
-    cmd.args(["-NoProfile", "-NonInteractive", "-Command", command])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    prepare_powershell(&mut cmd, command);
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
     if restricted {
         crate::core::tools::sandbox::scrub_sensitive_env(&mut cmd);
     }
-    prepare_command(&mut cmd);
     let mut child = cmd.spawn()?;
     if restricted {
         crate::core::tools::sandbox::assign_restricted_job(&mut child);

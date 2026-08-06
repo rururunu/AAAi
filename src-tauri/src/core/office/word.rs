@@ -35,7 +35,8 @@ impl From<ComError> for WordError {
         match &error {
             ComError::Type(message) if message == NO_ACTIVE_DOCUMENT_MSG => Self::NoActiveDocument,
             ComError::Type(message)
-                if message == EMPTY_SELECTION_WITH_RANGE_HINT || message == EMPTY_SELECTION_NO_RANGE_HINT =>
+                if message == EMPTY_SELECTION_WITH_RANGE_HINT
+                    || message == EMPTY_SELECTION_NO_RANGE_HINT =>
             {
                 Self::Operation(message.clone())
             }
@@ -66,7 +67,10 @@ pub fn collect_word_snapshot() -> Result<WordSnapshot, WordError> {
 
 fn collect_word_snapshot_inner(app: &ComDispatch) -> Result<WordSnapshot, ComError> {
     let document = active_document(app)?;
-    let selection = app.get("Selection").ok().and_then(|value| value.into_dispatch().ok());
+    let selection = app
+        .get("Selection")
+        .ok()
+        .and_then(|value| value.into_dispatch().ok());
 
     let document_name = optional_string(document.get("Name").ok());
     let document_path = optional_string(document.get("FullName").ok());
@@ -199,7 +203,10 @@ pub fn replace_selection_or_range(
         };
 
         let range = document
-            .call("Range", &[VARIANT::from(range_start), VARIANT::from(range_end)])?
+            .call(
+                "Range",
+                &[VARIANT::from(range_start), VARIANT::from(range_end)],
+            )?
             .into_dispatch()?;
         range.set("Text", VARIANT::from(payload.as_str()))?;
         Ok(format!(
@@ -220,11 +227,115 @@ pub fn insert_text_at_cursor(text: &str) -> Result<String, WordError> {
     .map_err(WordError::from)
 }
 
+/// Insert a Word table at the current selection.
+///
+/// `rows` / `cols` are the full grid size (including header). `cells` is row-major
+/// flat text (`len == rows * cols`). Prefer python-docx for whole technical bids;
+/// this COM helper is for small live edits in an already-open document.
+pub fn insert_table_at_selection(
+    rows: i32,
+    cols: i32,
+    cells: &[String],
+) -> Result<String, WordError> {
+    if rows < 1 || cols < 1 {
+        return Err(WordError::Operation(
+            "insert_table requires rows >= 1 and cols >= 1".into(),
+        ));
+    }
+    let expected = (rows as usize).saturating_mul(cols as usize);
+    if cells.len() != expected {
+        return Err(WordError::Operation(format!(
+            "insert_table expected {expected} cells (rows*cols), got {}",
+            cells.len()
+        )));
+    }
+    let payload = cells.to_vec();
+    worker::with_app_value(WORD_PROG_ID, move |app| {
+        let selection = app.get("Selection")?.into_dispatch()?;
+        let range = selection.get("Range")?.into_dispatch()?;
+        // Word: Selection.Tables.Add(Range, NumRows, NumColumns)
+        let tables = selection.get("Tables")?.into_dispatch()?;
+        let table = tables
+            .call(
+                "Add",
+                &[range.to_variant(), VARIANT::from(rows), VARIANT::from(cols)],
+            )?
+            .into_dispatch()?;
+
+        for r in 1..=rows {
+            for c in 1..=cols {
+                let idx = ((r - 1) * cols + (c - 1)) as usize;
+                let cell = table
+                    .call("Cell", &[VARIANT::from(r), VARIANT::from(c)])?
+                    .into_dispatch()?;
+                let cell_range = cell.get("Range")?.into_dispatch()?;
+                // Range.Text in a cell includes the end-of-cell marker; assign plain text.
+                cell_range.set("Text", VARIANT::from(payload[idx].as_str()))?;
+            }
+        }
+        Ok(format!("Inserted table {rows}x{cols}"))
+    })
+    .map_err(WordError::from)
+}
+
+/// Normalize font name/size across the current selection (or a captured range).
+///
+/// Mitigates mixed run sizes after plain `Range.Text` replacement.
+pub fn apply_font_to_selection_or_range(
+    font_name: &str,
+    size_pt: f64,
+    start: Option<i32>,
+    end: Option<i32>,
+) -> Result<String, WordError> {
+    if !(size_pt > 0.0) {
+        return Err(WordError::Operation("font size_pt must be > 0".into()));
+    }
+    let name = font_name.to_string();
+    // Word Font.Size is points as f32/f64 via VARIANT; we pass i32 half? Actually Size is float points.
+    // Our COM layer mainly uses i32/string; use string-free path via Int for whole points when possible.
+    let size_int = size_pt.round() as i32;
+    worker::with_app_value(WORD_PROG_ID, move |app| {
+        let document = active_document(app)?;
+        let selection = app.get("Selection")?.into_dispatch()?;
+        let current_start = selection.get("Start")?.into_int()?;
+        let current_end = selection.get("End")?.into_int()?;
+        let (range_start, range_end) = if current_start != current_end {
+            (current_start, current_end)
+        } else if let (Some(start), Some(end)) = (start, end) {
+            if start == end {
+                return Err(ComError::Type(EMPTY_SELECTION_WITH_RANGE_HINT.into()));
+            }
+            (start.min(end), start.max(end))
+        } else {
+            return Err(ComError::Type(EMPTY_SELECTION_NO_RANGE_HINT.into()));
+        };
+
+        let range = document
+            .call(
+                "Range",
+                &[VARIANT::from(range_start), VARIANT::from(range_end)],
+            )?
+            .into_dispatch()?;
+        let font = range.get("Font")?.into_dispatch()?;
+        if !name.trim().is_empty() {
+            font.set("Name", VARIANT::from(name.as_str()))?;
+            // East Asian face often mirrors NameFarEast on Word COM.
+            let _ = font.set("NameFarEast", VARIANT::from(name.as_str()));
+        }
+        font.set("Size", VARIANT::from(size_int))?;
+        Ok(format!(
+            "Applied font name=`{name}` size={size_int}pt to range {range_start}..{range_end}"
+        ))
+    })
+    .map_err(WordError::from)
+}
+
 pub fn save_active_document() -> Result<String, WordError> {
     worker::with_app_value(WORD_PROG_ID, |app| {
         let document = active_document(app)?;
         document.call("Save", &[])?;
-        let name = optional_string(document.get("Name").ok()).unwrap_or_else(|| "document".to_string());
+        let name =
+            optional_string(document.get("Name").ok()).unwrap_or_else(|| "document".to_string());
         Ok(format!("Saved `{name}`"))
     })
     .map_err(WordError::from)
@@ -263,14 +374,17 @@ pub fn add_comment(text: &str, use_selection: bool) -> Result<String, WordError>
     worker::with_app_value(WORD_PROG_ID, move |app| {
         let document = active_document(app)?;
         let range = if use_selection {
-            app.get("Selection")?.into_dispatch()?.get("Range")?.into_dispatch()?
+            app.get("Selection")?
+                .into_dispatch()?
+                .get("Range")?
+                .into_dispatch()?
         } else {
             document.get("Content")?.into_dispatch()?
         };
-        document
-            .get("Comments")?
-            .into_dispatch()?
-            .call("Add", &[range.to_variant(), VARIANT::from(payload.as_str())])?;
+        document.get("Comments")?.into_dispatch()?.call(
+            "Add",
+            &[range.to_variant(), VARIANT::from(payload.as_str())],
+        )?;
         Ok(format!("Added comment ({} chars)", payload.chars().count()))
     })
     .map_err(WordError::from)

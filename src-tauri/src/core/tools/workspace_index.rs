@@ -257,7 +257,9 @@ mod tests {
         let count = index.rebuild().unwrap();
         assert!(count >= 2);
         let hits = index.search("hello_world", 5).unwrap();
-        assert!(hits.iter().any(|h| h.symbol.as_deref() == Some("hello_world")));
+        assert!(hits
+            .iter()
+            .any(|h| h.symbol.as_deref() == Some("hello_world")));
         let docs = index.search("agents", 5).unwrap();
         assert!(docs.iter().any(|h| h.kind == "decision"));
         let _ = fs::remove_dir_all(root);

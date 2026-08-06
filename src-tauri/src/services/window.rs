@@ -273,7 +273,7 @@ fn emit_context_captured(app: &AppHandle, label: &str, context: &RequestContext)
 fn resolve_environment_context(app: &AppHandle, captured: RequestContext) -> RequestContext {
     let resolved = app
         .try_state::<AppState>()
-        .map(|state| state.core.chat().environment_context())
+        .map(|state| state.core.chat().environment_context_for_overlay())
         .unwrap_or(captured);
     tracing::debug!(
         active_window = ?resolved.active_window,

@@ -2,9 +2,9 @@
 
 use serde_json::{json, Value};
 
+use crate::core::event::BusEvent;
 use crate::core::tools::context::{Tool, ToolContext};
 use crate::core::tools::error::ToolError;
-use crate::core::event::BusEvent;
 
 pub(super) struct RunSlashCommandTool;
 

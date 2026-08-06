@@ -157,7 +157,8 @@ impl LspManager {
     pub fn configure(&self, settings: &AppSettings) {
         if let Ok(mut e) = self.enabled.lock() {
             *e = settings.lsp_enabled;
-        }        if let Ok(mut s) = self.servers.lock() {
+        }
+        if let Ok(mut s) = self.servers.lock() {
             *s = if settings.lsp_servers.is_empty() {
                 AppSettings::default().lsp_servers
             } else {

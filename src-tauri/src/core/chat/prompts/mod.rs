@@ -95,6 +95,8 @@ mod tests {
         assert!(MINIMAL_CODING_PROMPT.contains("YAGNI"));
         assert!(MINIMAL_CODING_PROMPT.contains("Standard library"));
         assert!(MINIMAL_CODING_PROMPT.contains("Never lazy about"));
-        assert!(!MINIMAL_CODING_PROMPT.to_ascii_lowercase().contains("ponytail"));
+        assert!(!MINIMAL_CODING_PROMPT
+            .to_ascii_lowercase()
+            .contains("ponytail"));
     }
 }

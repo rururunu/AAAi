@@ -1,6 +1,6 @@
 [package]
 name = "peek"
-version = "0.1.4"
+version = "0.2.0"
 description = "AAAi — Windows overlay AI assistant"
 authors = ["you"]
 edition = "2021"
@@ -50,6 +50,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["jpeg", "bmp", "png", "gif", "webp"] }
 urlencoding = "2.1"
+encoding_rs = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
 windows = { version = "0.58", features = [
@@ -83,3 +84,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
 tokenizers = { version = "0.23", default-features = false, features = ["fancy-regex"] }
 tiktoken-rs = "0.12"
+tauri-plugin-process = "2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"

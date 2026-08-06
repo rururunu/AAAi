@@ -8,6 +8,8 @@
 export type ComposerSegment =
   | { kind: "text"; text: string }
   | { kind: "mention"; path: string }
+  | { kind: "skill"; id: string }
+  | { kind: "mcp"; id: string }
   | { kind: "paste"; text: string }
   | { kind: "selection"; lines: number };
 
@@ -19,6 +21,11 @@ export function pasteLineCount(text: string): number {
 /** Serialize a file path as an @-mention, quoting when it contains spaces. */
 export function formatMentionPath(path: string): string {
   return /\s/.test(path) ? `@"${path}"` : `@${path}`;
+}
+
+/** Serialize a skill/MCP chip as a `#kind:id` token. */
+export function formatResourceMention(kind: "skill" | "mcp", id: string): string {
+  return `#${kind}:${id.trim()}`;
 }
 
 /**
@@ -56,6 +63,10 @@ export function serializeComposerSegments(
       parts.push(seg.text);
     } else if (seg.kind === "mention") {
       parts.push(formatMentionPath(seg.path));
+    } else if (seg.kind === "skill") {
+      parts.push(formatResourceMention("skill", seg.id));
+    } else if (seg.kind === "mcp") {
+      parts.push(formatResourceMention("mcp", seg.id));
     } else if (seg.kind === "paste") {
       parts.push(seg.text);
     }

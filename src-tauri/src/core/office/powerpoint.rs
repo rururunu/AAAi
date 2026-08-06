@@ -53,7 +53,10 @@ pub fn collect_powerpoint_snapshot() -> Result<PowerPointSnapshot, PowerPointErr
 
 fn collect_powerpoint_snapshot_inner(app: &ComDispatch) -> Result<PowerPointSnapshot, ComError> {
     let presentation = active_presentation(app)?;
-    let window = app.get("ActiveWindow").ok().and_then(|v| v.into_dispatch().ok());
+    let window = app
+        .get("ActiveWindow")
+        .ok()
+        .and_then(|v| v.into_dispatch().ok());
     let selection = window
         .as_ref()
         .and_then(|w| w.get("Selection").ok())
@@ -155,7 +158,10 @@ pub fn replace_selection_text(text: &str) -> Result<String, PowerPointError> {
         let window = app.get("ActiveWindow")?.into_dispatch()?;
         let selection = window.get("Selection")?.into_dispatch()?;
         selection.set("Text", VARIANT::from(payload.as_str()))?;
-        Ok(format!("Replaced selection ({} chars)", payload.chars().count()))
+        Ok(format!(
+            "Replaced selection ({} chars)",
+            payload.chars().count()
+        ))
     })
     .map_err(PowerPointError::from)
 }

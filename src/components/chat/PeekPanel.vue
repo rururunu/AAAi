@@ -333,7 +333,6 @@ import type {
   ToolApprovalDecision,
   ToolApprovalSession,
 } from "@/types/chat";
-import { listWorkspaces } from "@/commands/workspace";
 import {
   attachSelection,
   parseSelectionAttachment,
@@ -963,22 +962,13 @@ async function handleOpenHistory() {
 async function loadScopedHistorySessions() {
   const allSessions = await fetchChatSessions();
 
-  // Overlay (Alt+Alt) history must not inherit workbench's current workspace.
-  // Scope by:
-  // 1) Explicit IDE workspace (if present)
-  // 2) otherwise "quick ask" sessions (no workspaceId)
-  const overlayRoot = props.capturedContext?.ideContext?.workspace?.trim();
-
-  const normalizeRoot = (root: string) =>
-    root.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-
-  if (overlayRoot) {
-    const workspaces = await listWorkspaces();
-    const normalized = normalizeRoot(overlayRoot);
-    const matched = workspaces.find((w) => normalizeRoot(w.root) === normalized);
-    if (matched) {
-      return allSessions.filter((session) => session.workspaceId === matched.id);
-    }
+  // Overlay history follows the same workspace scope as send:
+  // 1) Composer-selected / IDE-matched workspace → that workspace's sessions
+  // 2) otherwise Quick Ask sessions (no workspaceId)
+  // Never fall back to the workbench's current workspace.
+  const sendOptions = inputRef.value?.resolveSendWorkspaceOptions?.();
+  if (sendOptions?.workspaceId && !sendOptions.quickAsk) {
+    return allSessions.filter((session) => session.workspaceId === sendOptions.workspaceId);
   }
 
   return allSessions.filter((session) => !session.workspaceId).slice(0, PUBLIC_HISTORY_LIMIT);

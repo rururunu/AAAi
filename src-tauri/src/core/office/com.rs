@@ -3,10 +3,10 @@
 use std::ptr;
 use std::sync::Arc;
 
-use windows::core::{Interface, GUID, HRESULT, HSTRING, PCWSTR, BSTR, VARIANT};
+use windows::core::{Interface, BSTR, GUID, HRESULT, HSTRING, PCWSTR, VARIANT};
 use windows::Win32::System::Com::{
-    CLSIDFromProgID, CoInitializeEx, CoUninitialize, DISPATCH_METHOD, DISPATCH_PROPERTYGET,
-    DISPATCH_PROPERTYPUT, DISPPARAMS, IDispatch, COINIT_APARTMENTTHREADED,
+    CLSIDFromProgID, CoInitializeEx, CoUninitialize, IDispatch, COINIT_APARTMENTTHREADED,
+    DISPATCH_METHOD, DISPATCH_PROPERTYGET, DISPATCH_PROPERTYPUT, DISPPARAMS,
 };
 use windows::Win32::System::Ole::{GetActiveObject, DISPID_PROPERTYPUT, DISPID_UNKNOWN};
 
@@ -30,7 +30,9 @@ impl std::fmt::Display for ComError {
             Self::ProgId(prog, message) => write!(f, "CLSIDFromProgID({prog}) failed: {message}"),
             Self::NotRunning(prog, message) => write!(f, "{prog} is not running: {message}"),
             Self::Cast(message) => write!(f, "COM cast failed: {message}"),
-            Self::Member(name, message) => write!(f, "COM member `{name}` lookup failed: {message}"),
+            Self::Member(name, message) => {
+                write!(f, "COM member `{name}` lookup failed: {message}")
+            }
             Self::Invoke(name, message) => write!(f, "COM invoke `{name}` failed: {message}"),
             Self::Type(message) => write!(f, "COM value conversion failed: {message}"),
         }
@@ -48,10 +50,14 @@ impl ComSession {
         unsafe {
             let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
             if hr.is_ok() {
-                return Ok(Self { should_uninit: true });
+                return Ok(Self {
+                    should_uninit: true,
+                });
             }
             if hr == HRESULT(0x80010106u32 as i32) {
-                return Ok(Self { should_uninit: false });
+                return Ok(Self {
+                    should_uninit: false,
+                });
             }
             Err(ComError::Init(format!("{hr:?}")))
         }
@@ -85,9 +91,8 @@ impl ComDispatch {
             let clsid = CLSIDFromProgID(&HSTRING::from(prog_id))
                 .map_err(|error| ComError::ProgId(prog_id.to_string(), error.to_string()))?;
             let mut unknown = None;
-            GetActiveObject(&clsid, None, &mut unknown).map_err(|error| {
-                ComError::NotRunning(prog_id.to_string(), error.to_string())
-            })?;
+            GetActiveObject(&clsid, None, &mut unknown)
+                .map_err(|error| ComError::NotRunning(prog_id.to_string(), error.to_string()))?;
             let unknown = unknown.ok_or_else(|| {
                 ComError::NotRunning(prog_id.to_string(), "active object missing".to_string())
             })?;
@@ -256,8 +261,8 @@ impl ComValue {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::office::worker;
     use super::*;
+    use crate::core::office::worker;
 
     #[test]
     fn com_session_initializes_without_panic() {

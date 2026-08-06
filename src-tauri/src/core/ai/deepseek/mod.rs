@@ -17,8 +17,8 @@ use crate::models::settings::ReasoningEffort;
 
 use super::provider::{AIProvider, ProviderError};
 
-pub use models::list_models;
 pub(crate) use messages::build_api_body;
+pub use models::list_models;
 pub(crate) use models::normalize_chat_completions_url;
 use stream::RETRY_BACKOFF;
 
@@ -208,12 +208,12 @@ mod tests {
 
     use super::*;
     use crate::core::runtime::{ChatMessage, MessageStatus, RequestContext, Role};
+    use messages::message_to_api_json;
     use multimodal::{
         antigravity_model_for_image_describe, multimodal_http_error_message,
         multimodal_transport_error_message, resolve_multimodal_endpoint,
         should_retry_multimodal_as_stream,
     };
-    use messages::message_to_api_json;
     use serde_json::json;
     use stream::{user_facing_stream_error, StreamReadOutcome, USER_STREAM_INTERRUPTED};
 

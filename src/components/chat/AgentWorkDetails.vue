@@ -22,8 +22,17 @@
         @inspect-subagent="emit('inspectSubagent', $event)"
       />
 
-      <!-- Process details stay on the timeline, not dumped at the end. -->
-      <section v-else class="agent-work-details">
+      <!-- Process details: collapsible summary for multi-step work. -->
+      <ToolActivityList
+        v-else-if="segment.type === 'process' && !processSegmentCollapsible(segment)"
+        :activities="segment.activities"
+        :all-activities="visibleActivities"
+        :operations="segment.operations"
+        flat
+        @inspect-subagent="emit('inspectSubagent', $event)"
+      />
+
+      <section v-else-if="segment.type === 'process'" class="agent-work-details">
         <button
           type="button"
           class="agent-work-toggle"
@@ -43,6 +52,7 @@
             :all-activities="visibleActivities"
             :operations="segment.operations"
             :cards-collapsed="displayMode === 'compact'"
+            flat
             @inspect-subagent="emit('inspectSubagent', $event)"
           />
         </div>
@@ -58,8 +68,11 @@ import ReasoningBlock from "@/components/chat/ReasoningBlock.vue";
 import ToolActivityList from "@/components/chat/ToolActivityList.vue";
 import type { ChatMessage, ToolActivity } from "@/types/chat";
 import type { AgentWorkDisplay, AppLanguage } from "@/types/setting";
-import { tr } from "@/services/i18n";
 import { SUBAGENT_TOOLS } from "@/services/chat/subagentTools";
+import {
+  isProcessSegmentCollapsible,
+  summarizeProcessActivities,
+} from "@/services/chat/toolActivityDisplay";
 
 const props = withDefaults(
   defineProps<{
@@ -186,18 +199,14 @@ const segments = computed<TimelineSegment[]>(() => {
 });
 
 const lastSegmentId = computed(() => segments.value[segments.value.length - 1]?.id);
-const panelLabel = computed(() => tr(props.language, "processSummary"));
+
+function processSegmentCollapsible(segment: Extract<TimelineSegment, { type: "process" }>) {
+  return isProcessSegmentCollapsible(segment.activities, visibleActivities.value);
+}
 
 function processHeadline(segment: Extract<TimelineSegment, { type: "process" }>) {
-  const titles = segment.activities
-    .map((activity) => activity.title?.trim())
-    .filter((title): title is string => Boolean(title));
-  if (titles.length === 1) return titles[0]!;
-  if (titles.length > 1 && titles.length <= 3) return titles.join(" · ");
-  if (titles.length > 3) {
-    return `${titles[0]} · ${tr(props.language, "toolCount", { count: titles.length })}`;
-  }
-  return `${panelLabel.value} · ${tr(props.language, "toolCount", { count: segment.activities.length })}`;
+  const language = props.language ?? "zh-CN";
+  return summarizeProcessActivities(segment.activities, language);
 }
 
 function isProcessOpen(id: string) {
@@ -209,13 +218,11 @@ function toggleProcess(id: string) {
   processOpen.set(id, !isProcessOpen(id));
 }
 
-/** Expand process only when it has active showcase work (or ask_user). Reads stay one-line. */
+/** Collapsed by default; only expand while showcase work is actively running. */
 function shouldAutoExpandProcess(segment: Extract<TimelineSegment, { type: "process" }>) {
   if (waitingForAskUser.value) return true;
   return segment.activities.some(
-    (activity) =>
-      activity.status === "running" &&
-      (SHOWCASE_KINDS.has(activity.kind) || TASK_LIST_TOOLS.has(activity.toolName)),
+    (activity) => activity.status === "running" && SHOWCASE_KINDS.has(activity.kind),
   );
 }
 

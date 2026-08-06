@@ -7,7 +7,7 @@
 //! [`crate::core::chat::stream::StreamManager`] → `AgentRunner`.
 //!
 //! Planner / executor here are for run-level plan steps and a tool facade —
-//! not a second agent loop. See `docs/rust-architecture.md`.
+//! not a second agent loop. Overview: `docs/architecture-overview.md`.
 
 #![allow(dead_code, unused_imports)] // plan-step helpers not on every hot path
 

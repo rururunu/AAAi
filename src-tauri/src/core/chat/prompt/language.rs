@@ -38,10 +38,7 @@ fn reasoning_language_block(preferences: &PromptPreferences, user_content: &str)
     })
 }
 
-fn response_language_block(
-    preferences: &PromptPreferences,
-    user_content: &str,
-) -> Option<String> {
+fn response_language_block(preferences: &PromptPreferences, user_content: &str) -> Option<String> {
     // Auto: follow the user's latest message language first (matches system policy).
     // Only fall back to UI/app language when the message has no clear language signal.
     let mode = match preferences.reasoning_language {
@@ -101,9 +98,6 @@ fn infer_mostly_latin_user_text(text: &str) -> bool {
     if letters.is_empty() {
         return false;
     }
-    let latin = letters
-        .iter()
-        .filter(|c| c.is_ascii_alphabetic())
-        .count();
+    let latin = letters.iter().filter(|c| c.is_ascii_alphabetic()).count();
     latin * 100 / letters.len() >= 80
 }

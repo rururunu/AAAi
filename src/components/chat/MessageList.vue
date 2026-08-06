@@ -96,6 +96,22 @@
                   <File v-else :size="12" class="user-mention-fallback" />
                   <span class="user-mention-name">@{{ part.name }}</span>
                 </span>
+                <span
+                  v-else-if="part.kind === 'skill'"
+                  class="user-mention-chip user-hash-chip user-hash-skill"
+                  :title="`#skill:${part.id}`"
+                >
+                  <Zap :size="12" class="user-mention-fallback" />
+                  <span class="user-mention-name">#{{ part.id }}</span>
+                </span>
+                <span
+                  v-else-if="part.kind === 'mcp'"
+                  class="user-mention-chip user-hash-chip user-hash-mcp"
+                  :title="`#mcp:${part.id}`"
+                >
+                  <Bot :size="12" class="user-mention-fallback" />
+                  <span class="user-mention-name">#{{ part.id }}</span>
+                </span>
                 <template v-else>{{ part.text }}</template>
               </template>
             </span>
@@ -245,7 +261,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { Check, Copy, File, Undo2 } from "@lucide/vue";
+import { Bot, Check, Copy, File, Undo2, Zap } from "@lucide/vue";
 import { codeLanguageForPath } from "@/services/chat/codeLanguage";
 import AgentWorkDetails from "@/components/chat/AgentWorkDetails.vue";
 import CodeChangesSummary from "@/components/chat/CodeChangesSummary.vue";
@@ -386,22 +402,31 @@ function fileIconForPath(path: string) {
 }
 
 type InlineMessagePart =
-  { kind: "text"; text: string } | { kind: "mention"; path: string; name: string };
+  | { kind: "text"; text: string }
+  | { kind: "mention"; path: string; name: string }
+  | { kind: "skill"; id: string }
+  | { kind: "mcp"; id: string };
 
-const MENTION_TOKEN_RE = /@(?:"([^"]+)"|([^\s@]+))/g;
+/** Match `@file`, `#skill:id`, and `#mcp:id` tokens for chip rendering. */
+const INLINE_TOKEN_RE = /@(?:"([^"]+)"|([^\s@#]+))|#(skill|mcp):([A-Za-z0-9_.-]+)/g;
 
 function inlineMessageParts(text: string): InlineMessagePart[] {
   const parts: InlineMessagePart[] = [];
   let lastIndex = 0;
-  const re = new RegExp(MENTION_TOKEN_RE.source, "g");
+  const re = new RegExp(INLINE_TOKEN_RE.source, "g");
   let match: RegExpExecArray | null;
   while ((match = re.exec(text)) !== null) {
     if (match.index > lastIndex) {
       parts.push({ kind: "text", text: text.slice(lastIndex, match.index) });
     }
-    const path = match[1] || match[2] || "";
-    const name = path.split(/[/\\]/).pop() || path;
-    parts.push({ kind: "mention", path, name });
+    if (match[3] && match[4]) {
+      const kind = match[3] as "skill" | "mcp";
+      parts.push({ kind, id: match[4] });
+    } else {
+      const path = match[1] || match[2] || "";
+      const name = path.split(/[/\\]/).pop() || path;
+      parts.push({ kind: "mention", path, name });
+    }
     lastIndex = match.index + match[0].length;
   }
   if (lastIndex < text.length) {
@@ -570,7 +595,7 @@ function activityLabel(message: ChatMessage) {
       return tr(settingStore.language, "waitingAnswer");
     }
 
-    const args = (running.arguments || {}) as Record<string, any>;
+    const args = (running.arguments || {}) as Record<string, string | undefined>;
 
     // 1. Reading file
     if (running.toolName === "read_file" || running.toolName === "view_file") {
@@ -1012,6 +1037,12 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.user-hash-skill {
+  border-color: color-mix(in srgb, var(--peek-accent) 40%, transparent);
+}
+.user-hash-mcp {
+  border-color: color-mix(in srgb, #3b82f6 45%, transparent);
 }
 .message-actions {
   display: flex;

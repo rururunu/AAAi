@@ -332,7 +332,11 @@ async fn run_one_task(task: &EvalTask, options: &EvalOptions, seed: u32) -> Task
         tools_called: Arc::clone(&tools_called),
     });
     let mut registry = ToolRegistry::new();
-    builtin::register_all(&mut registry, Arc::clone(&conversation), Arc::clone(&event_bus));
+    builtin::register_all(
+        &mut registry,
+        Arc::clone(&conversation),
+        Arc::clone(&event_bus),
+    );
     crate::core::office::register_tools(&mut registry);
     let tools = Arc::new(ToolManager::new(registry));
     let registry = tools.registry();
@@ -512,7 +516,11 @@ fn check_assertion(
             }
         }
         EvalAssertion::ToolCalled { name } => {
-            let called = tools_called.lock().ok().map(|guard| guard.clone()).unwrap_or_default();
+            let called = tools_called
+                .lock()
+                .ok()
+                .map(|guard| guard.clone())
+                .unwrap_or_default();
             if called.iter().any(|tool| tool == name) {
                 None
             } else {

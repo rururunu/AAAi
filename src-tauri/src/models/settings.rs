@@ -518,9 +518,7 @@ impl AppSettings {
                 .pass_tool_reasoning
                 .unwrap_or(self.pass_tool_reasoning),
             show_reasoning: patch.show_reasoning.unwrap_or(self.show_reasoning),
-            agent_work_display: patch
-                .agent_work_display
-                .unwrap_or(self.agent_work_display),
+            agent_work_display: patch.agent_work_display.unwrap_or(self.agent_work_display),
             multi_model_collaboration: patch
                 .multi_model_collaboration
                 .unwrap_or(self.multi_model_collaboration),

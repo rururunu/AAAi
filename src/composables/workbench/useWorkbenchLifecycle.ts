@@ -17,6 +17,7 @@ import { tr } from "@/services/i18n";
 import { useAppStore } from "@/stores/app";
 import { useChatStore } from "@/stores/chat";
 import { useSettingStore } from "@/stores/setting";
+import { useUpdaterStore } from "@/stores/updater";
 import type { Workspace } from "@/commands/workspace";
 import type { CategoryId } from "@/types/setting";
 import type { ChatSessionSummary } from "@/types/chat";
@@ -272,6 +273,7 @@ export function useWorkbenchLifecycle(options: UseWorkbenchLifecycleOptions) {
     globalThis.addEventListener("pointerup", finishWorkspacePointerDrag);
     globalThis.addEventListener("pointercancel", cancelWorkspacePointerDrag);
     updateReviewWidth();
+    void useUpdaterStore().check({ silent: true });
   });
 
   onUnmounted(() => {

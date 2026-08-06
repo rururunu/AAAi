@@ -17,10 +17,10 @@ use super::powerpoint::{
     replace_selection_text as ppt_replace, save_active_presentation, PowerPointError,
 };
 use super::word::{
-    accept_all_revisions, add_comment, get_document_paragraphs, get_document_range,
-    get_document_text, get_selection_text as word_get_selection, insert_text_at_cursor,
-    list_comments, reject_all_revisions, replace_selection_or_range, save_active_document,
-    WordError,
+    accept_all_revisions, add_comment, apply_font_to_selection_or_range, get_document_paragraphs,
+    get_document_range, get_document_text, get_selection_text as word_get_selection,
+    insert_table_at_selection, insert_text_at_cursor, list_comments, reject_all_revisions,
+    replace_selection_or_range, save_active_document, WordError,
 };
 
 pub fn register_tools(registry: &mut ToolRegistry) {
@@ -41,6 +41,8 @@ fn register_word_tools(registry: &mut ToolRegistry) {
     reg!(WordGetSelectionTool);
     reg!(WordReplaceSelectionTool);
     reg!(WordInsertTextTool);
+    reg!(WordInsertTableTool);
+    reg!(WordApplyFontTool);
     reg!(WordListCommentsTool);
     reg!(WordAddCommentTool);
     reg!(WordAcceptRevisionsTool);
@@ -134,7 +136,11 @@ impl Tool for WordGetDocumentRangeTool {
         run_word(
             ctx,
             self.name(),
-            get_document_range(Some(start), Some(end), capped_chars(args["max_chars"].as_u64())),
+            get_document_range(
+                Some(start),
+                Some(end),
+                capped_chars(args["max_chars"].as_u64()),
+            ),
         )
     }
 }
@@ -242,6 +248,85 @@ impl Tool for WordInsertTextTool {
             ctx,
             self.name(),
             insert_text_at_cursor(args["text"].as_str().unwrap_or("")),
+        )
+    }
+}
+
+struct WordInsertTableTool;
+impl Tool for WordInsertTableTool {
+    fn name(&self) -> &str {
+        "word_insert_table"
+    }
+    fn description(&self) -> &str {
+        "Insert a real Word table at the current selection. Prefer python-docx / generate_bid_tech for whole technical bids; use this for small live edits. `cells` is a row-major flat array of length rows*cols."
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "rows": { "type": "integer" },
+                "cols": { "type": "integer" },
+                "cells": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Row-major cell texts; length must equal rows*cols"
+                }
+            },
+            "required": ["rows", "cols", "cells"]
+        })
+    }
+    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        let rows = args["rows"].as_i64().unwrap_or(0) as i32;
+        let cols = args["cols"].as_i64().unwrap_or(0) as i32;
+        let cells: Vec<String> = args["cells"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .map(|v| v.as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        run_word(
+            ctx,
+            self.name(),
+            insert_table_at_selection(rows, cols, &cells),
+        )
+    }
+}
+
+struct WordApplyFontTool;
+impl Tool for WordApplyFontTool {
+    fn name(&self) -> &str {
+        "word_apply_font"
+    }
+    fn description(&self) -> &str {
+        "Normalize font name and size on the current Word selection (or start/end range). Use after word_replace_selection when mixed run sizes appear."
+    }
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "font_name": { "type": "string", "description": "e.g. 仿宋 / 宋体 / 黑体" },
+                "size_pt": { "type": "number", "description": "Font size in points, e.g. 12" },
+                "start": { "type": "integer" },
+                "end": { "type": "integer" }
+            },
+            "required": ["font_name", "size_pt"]
+        })
+    }
+    fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        let start = args["start"].as_i64().map(|v| v as i32);
+        let end = args["end"].as_i64().map(|v| v as i32);
+        let size = args["size_pt"].as_f64().unwrap_or(12.0);
+        run_word(
+            ctx,
+            self.name(),
+            apply_font_to_selection_or_range(
+                args["font_name"].as_str().unwrap_or("仿宋"),
+                size,
+                start,
+                end,
+            ),
         )
     }
 }
@@ -521,7 +606,11 @@ impl Tool for PptInsertTextTool {
         })
     }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
-        run_ppt(ctx, self.name(), ppt_insert(args["text"].as_str().unwrap_or("")))
+        run_ppt(
+            ctx,
+            self.name(),
+            ppt_insert(args["text"].as_str().unwrap_or("")),
+        )
     }
 }
 
@@ -633,9 +722,10 @@ mod tests {
             request_context: RequestContext::default(),
             session_id: "session-test".to_string(),
             assistant_message_id: "assistant-test".to_string(),
-            conversation: Arc::new(ConversationManager::new(std::env::temp_dir().join(
-                format!("aaai-office-tool-test-{}.db", uuid::Uuid::new_v4()),
-            ))),
+            conversation: Arc::new(ConversationManager::new(
+                std::env::temp_dir()
+                    .join(format!("aaai-office-tool-test-{}.db", uuid::Uuid::new_v4())),
+            )),
             event_bus: bus,
             tasks: Arc::new(Mutex::new(Vec::new())),
             ask_store: Arc::new(AskStore::new()),

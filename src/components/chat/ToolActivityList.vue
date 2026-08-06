@@ -1,5 +1,9 @@
 <template>
-  <div v-if="enrichedActivities.length" class="tool-activity-list" :class="{ operations, nested }">
+  <div
+    v-if="enrichedActivities.length"
+    class="tool-activity-list"
+    :class="{ operations, nested, flat }"
+  >
     <template v-for="item in enrichedActivities" :key="item.activity.id">
       <ShellTerminalCard
         v-if="item.activity.kind === 'shell'"
@@ -34,7 +38,32 @@
         ]"
       >
         <div class="tool-activity-header">
+          <div v-if="!canExpandItem(item.activity)" class="tool-activity-main tool-activity-static">
+            <span v-if="!flat" class="tool-activity-icon" aria-hidden="true">
+              <component :is="icon(item.activity)" :size="12" />
+            </span>
+            <span class="tool-activity-title">{{ item.activity.title }}</span>
+            <span v-if="isFuzzy(item.activity) && !flat" class="fuzzy-badge">
+              {{ tr(settingStore.language, "fuzzyMatch") }}
+            </span>
+            <span v-if="item.activity.status === 'running'" class="tool-activity-status">
+              {{
+                tr(
+                  settingStore.language,
+                  item.activity.toolName === "ask_user"
+                    ? "waitingAnswer"
+                    : item.activity.preview
+                      ? "waitingApproval"
+                      : "running",
+                )
+              }}
+            </span>
+            <span v-else-if="item.activity.status === 'error'" class="tool-activity-status error">
+              {{ tr(settingStore.language, "failed") }}
+            </span>
+          </div>
           <button
+            v-else
             type="button"
             class="tool-activity-main"
             :aria-expanded="isExpanded(item.activity)"
@@ -163,6 +192,10 @@ import type { TaskItem, ToolActivity } from "@/types/chat";
 import { useSettingStore } from "@/stores/setting";
 import { tr } from "@/services/i18n";
 import { SUBAGENT_TOOLS } from "@/services/chat/subagentTools";
+import {
+  hasExpandableActivityContent,
+  shouldShowActivityResult,
+} from "@/services/chat/toolActivityDisplay";
 import { hunkFromPlainEdit, parseUnifiedDiffHunks, type DiffHunk } from "@/services/chat/toolDiff";
 
 const props = withDefaults(
@@ -171,6 +204,7 @@ const props = withDefaults(
     allActivities?: ToolActivity[];
     operations?: boolean;
     nested?: boolean;
+    flat?: boolean;
     showInspectAction?: boolean;
     showSubagentDetails?: boolean;
     /** When true, shell/diff cards start collapsed (compact display mode). */
@@ -179,6 +213,7 @@ const props = withDefaults(
   {
     operations: false,
     nested: false,
+    flat: false,
     showInspectAction: true,
     showSubagentDetails: false,
     cardsCollapsed: false,
@@ -198,15 +233,6 @@ type ChildAgentRow = {
   prompt: string;
   status: ToolActivity["status"];
 };
-
-const HIDE_RESULT_TOOLS = new Set([
-  "read_file",
-  "list_folder",
-  "find_files",
-  "search_files",
-  "list_symbols",
-  "fetch_url",
-]);
 
 const FILE_OPERATION_KINDS = new Set(["create", "edit", "delete", "move"]);
 const TASK_LIST_TOOLS = new Set(["update_tasks", "todo_write"]);
@@ -288,9 +314,15 @@ function collectHunks(activity: ToolActivity): DiffHunk[] {
 }
 
 function shouldShowResult(activity: ToolActivity) {
-  return Boolean(
-    activity.result && activity.status !== "running" && !HIDE_RESULT_TOOLS.has(activity.toolName),
-  );
+  return shouldShowActivityResult(activity);
+}
+
+function canExpandItem(activity: ToolActivity) {
+  if (props.flat) return false;
+  return hasExpandableActivityContent(activity, {
+    childCount: childActivities(activity).length,
+    showSubagentDetails: props.showSubagentDetails,
+  });
 }
 
 function isFuzzy(activity: ToolActivity) {
@@ -397,6 +429,7 @@ function setExpanded(activityId: string, expanded: boolean) {
 }
 
 function toggleActivity(activity: ToolActivity) {
+  if (!canExpandItem(activity)) return;
   if (isSubagentTool(activity) && !props.showSubagentDetails) {
     return;
   }
@@ -424,14 +457,14 @@ watch(
       if (
         previous === undefined &&
         (activity.status === "running" || activity.status === "error") &&
-        (!isSubagentTool(activity) || props.showSubagentDetails)
+        canExpandItem(activity)
       ) {
         setExpanded(activity.id, true);
       } else if (previous === "running" && activity.status === "done") {
         if (!keepExpandedWhenDone(activity)) {
           setExpanded(activity.id, false);
         }
-      } else if (activity.status === "error" && previous !== "error") {
+      } else if (activity.status === "error" && previous !== "error" && canExpandItem(activity)) {
         setExpanded(activity.id, true);
       }
       previousStatuses.set(activity.id, activity.status);
@@ -458,6 +491,22 @@ watch(
   flex-direction: column;
   gap: 0;
   width: 100%;
+}
+.tool-activity-list.flat {
+  gap: 1px;
+}
+.tool-activity-list.flat .tool-activity-header {
+  padding: 2px 2px 2px 0;
+  min-height: 0;
+}
+.tool-activity-list.flat .tool-activity-title {
+  white-space: normal;
+  text-overflow: unset;
+  overflow: visible;
+  line-height: 1.45;
+}
+.tool-activity-list.flat .tool-activity-status {
+  font-size: 10px;
 }
 .tool-activity-list.nested {
   gap: 2px;
@@ -533,8 +582,13 @@ watch(
   color: inherit;
   font: inherit;
   text-align: left;
-  cursor: pointer;
   user-select: none;
+}
+.tool-activity-main:not(.tool-activity-static) {
+  cursor: pointer;
+}
+.tool-activity-static {
+  cursor: default;
 }
 .tool-activity-header:hover {
   background: color-mix(in srgb, var(--peek-text) 5%, transparent);

@@ -265,9 +265,9 @@ impl CompletionGate {
             return true;
         }
         self.goal_paths.iter().any(|goal| {
-            self.mutated_paths.iter().any(|mutated| {
-                paths_match(goal, mutated)
-            })
+            self.mutated_paths
+                .iter()
+                .any(|mutated| paths_match(goal, mutated))
         })
     }
 }
@@ -288,7 +288,10 @@ fn extract_goal_paths(content: &str) -> HashSet<String> {
     let mut paths = HashSet::new();
     for token in content.split_whitespace() {
         let cleaned = token.trim_matches(|c: char| {
-            matches!(c, ',' | ';' | ':' | '"' | '\'' | '`' | '(' | ')' | '[' | ']' | '{' | '}')
+            matches!(
+                c,
+                ',' | ';' | ':' | '"' | '\'' | '`' | '(' | ')' | '[' | ']' | '{' | '}'
+            )
         });
         if looks_like_path(cleaned) {
             paths.insert(cleaned.to_string());
@@ -421,8 +424,21 @@ fn provides_verification_evidence(tools: &ToolManager, outcome: &ToolOutcome) ->
     }
     let command = outcome.arguments.to_ascii_lowercase();
     const CHECK_MARKERS: &[&str] = &[
-        " test", "test ", "cargo test", "pytest", "unittest", "pnpm build", "npm run build",
-        "npm test", "cargo check", "tsc", "vue-tsc", "lint", "check", "verify", "git diff",
+        " test",
+        "test ",
+        "cargo test",
+        "pytest",
+        "unittest",
+        "pnpm build",
+        "npm run build",
+        "npm test",
+        "cargo check",
+        "tsc",
+        "vue-tsc",
+        "lint",
+        "check",
+        "verify",
+        "git diff",
         "git status",
     ];
     CHECK_MARKERS.iter().any(|marker| command.contains(marker))

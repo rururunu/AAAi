@@ -22,6 +22,8 @@
     "allow-window-commands",
     "allow-settings-commands",
     "allow-app-commands",
-    "allow-chat-commands"
+    "allow-chat-commands",
+    "updater:default",
+    "process:default"
   ]
 }

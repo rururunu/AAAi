@@ -24,6 +24,19 @@
 
       <nav class="view-actions" :aria-label="labels.views" data-tauri-drag-region="false">
         <button
+          v-if="updaterStore.updateAvailable"
+          type="button"
+          class="icon-button update-button"
+          :class="{ busy: updaterStore.isBusy }"
+          :title="updaterCopy.titlebarAction"
+          :aria-label="updaterCopy.titlebarAction"
+          :disabled="updaterStore.isBusy"
+          @click="promptInstallUpdate"
+        >
+          <ArrowUpCircle :size="15" />
+          <span class="status-dot update-dot" />
+        </button>
+        <button
           type="button"
           class="icon-button"
           :class="{ active: reviewOpen }"
@@ -497,6 +510,7 @@
 import { computed, defineAsyncComponent, ref, watch } from "vue";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
+  ArrowUpCircle,
   BookOpen,
   CircleAlert,
   ChevronRight,
@@ -544,8 +558,10 @@ import { useWorkbenchWorkspaces } from "@/composables/workbench/useWorkbenchWork
 import { useWorkbenchHotkeys } from "@/composables/workbench/useWorkbenchHotkeys";
 import { useWorkbenchLifecycle } from "@/composables/workbench/useWorkbenchLifecycle";
 import { tr } from "@/services/i18n";
+import { formatSessionPreview } from "@/services/chat/sessionPreview";
 import { useChatStore } from "@/stores/chat";
 import { useSettingStore, applyZoom, applyTheme } from "@/stores/setting";
+import { useUpdaterStore } from "@/stores/updater";
 import type { Workspace } from "@/commands/workspace";
 import type { ChatSessionSummary } from "@/types/chat";
 
@@ -553,6 +569,7 @@ const SettingsPage = defineAsyncComponent(() => import("@/pages/Settings/index.v
 
 const chatStore = useChatStore();
 const settingStore = useSettingStore();
+const updaterStore = useUpdaterStore();
 const appDisplayName = "AAAi";
 const isDevBuild = import.meta.env.DEV;
 const appWindow = getCurrentWebviewWindow();
@@ -606,6 +623,33 @@ const {
   workspaces,
   activeSessionWorkspaceId,
 });
+
+const updaterCopy = computed(() => {
+  const language = settingStore.language;
+  return {
+    titlebarAction: tr(language, "updater.titlebarAction"),
+    confirmTitle: tr(language, "updater.confirmTitle", {
+      version: updaterStore.latestVersion || "?",
+    }),
+    confirmDescription: tr(language, "updater.confirmDescription"),
+    confirmAction: tr(language, "updater.confirmAction"),
+    cancelAction: tr(language, "updater.cancelAction"),
+  };
+});
+
+async function promptInstallUpdate() {
+  if (!updaterStore.updateAvailable || updaterStore.isBusy) return;
+
+  const confirmed = await confirmDialogRef.value?.ask({
+    title: updaterCopy.value.confirmTitle,
+    description: updaterCopy.value.confirmDescription,
+    confirmLabel: updaterCopy.value.confirmAction,
+    cancelLabel: updaterCopy.value.cancelAction,
+  });
+
+  if (!confirmed) return;
+  await updaterStore.install();
+}
 
 const {
   pendingInteractions,
@@ -732,12 +776,13 @@ const { searchPaletteOpen, shortcutHelpOpen, openSearchPalette, handleWorkbenchH
     createQuickConversation,
   });
 
-const activeTitle = computed(() =>
-  settingsOpen.value
-    ? labels.value.settings
-    : sessions.value.find((session) => session.sessionId === activeSessionId.value)?.preview ||
-      labels.value.untitled,
-);
+const activeTitle = computed(() => {
+  if (settingsOpen.value) return labels.value.settings;
+  if (!hasConversationMessages.value) return labels.value.untitled;
+  const preview =
+    sessions.value.find((session) => session.sessionId === activeSessionId.value)?.preview || "";
+  return formatSessionPreview(preview) || labels.value.untitled;
+});
 
 useWorkbenchLifecycle({
   appWindow,
@@ -889,6 +934,11 @@ button {
   color: var(--peek-muted);
   font-size: 12px;
   text-align: center;
+  white-space: nowrap;
+}
+.titlebar-context > span {
+  display: block;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -942,6 +992,15 @@ button {
 }
 .icon-button.active {
   color: var(--peek-accent);
+}
+.update-button {
+  color: var(--peek-accent);
+}
+.update-button.busy {
+  opacity: 0.7;
+}
+.update-dot {
+  background: var(--peek-accent);
 }
 .window-button.close:hover {
   color: white;
@@ -1578,6 +1637,11 @@ button {
 }
 .conversation-pane.empty-conversation .composer-wrap :deep(.model-picker-list) {
   max-height: max(96px, calc(50vh - 96px));
+}
+/* Detached @/# cards sit above a mid-screen composer — keep them below the titlebar. */
+.conversation-pane.empty-conversation .composer-wrap :deep(.file-suggestion-list),
+.conversation-pane.empty-conversation .composer-wrap :deep(.hash-suggestion-list) {
+  max-height: max(96px, min(240px, calc(50vh - 200px)));
 }
 
 @media (prefers-reduced-motion: reduce) {

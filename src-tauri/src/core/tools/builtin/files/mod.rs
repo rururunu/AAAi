@@ -71,7 +71,12 @@ pub(super) fn apply_many_edits(content: &str, args: &Value) -> Result<(String, u
     Ok((updated, fuzzy_count))
 }
 
-pub(super) fn single_edit_preview(path: &str, content: String, old: &str, new: &str) -> Option<ToolPreview> {
+pub(super) fn single_edit_preview(
+    path: &str,
+    content: String,
+    old: &str,
+    new: &str,
+) -> Option<ToolPreview> {
     let applied = apply_old_string_edit(&content, old, new, false);
     if applied.applied != 1 {
         return None;
@@ -88,7 +93,11 @@ pub(super) fn single_edit_preview(path: &str, content: String, old: &str, new: &
 }
 
 /// Rejects whole-file edits: an `old_string` covering most of a file hides the real change.
-pub(super) fn guard_minimal_edit(tool_name: &str, old_strings: &[&str], content: &str) -> Result<(), ToolError> {
+pub(super) fn guard_minimal_edit(
+    tool_name: &str,
+    old_strings: &[&str],
+    content: &str,
+) -> Result<(), ToolError> {
     let total = content.lines().count();
     if total < 20 {
         return Ok(());
@@ -203,7 +212,10 @@ mod edit_tests {
 
     #[test]
     fn full_file_edit_is_rejected_by_the_guard() {
-        let content = (0..50).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let content = (0..50)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let error = guard_minimal_edit("replace_in_file", &[&content], &content).unwrap_err();
         assert!(error.to_string().contains("old_string covers 50/50 lines"));
         assert!(error.to_string().contains("const a = 1"));
@@ -211,17 +223,29 @@ mod edit_tests {
 
     #[test]
     fn majority_edit_is_rejected_by_the_guard() {
-        let content = (0..50).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
-        let big = (0..45).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let content = (0..50)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let big = (0..45)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let error = guard_minimal_edit("replace_in_file", &[&big], &content).unwrap_err();
         assert!(error.to_string().contains("old_string covers 45/50 lines"));
     }
 
     #[test]
     fn minimal_and_medium_edits_pass_the_guard() {
-        let content = (0..50).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let content = (0..50)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         guard_minimal_edit("replace_in_file", &["line 3"], &content).unwrap();
-        let medium = (0..30).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let medium = (0..30)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         guard_minimal_edit("replace_in_file", &[&medium], &content).unwrap();
     }
 

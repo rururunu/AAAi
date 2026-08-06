@@ -149,8 +149,10 @@ fn tool_call(id: &str, name: &str) -> ToolCallPayload {
 fn make_ctx(registry: Arc<ToolRegistry>) -> (ToolContext, std::path::PathBuf) {
     let db_path = std::env::temp_dir().join(format!("peek-agent-loop-{}.db", uuid::Uuid::new_v4()));
     let session_id = "s1".to_string();
-    crate::core::tools::tool_approval::shared_tool_approval_store()
-        .set_session_mode(&session_id, Some(crate::models::settings::ToolApprovalMode::AlwaysAllow));
+    crate::core::tools::tool_approval::shared_tool_approval_store().set_session_mode(
+        &session_id,
+        Some(crate::models::settings::ToolApprovalMode::AlwaysAllow),
+    );
     let ctx = ToolContext {
         workspace_root: std::env::temp_dir(),
         request_context: RequestContext::default(),
@@ -478,7 +480,10 @@ async fn completion_claim_without_mutation_forces_actual_work() {
     match finish {
         StreamEvent::TurnComplete { content, .. } => {
             assert_eq!(content, "已完成修改");
-            assert!(!content.contains("未完成"), "rejection should not appear: {content}");
+            assert!(
+                !content.contains("未完成"),
+                "rejection should not appear: {content}"
+            );
         }
         _ => panic!("unexpected"),
     }
@@ -660,7 +665,10 @@ async fn completion_claim_after_mutation_without_verification_is_rejected() {
             finish_reason,
             ..
         } => {
-            assert!(content.contains("未验证完成"), "rejection missing: {content}");
+            assert!(
+                content.contains("未验证完成"),
+                "rejection missing: {content}"
+            );
             assert_eq!(finish_reason.as_deref(), Some("unverified_completion"));
         }
         _ => panic!("unexpected"),

@@ -33,6 +33,7 @@ pub struct PromptBuildInput<'a> {
     pub context: &'a RequestContext,
     pub project_rules: Option<&'a str>,
     pub recalled_memories: Option<&'a str>,
+    pub preferred_resources: Option<&'a str>,
     pub provider: Option<String>,
     pub preferences: &'a PromptPreferences,
 }
@@ -42,15 +43,17 @@ pub struct PromptBuildInput<'a> {
 /// ```text
 /// [0] SYSTEM_PROMPT
 /// [1] workspace / captured context
-/// [2] project rules
+/// [2] project rules (agent.md / AGENTS.md)
 /// [3] recalled memories
-/// [4] optional policy suffix (collab / minimal-coding / …)
-/// [5..] history + current user
+/// [4] preferred #skill / #mcp resources (per-turn)
+/// [5] optional policy suffix (collab / minimal-coding / …)
+/// [6..] history + current user
 /// ```
 ///
-/// Optional strategy toggles only populate slot [4]; they never insert ahead of
-/// context/rules/memories, so enabling/disabling them cannot shift the stable
-/// prefix.
+/// Optional strategy toggles only populate the policy suffix slot; they never
+/// insert ahead of context/rules/memories, so enabling/disabling them cannot
+/// shift the stable prefix. Preferred resources sit after memories because they
+/// change per user turn.
 pub struct PromptBuilder;
 
 impl PromptBuilder {
@@ -62,10 +65,11 @@ impl PromptBuilder {
             context,
             project_rules,
             recalled_memories,
+            preferred_resources,
             provider,
             preferences,
         } = input;
-        let mut messages = Vec::with_capacity(history.len() + 6);
+        let mut messages = Vec::with_capacity(history.len() + 7);
 
         // [0] Stable system — never moves.
         if !history.iter().any(|message| message.role == Role::System) {
@@ -77,7 +81,15 @@ impl PromptBuilder {
         inject_system_block(&mut messages, session_id, "rules", project_rules);
         inject_memories(&mut messages, session_id, recalled_memories);
 
-        // [4] Optional policy suffix — toggles only hang here.
+        // [4] Per-turn resource preferences from `#skill:` / `#mcp:` chips.
+        inject_system_block(
+            &mut messages,
+            session_id,
+            "preferred-resources",
+            preferred_resources,
+        );
+
+        // [5] Optional policy suffix — toggles only hang here.
         inject_optional_policy_suffix(
             &mut messages,
             session_id,

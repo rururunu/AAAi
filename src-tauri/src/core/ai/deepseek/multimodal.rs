@@ -249,7 +249,10 @@ async fn read_multimodal_response_text(
             format_reqwest_error_chain(&error)
         ))
     })?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    Ok(String::from_utf8(bytes.to_vec()).unwrap_or_else(|_| {
+        // Full body should be UTF-8 JSON; fall back without inventing CJK mojibake.
+        String::from_utf8_lossy(&bytes).into_owned()
+    }))
 }
 
 /// Use Antigravity only when the *configured multimodal model* is Gemini + OAuth.

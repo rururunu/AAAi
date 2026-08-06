@@ -9,12 +9,12 @@ use crate::core::chat::error::ChatError;
 use crate::core::chat::limits::max_turn_tokens_for;
 use crate::core::chat::preferences::SendPreferences;
 use crate::core::chat::prompt::{PromptBuildInput, PromptBuilder, PromptPreferences};
-use crate::models::chat::ChatSendOverrides;
 use crate::core::context::ContextResolver;
 use crate::core::event::{BusEvent, EventBus};
 use crate::core::runtime::{ChatMessage, MessageStatus, Role, DEFAULT_SESSION_ID};
 use crate::core::tools::context::{AskStore, PathPermissionStore, TaskItem};
 use crate::core::workspace::WorkspaceManager;
+use crate::models::chat::ChatSendOverrides;
 use crate::models::settings::ChatMode;
 use crate::runtime::ToolManager;
 use tauri::Emitter;
@@ -178,8 +178,7 @@ impl ChatService {
                     .find(|workspace| workspace.root == PathBuf::from(&resolved.root))
                     .map(|workspace| workspace.id.clone())
                     .unwrap_or_else(|| resolved.root.clone());
-                self.conversation
-                    .bind_workspace(&session_id, &workspace_id);
+                self.conversation.bind_workspace(&session_id, &workspace_id);
             }
         }
         let user_message = create_message(&session_id, Role::User, content, MessageStatus::Done);
@@ -287,6 +286,7 @@ impl ChatService {
             context: &context,
             project_rules: task_rules.project_rules.as_deref(),
             recalled_memories: task_rules.recalled_memories.as_deref(),
+            preferred_resources: task_rules.preferred_resources.as_deref(),
             provider: Some(provider.id().to_string()),
             preferences: &prompt_preferences,
         });
@@ -493,7 +493,25 @@ impl ChatService {
     }
 
     pub fn environment_context(&self) -> crate::core::runtime::RequestContext {
-        let current_workspace = self.workspace_manager.current();
+        self.resolve_environment_context(true)
+    }
+
+    /// Overlay (Alt+Alt) capture must not inherit the workbench's selected
+    /// workspace. Binding happens only when the user picks a workspace in the
+    /// overlay composer (or when IDE/window signals provide one).
+    pub fn environment_context_for_overlay(&self) -> crate::core::runtime::RequestContext {
+        self.resolve_environment_context(false)
+    }
+
+    fn resolve_environment_context(
+        &self,
+        include_current_workspace: bool,
+    ) -> crate::core::runtime::RequestContext {
+        let current_workspace = if include_current_workspace {
+            self.workspace_manager.current()
+        } else {
+            None
+        };
         let known_workspaces = self.workspace_manager.list();
         let captured = self.context_resolver.resolve();
         tracing::debug!(
@@ -502,7 +520,8 @@ impl ChatService {
             workspace = ?captured.workspace.as_ref().map(|workspace| workspace.root.as_str()),
             selected_files = captured.selected_files.len(),
             ide = ?captured.ide_context.as_ref().map(|ide| ide.ide.as_str()),
-            "ChatService::environment_context input captured context"
+            include_current_workspace,
+            "ChatService::resolve_environment_context input captured context"
         );
         let mut context = self.context_resolver.resolve_request(
             captured,
@@ -517,7 +536,7 @@ impl ChatService {
             has_git_status = context.git_status.is_some(),
             has_shell_execution = context.last_shell_execution.is_some(),
             ide = ?context.ide_context.as_ref().map(|ide| ide.ide.as_str()),
-            "ChatService::environment_context final resolved context"
+            "ChatService::resolve_environment_context final resolved context"
         );
         context
     }

@@ -1,6 +1,6 @@
-use super::*;
 use super::language::inject_language_blocks;
 use super::slots::inject_context;
+use super::*;
 
 use crate::core::chat::limits::{CLIPBOARD_MAX_CHARS, CONTEXT_BLOCKS_TOTAL_MAX_CHARS};
 use crate::core::runtime::{ChatMessage, MessageStatus, RequestContext, Role};
@@ -20,6 +20,7 @@ fn collaboration_models_are_injected_only_when_configured() {
         context: &context,
         project_rules: None,
         recalled_memories: None,
+        preferred_resources: None,
         provider: None,
         preferences: &preferences,
     });
@@ -47,6 +48,7 @@ fn collaboration_models_are_injected_only_when_configured() {
         context: &context,
         project_rules: None,
         recalled_memories: None,
+        preferred_resources: None,
         provider: None,
         preferences: &default_preferences,
     });
@@ -70,6 +72,7 @@ fn minimal_coding_is_injected_only_when_enabled() {
         context: &context,
         project_rules: None,
         recalled_memories: None,
+        preferred_resources: None,
         provider: None,
         preferences: &enabled,
     });
@@ -90,6 +93,7 @@ fn minimal_coding_is_injected_only_when_enabled() {
         context: &context,
         project_rules: None,
         recalled_memories: None,
+        preferred_resources: None,
         provider: None,
         preferences: &PromptPreferences::default(),
     });
@@ -176,8 +180,7 @@ fn injects_environment_context_into_agent_prompt() {
     let context = RequestContext {
         git_status: Some("## main\n M src/main.rs".to_string()),
         last_shell_execution: Some(
-            "Command: cargo test\nWorking Directory: C:\\work\nResult:\nexit_code: 0"
-                .to_string(),
+            "Command: cargo test\nWorking Directory: C:\\work\nResult:\nexit_code: 0".to_string(),
         ),
         ..RequestContext::default()
     };
@@ -260,6 +263,7 @@ fn workspace_context_precedes_history_and_current_user() {
         context: &context,
         project_rules: None,
         recalled_memories: None,
+        preferred_resources: None,
         provider: None,
         preferences: &preferences,
     });
@@ -281,6 +285,7 @@ fn recalled_memories_are_injected_as_untrusted_system_context() {
         context: &context,
         project_rules: None,
         recalled_memories: Some("<relevant-memories>\nUses pnpm\n</relevant-memories>"),
+        preferred_resources: None,
         provider: None,
         preferences: &preferences,
     });
@@ -303,6 +308,7 @@ fn project_rules_are_injected_as_system_context() {
         context: &context,
         project_rules: Some("<project-rules>\nUse pnpm\n</project-rules>"),
         recalled_memories: None,
+        preferred_resources: None,
         provider: None,
         preferences: &preferences,
     });
@@ -345,6 +351,7 @@ fn optional_policies_never_shift_stable_prefix_slots() {
         context: &context,
         project_rules: rules,
         recalled_memories: memories,
+        preferred_resources: None,
         provider: None,
         preferences: &PromptPreferences::default(),
     });
@@ -355,6 +362,7 @@ fn optional_policies_never_shift_stable_prefix_slots() {
         context: &context,
         project_rules: rules,
         recalled_memories: memories,
+        preferred_resources: None,
         provider: None,
         preferences: &PromptPreferences {
             collaboration_models: vec!["model-a".into()],
@@ -379,8 +387,12 @@ fn optional_policies_never_shift_stable_prefix_slots() {
         .skip(4)
         .map(|m| m.id.as_str())
         .collect();
-    assert!(optional_ids.iter().any(|id| id.starts_with("collaboration-models-")));
-    assert!(optional_ids.iter().any(|id| id.starts_with("minimal-coding-")));
+    assert!(optional_ids
+        .iter()
+        .any(|id| id.starts_with("collaboration-models-")));
+    assert!(optional_ids
+        .iter()
+        .any(|id| id.starts_with("minimal-coding-")));
     assert!(!baseline
         .messages
         .iter()

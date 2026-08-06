@@ -9,6 +9,7 @@
       'overlay-composer': props.appearance === 'overlay',
       'picker-open': interactivePickerOpen && !chipPickerOpen,
       'file-suggestion-open': showFileSuggestions,
+      'hash-suggestion-open': showHashSuggestions,
       'chip-picker-open': chipPickerOpen,
       'interaction-request-open': interactionRequestOpen,
     }"
@@ -149,6 +150,21 @@
         @select="selectWorkspaceFile"
       />
 
+      <HashMentionPicker
+        v-else-if="showHashSuggestions"
+        key="hash-suggestions"
+        :loading="hashCatalogLoading"
+        :items="hashSuggestions"
+        :selected-index="selectedIndex"
+        :loading-text="tr(language, 'loadingHashMentions')"
+        :empty-text="tr(language, 'noMatchingHashMentions')"
+        :ariaLabel="tr(language, 'hashMentions')"
+        :skill-label="tr(language, 'hashSkill')"
+        :mcp-label="tr(language, 'hashMcp')"
+        @hover="selectedIndex = $event"
+        @select="selectHashMention"
+      />
+
       <CommandSuggestions
         v-else-if="showCommandSuggestions"
         key="command-list"
@@ -280,6 +296,24 @@
             />
             <File v-else :size="12" />
             <span class="file-mention-name">@{{ fileName(seg.path) }}</span>
+          </span>
+          <span
+            v-else-if="seg.kind === 'skill'"
+            class="selection-tag hash-mention-tag hash-skill-tag"
+            data-tauri-drag-region="false"
+            :title="`#skill:${seg.id}`"
+          >
+            <Zap :size="12" />
+            <span class="file-mention-name">#{{ seg.id }}</span>
+          </span>
+          <span
+            v-else-if="seg.kind === 'mcp'"
+            class="selection-tag hash-mention-tag hash-mcp-tag"
+            data-tauri-drag-region="false"
+            :title="`#mcp:${seg.id}`"
+          >
+            <Bot :size="12" />
+            <span class="file-mention-name">#{{ seg.id }}</span>
           </span>
         </template>
         <textarea
@@ -551,10 +585,12 @@ import AskUserPicker from "./input/AskUserPicker.vue";
 import PathPermissionPicker from "./input/PathPermissionPicker.vue";
 import ToolApprovalPicker from "./input/ToolApprovalPicker.vue";
 import FileMentionPicker from "./input/FileMentionPicker.vue";
+import HashMentionPicker from "./input/HashMentionPicker.vue";
 import CommandSuggestions from "./input/CommandSuggestions.vue";
 import WorkspacePickerPanel from "./input/WorkspacePickerPanel.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { executeSlashCommand, fetchEnvironmentContext, slashCommands } from "@/commands/slash";
+import { listSkills } from "@/commands/skills";
 import { getContextUsage, setOverlayPopupOpen } from "@/services/ipc";
 import { createLogger } from "@/services/logger";
 import { tr } from "@/services/i18n";
@@ -572,6 +608,11 @@ import {
   serializeComposerSegments as serializeSegments,
   type ComposerSegment,
 } from "@/services/chat/composerSegments";
+import {
+  activeHashMention,
+  filterHashMentionItems,
+  type HashMentionItem,
+} from "@/services/chat/hashMentions";
 import { estimateMessageTokens } from "@/services/chat/tokenEstimate";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useChatModelStore } from "@/stores/chatModel";
@@ -2178,12 +2219,76 @@ const fileSuggestions = computed(() => {
     .slice(0, 12);
 });
 const showFileSuggestions = computed(() => (activeFileMention.value?.query.trim().length ?? 0) > 0);
-const showSuggestions = computed(() => showFileSuggestions.value || showCommandSuggestions.value);
-const suggestionCount = computed(() =>
-  showFileSuggestions.value
-    ? Math.max(fileSuggestions.value.length, 1)
-    : filteredCommands.value.length,
+
+const hashCatalog = ref<HashMentionItem[]>([]);
+const hashCatalogLoading = ref(false);
+const hashCatalogReady = ref(false);
+
+const activeHashQuery = computed(() => {
+  if (interactivePickerOpen.value || showFileSuggestions.value) {
+    return null;
+  }
+  // Do not steal `#` from slash-command mode or mid-word hashes in URLs after non-space.
+  return activeHashMention(message.value);
+});
+
+const hashSuggestions = computed(() => {
+  const mention = activeHashQuery.value;
+  if (!mention) return [];
+  return filterHashMentionItems(hashCatalog.value, mention.query);
+});
+
+const showHashSuggestions = computed(() => activeHashQuery.value !== null);
+
+const showSuggestions = computed(
+  () => showFileSuggestions.value || showHashSuggestions.value || showCommandSuggestions.value,
 );
+const suggestionCount = computed(() => {
+  if (showFileSuggestions.value) return Math.max(fileSuggestions.value.length, 1);
+  if (showHashSuggestions.value) return Math.max(hashSuggestions.value.length, 1);
+  return filteredCommands.value.length;
+});
+
+async function ensureHashCatalog() {
+  if (hashCatalogReady.value || hashCatalogLoading.value) return;
+  hashCatalogLoading.value = true;
+  try {
+    const skills = await listSkills();
+    const skillItems: HashMentionItem[] = skills.map((skill) => ({
+      kind: "skill",
+      id: skill.name,
+      title: skill.title || skill.name,
+      description: skill.description || undefined,
+    }));
+    const mcpItems: HashMentionItem[] = (settingStore.mcpServers ?? [])
+      .filter((server) => server.enabled !== false)
+      .map((server) => ({
+        kind: "mcp" as const,
+        id: server.id,
+        title: server.title || server.id,
+        description: server.description || server.command || undefined,
+      }));
+    hashCatalog.value = [...skillItems, ...mcpItems];
+    hashCatalogReady.value = true;
+  } catch (error) {
+    console.error("load hash mention catalog failed:", error);
+    hashCatalog.value = [];
+  } finally {
+    hashCatalogLoading.value = false;
+  }
+}
+
+function selectHashMention(item: HashMentionItem) {
+  const mention = activeHashQuery.value;
+  if (!mention) return;
+  message.value = message.value.slice(0, mention.start);
+  flushMessageToSegments();
+  pushComposerSegment(
+    item.kind === "skill" ? { kind: "skill", id: item.id } : { kind: "mcp", id: item.id },
+  );
+  selectedIndex.value = 0;
+  void nextTick(() => focusInput());
+}
 
 async function ensureWorkspaceFiles() {
   const root = currentWorkspace.value?.root ?? "";
@@ -2472,9 +2577,15 @@ function closeHistoryPicker() {
 }
 
 function resolveSendWorkspaceOptions(): { workspaceId?: string; quickAsk?: boolean } {
+  // Overlay must only bind to an explicitly selected (or IDE-matched) workspace
+  // shown in the composer. Never inherit inferred capture context — that often
+  // falls back to the workbench's current workspace and mis-files Quick Ask.
   const active = overlayWorkspaceOverride.value ?? currentWorkspace.value;
   if (active) {
     return { workspaceId: active.id, quickAsk: false };
+  }
+  if (props.appearance === "overlay") {
+    return { quickAsk: true };
   }
   const contextRoot = props.capturedContext?.workspace?.root;
   if (contextRoot) {
@@ -2566,6 +2677,12 @@ async function submit() {
   if (showFileSuggestions.value) {
     const path = fileSuggestions.value[selectedIndex.value];
     if (path) selectWorkspaceFile(path);
+    return;
+  }
+
+  if (showHashSuggestions.value) {
+    const item = hashSuggestions.value[selectedIndex.value];
+    if (item) selectHashMention(item);
     return;
   }
 
@@ -2969,6 +3086,33 @@ function handleKeydown(event: KeyboardEvent) {
     }
   }
 
+  if (showHashSuggestions.value) {
+    const count = hashSuggestions.value.length;
+    if (event.key === "ArrowDown" && count > 0) {
+      event.preventDefault();
+      selectedIndex.value = (selectedIndex.value + 1) % count;
+      return;
+    }
+    if (event.key === "ArrowUp" && count > 0) {
+      event.preventDefault();
+      selectedIndex.value = (selectedIndex.value - 1 + count) % count;
+      return;
+    }
+    if (event.key === "Tab" || event.key === "Enter") {
+      event.preventDefault();
+      const item = hashSuggestions.value[selectedIndex.value];
+      if (item) selectHashMention(item);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      const mention = activeHashQuery.value;
+      if (mention) message.value = message.value.slice(0, mention.start);
+      selectedIndex.value = 0;
+      return;
+    }
+  }
+
   if (showCommandSuggestions.value) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -3186,6 +3330,28 @@ watch(fileSuggestions, () => {
   }
 });
 
+watch(
+  () => activeHashQuery.value?.query,
+  (query) => {
+    selectedIndex.value = 0;
+    if (query !== undefined) void ensureHashCatalog();
+  },
+);
+
+watch(hashSuggestions, () => {
+  if (selectedIndex.value >= hashSuggestions.value.length) {
+    selectedIndex.value = 0;
+  }
+});
+
+watch(
+  () => settingStore.mcpServers,
+  () => {
+    hashCatalogReady.value = false;
+  },
+  { deep: true },
+);
+
 watch([() => chatModelStore.loading, () => chatModelStore.error, modelPickerModels], () => {
   if (!modelPickerOpen.value) {
     return;
@@ -3340,7 +3506,7 @@ function insertFileMention(path: string) {
 }
 
 watch(
-  () => props.capturedContext?.workspace?.root,
+  () => props.capturedContext?.ideContext?.workspace,
   () => {
     if (props.appearance === "overlay") {
       void loadWorkspaceState();
@@ -3371,9 +3537,10 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   box-shadow: 0 -10px 28px color-mix(in srgb, #000 24%, transparent);
 }
 
-/* File mention list should float above the input with a visible gap, and keep
-   full border so it doesn't visually merge with (or cover) the input frame. */
-.chat-input-shell.overlay-pickers :deep(.file-suggestion-list) {
+/* File / hash mention lists float above the input with a visible gap, and keep
+   full border so they don't visually merge with (or cover) the input frame. */
+.chat-input-shell.overlay-pickers :deep(.file-suggestion-list),
+.chat-input-shell.overlay-pickers :deep(.hash-suggestion-list) {
   bottom: calc(100% + 6px);
   max-height: min(320px, 42vh);
   border-bottom: 1px solid var(--peek-border);
@@ -3522,6 +3689,7 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   /* Hard cap so long input scrolls in place instead of growing the composer
      over whatever sits above it. */
   max-height: min(168px, 34vh);
+  align-items: flex-start;
   align-content: flex-start;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -3585,11 +3753,13 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   box-shadow: 0 -14px 32px color-mix(in srgb, #000 14%, transparent);
 }
 
-.workbench-composer.overlay-pickers :deep(.file-suggestion-list) {
+.workbench-composer.overlay-pickers :deep(.file-suggestion-list),
+.workbench-composer.overlay-pickers :deep(.hash-suggestion-list) {
   bottom: calc(100% + 6px);
   max-height: min(320px, 42vh);
   border-bottom: 1px solid color-mix(in srgb, var(--peek-text) 7%, transparent);
   border-radius: 10px;
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 14%, transparent);
 }
 
 /* Interaction requests: full-width panel stacked above the composer (in-flow). */
@@ -3628,7 +3798,7 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
 }
 
-.workbench-composer.picker-open:not(.file-suggestion-open) .input-bar {
+.workbench-composer.picker-open:not(.file-suggestion-open):not(.hash-suggestion-open) .input-bar {
   border-color: color-mix(in srgb, var(--peek-text) 16%, transparent);
   border-top-color: transparent;
   border-radius: 0 0 16px 16px;
@@ -3842,6 +4012,34 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 24px;
+}
+
+/* Match file mention chips: neutral surface, truncated label, accent only on border. */
+.hash-mention-tag {
+  gap: 5px;
+  max-width: min(220px, 100%);
+  height: 24px;
+  margin: 0;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--peek-text);
+  border-color: color-mix(in srgb, var(--peek-border) 88%, transparent);
+  background: color-mix(in srgb, var(--peek-input-bg) 78%, var(--peek-surface));
+}
+
+.hash-mention-tag :is(svg) {
+  flex: none;
+  color: var(--peek-muted);
+}
+
+.hash-skill-tag {
+  border-color: color-mix(in srgb, var(--peek-accent) 42%, transparent);
+}
+
+.hash-mcp-tag {
+  border-color: color-mix(in srgb, #3b82f6 48%, transparent);
 }
 
 .input-bar.drag-over {

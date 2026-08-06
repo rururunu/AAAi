@@ -19,20 +19,6 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { Decoration, EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { defaultKeymap } from "@codemirror/commands";
 import { tags } from "@lezer/highlight";
-import { cpp } from "@codemirror/lang-cpp";
-import { css } from "@codemirror/lang-css";
-import { go } from "@codemirror/lang-go";
-import { html } from "@codemirror/lang-html";
-import { java } from "@codemirror/lang-java";
-import { javascript } from "@codemirror/lang-javascript";
-import { json } from "@codemirror/lang-json";
-import { markdown } from "@codemirror/lang-markdown";
-import { php } from "@codemirror/lang-php";
-import { python } from "@codemirror/lang-python";
-import { rust } from "@codemirror/lang-rust";
-import { sql } from "@codemirror/lang-sql";
-import { xml } from "@codemirror/lang-xml";
-import { yaml } from "@codemirror/lang-yaml";
 import {
   buildCodeDiff,
   type CodeDiffDocument,
@@ -62,6 +48,7 @@ let leftView: EditorView | null = null;
 let rightView: EditorView | null = null;
 let unifiedView: EditorView | null = null;
 let requestVersion = 0;
+let editorVersion = 0;
 let syncingScroll = false;
 
 const requestKey = computed(() =>
@@ -81,7 +68,7 @@ watch(
       return;
     }
     await nextTick();
-    rebuildEditors();
+    await rebuildEditors();
   },
   { flush: "post" },
 );
@@ -112,18 +99,21 @@ async function loadDocument() {
   }
 }
 
-function rebuildEditors() {
+async function rebuildEditors() {
+  const version = ++editorVersion;
   destroyEditors();
   if (!document.value) return;
+  const language = await languageExtension(props.language);
+  if (version !== editorVersion || !document.value) return;
   if (props.viewMode === "split") {
     if (!leftHost.value || !rightHost.value) return;
-    leftView = createEditor(leftHost.value, splitSide("left"));
-    rightView = createEditor(rightHost.value, splitSide("right"));
+    leftView = createEditor(leftHost.value, splitSide("left"), language);
+    rightView = createEditor(rightHost.value, splitSide("right"), language);
     linkVerticalScroll(leftView, rightView);
     linkVerticalScroll(rightView, leftView);
     return;
   }
-  if (unifiedHost.value) unifiedView = createEditor(unifiedHost.value, unifiedLines());
+  if (unifiedHost.value) unifiedView = createEditor(unifiedHost.value, unifiedLines(), language);
 }
 
 function destroyEditors() {
@@ -142,7 +132,7 @@ function updateWrap(wrapLines: boolean) {
   }
 }
 
-function createEditor(parent: HTMLElement, lines: DisplayLine[]) {
+function createEditor(parent: HTMLElement, lines: DisplayLine[], language: Extension) {
   const lineNumbersByDisplayLine = lines.map((line) => line.lineNumber);
   const state = EditorState.create({
     doc: lines.map((line) => line.text).join("\n"),
@@ -152,7 +142,7 @@ function createEditor(parent: HTMLElement, lines: DisplayLine[]) {
       EditorView.editable.of(false),
       lineNumbers({ formatNumber: (line) => String(lineNumbersByDisplayLine[line - 1] ?? "") }),
       wrapCompartment.of(props.wrapLines ? EditorView.lineWrapping : []),
-      languageExtension(props.language),
+      language,
       syntaxHighlighting(diffHighlightStyle, { fallback: true }),
       diffTheme,
       lineClasses(lines),
@@ -207,40 +197,71 @@ function linkVerticalScroll(source: EditorView, target: EditorView) {
   });
 }
 
-function languageExtension(language: string): Extension {
+/** Language packs are loaded on demand so Diff does not pull every grammar into one chunk. */
+async function languageExtension(language: string): Promise<Extension> {
   switch (language) {
-    case "javascript":
+    case "javascript": {
+      const { javascript } = await import("@codemirror/lang-javascript");
       return javascript({ jsx: true });
-    case "typescript":
+    }
+    case "typescript": {
+      const { javascript } = await import("@codemirror/lang-javascript");
       return javascript({ jsx: true, typescript: true });
-    case "json":
+    }
+    case "json": {
+      const { json } = await import("@codemirror/lang-json");
       return json();
-    case "xml":
+    }
+    case "xml": {
+      const { xml } = await import("@codemirror/lang-xml");
       return xml();
+    }
     case "css":
-    case "scss":
+    case "scss": {
+      const { css } = await import("@codemirror/lang-css");
       return css();
-    case "rust":
+    }
+    case "rust": {
+      const { rust } = await import("@codemirror/lang-rust");
       return rust();
-    case "python":
+    }
+    case "python": {
+      const { python } = await import("@codemirror/lang-python");
       return python();
-    case "yaml":
+    }
+    case "yaml": {
+      const { yaml } = await import("@codemirror/lang-yaml");
       return yaml();
-    case "markdown":
+    }
+    case "markdown": {
+      const { markdown } = await import("@codemirror/lang-markdown");
       return markdown();
-    case "sql":
+    }
+    case "sql": {
+      const { sql } = await import("@codemirror/lang-sql");
       return sql();
-    case "go":
+    }
+    case "go": {
+      const { go } = await import("@codemirror/lang-go");
       return go();
-    case "java":
+    }
+    case "java": {
+      const { java } = await import("@codemirror/lang-java");
       return java();
+    }
     case "cpp":
-    case "c":
+    case "c": {
+      const { cpp } = await import("@codemirror/lang-cpp");
       return cpp();
-    case "php":
+    }
+    case "php": {
+      const { php } = await import("@codemirror/lang-php");
       return php();
-    case "html":
+    }
+    case "html": {
+      const { html } = await import("@codemirror/lang-html");
       return html();
+    }
     default:
       return [];
   }

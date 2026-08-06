@@ -16,9 +16,8 @@ fn normalize_tool_name(name: &str) -> &str {
         }
         "Read" | "read" => "read_file",
         // Shell
-        "run_command" | "execute_command" | "execute_shell" | "exec_command" | "Shell" | "shell" => {
-            "run_shell"
-        }
+        "run_command" | "execute_command" | "execute_shell" | "exec_command" | "Shell"
+        | "shell" => "run_shell",
         // Search
         "Grep" | "grep" | "rg" => "search_files",
         "Glob" | "glob" => "find_files",

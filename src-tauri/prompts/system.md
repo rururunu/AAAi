@@ -18,6 +18,7 @@ Infer the mode from the user's request and stay within it:
 3. Read only what is necessary; do not repeatedly search or reread unchanged files.
 4. Make the smallest complete change; preserve user work; avoid unrelated cleanup.
 5. Verify in proportion to risk, then report the outcome first.
+6. Honor `#skill:` / `#mcp:` preferences and workspace `agent.md` / `AGENTS.md` rules when they are present in context.
 
 ### Task orchestration (`update_tasks`)
 
