@@ -8,6 +8,12 @@
  * Chips in the composer use the same tokens via {@link formatHashMention}.
  */
 
+import {
+  loadResourceUsage,
+  resourceUsageScore,
+  type ResourceUsageStore,
+} from "@/services/usage/resourceUsage";
+
 export type HashResourceKind = "skill" | "mcp";
 
 export type HashMentionItem = {
@@ -99,13 +105,20 @@ function activeTriggerMention(
 /**
  * Filter skill/MCP catalog by the typed query after `#`.
  * Supports prefixes like `skill:`, `mcp:`, or free-text against id/title/vendor/desc.
+ * Frequent / recent usage ranks above alphabetical order.
  */
 export function filterHashMentionItems(
   items: readonly HashMentionItem[],
   rawQuery: string,
+  usage: ResourceUsageStore = loadResourceUsage(),
+  now = Date.now(),
 ): HashMentionItem[] {
   const query = rawQuery.trim().toLowerCase();
-  if (!query) return items.slice(0, 24);
+  if (!query) {
+    return [...items]
+      .sort((left, right) => compareMentionItems(left, right, "", usage, now))
+      .slice(0, 24);
+  }
 
   let kindFilter: HashResourceKind | null = null;
   let needle = query;
@@ -132,18 +145,32 @@ export function filterHashMentionItems(
         `${item.id} ${item.title} ${item.vendor ?? ""} ${item.description ?? ""}`.toLowerCase();
       return hay.includes(needle);
     })
-    .sort((left, right) => {
-      const leftId = left.id.toLowerCase();
-      const rightId = right.id.toLowerCase();
-      const leftVendor = (left.vendor ?? "").toLowerCase();
-      const rightVendor = (right.vendor ?? "").toLowerCase();
-      const leftRank =
-        needle && (leftId.startsWith(needle) || leftVendor.startsWith(needle)) ? 0 : 1;
-      const rightRank =
-        needle && (rightId.startsWith(needle) || rightVendor.startsWith(needle)) ? 0 : 1;
-      if (leftRank !== rightRank) return leftRank - rightRank;
-      if (left.kind !== right.kind) return left.kind === "skill" ? -1 : 1;
-      return leftId.localeCompare(rightId);
-    })
+    .sort((left, right) => compareMentionItems(left, right, needle, usage, now))
     .slice(0, 24);
+}
+
+function compareMentionItems(
+  left: HashMentionItem,
+  right: HashMentionItem,
+  needle: string,
+  usage: ResourceUsageStore,
+  now: number,
+): number {
+  const leftId = left.id.toLowerCase();
+  const rightId = right.id.toLowerCase();
+  const leftVendor = (left.vendor ?? "").toLowerCase();
+  const rightVendor = (right.vendor ?? "").toLowerCase();
+  const leftPrefix = needle && (leftId.startsWith(needle) || leftVendor.startsWith(needle)) ? 0 : 1;
+  const rightPrefix =
+    needle && (rightId.startsWith(needle) || rightVendor.startsWith(needle)) ? 0 : 1;
+  if (leftPrefix !== rightPrefix) return leftPrefix - rightPrefix;
+
+  // Keep Skills and MCP in separate blocks (skills first), then rank by usage.
+  if (left.kind !== right.kind) return left.kind === "skill" ? -1 : 1;
+
+  const leftUsage = resourceUsageScore(left.kind, left.id, usage, now);
+  const rightUsage = resourceUsageScore(right.kind, right.id, usage, now);
+  if (leftUsage !== rightUsage) return rightUsage - leftUsage;
+
+  return leftId.localeCompare(rightId);
 }

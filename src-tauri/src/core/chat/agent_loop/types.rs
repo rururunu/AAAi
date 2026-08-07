@@ -18,9 +18,6 @@ pub struct StartedTool {
 /// as a `Role::Tool` message and inspected by the completion/failure gates.
 pub struct ToolOutcome {
     pub call_id: String,
-    /// UI-facing `ToolActivity.id` for this call, used to anchor it in the
-    /// persisted work timeline at the point it actually ran.
-    pub activity_id: String,
     pub tool_name: String,
     /// Serialized arguments, used to detect repeated identical calls.
     pub arguments: String,

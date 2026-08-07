@@ -7,7 +7,7 @@ description: 表驱动生成「综合评分技术部分」技术标 .docx。用�
 
 你输出的是**可评分的技术标正文**（真 `.docx`），不是散文汇报，也不是 Markdown 假装成 Word。
 
-工作区已物化（或即将物化）Python 工具包：`.aaai/bid_tech/`。
+工作区已物化（或即将物化）Python 工具包：`.anya/bid_tech/`。
 生成脚本必须 `sys.path` 引入该包，并使用其中的 `style` / `tables` / `planner` / `gate` / `quality` / `reference` / `docx_inspect` / `align`。
 
 ## 何时使用本 skill
@@ -59,8 +59,8 @@ description: 表驱动生成「综合评分技术部分」技术标 .docx。用�
 若用户提供参考 `.docx`：
 
 ```bash
-python .aaai/bid_tech/cli.py reference path/to/参考.docx --out .aaai/ref_profile.json --print
-python .aaai/bid_tech/cli.py plan-from-ref --profile .aaai/ref_profile.json --project 本次项目名 --out .aaai/bid_plan.json
+python .anya/bid_tech/cli.py reference path/to/参考.docx --out .anya/ref_profile.json --print
+python .anya/bid_tech/cli.py plan-from-ref --profile .anya/ref_profile.json --project 本次项目名 --out .anya/bid_plan.json
 ```
 
 画像会识别日程风格（`day_block` / `mixed` / `half_hour_dense`）并校准门禁，**不会**把参考稿里的深圳/喀什等节点硬套到别的项目；换方案时在 `bid_plan.json` 里改 `route_must_include` / `required_keywords` 即可。
@@ -70,12 +70,12 @@ python .aaai/bid_tech/cli.py plan-from-ref --profile .aaai/ref_profile.json --pr
 ```python
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(".aaai").resolve()))
+sys.path.insert(0, str(Path(".anya").resolve()))
 from bid_tech.planner import build_default_plan, write_outline
 
 plan = build_default_plan(project_name="…项目技术标")
-write_outline(plan, ".aaai/bid_plan_outline.md")
-plan.save(".aaai/bid_plan.json")
+write_outline(plan, ".anya/bid_plan_outline.md")
+plan.save(".anya/bid_plan.json")
 ```
 
 参考画像推荐的表模板（按识别结果选用，勿全抄）：
@@ -115,17 +115,17 @@ from bid_tech.gate import evaluate_gate, save_report
 from bid_tech.align import check_alignment, load_checklist
 from bid_tech.planner import load_plan
 
-plan = load_plan(".aaai/bid_plan.json")
-align_report = check_alignment("output.docx", load_checklist(".aaai/bid_align.json"), source="checklist")
+plan = load_plan(".anya/bid_plan.json")
+align_report = check_alignment("output.docx", load_checklist(".anya/bid_align.json"), source="checklist")
 report = evaluate_gate("output.docx", plan, align_open_items=align_report.open_items)
-save_report(report, ".aaai/bid_gate_report.json")
+save_report(report, ".anya/bid_gate_report.json")
 print(report.format_text())
 print(align_report.format_text())
 if not report.passed:
     raise SystemExit(2)
 ```
 
-CLI 等价：`python .aaai/bid_tech/cli.py gate output.docx --plan .aaai/bid_plan.json`
+CLI 等价：`python .anya/bid_tech/cli.py gate output.docx --plan .anya/bid_plan.json`
 
 默认阈值（可在 plan JSON 调整，但不得无理由大幅放水）：
 
@@ -154,7 +154,7 @@ run_skill  name=review_bid_tech  read_only=true
 任务里写明：
 
 - 产出 `.docx` 绝对/工作区相对路径
-- `.aaai/bid_gate_report.json`（若有）
+- `.anya/bid_gate_report.json`（若有）
 - 招标硬口径摘要（人数、保费、配比、行程天数等）
 
 收到评议结果后：
@@ -179,7 +179,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str((ROOT / ".aaai").resolve()))
+sys.path.insert(0, str((ROOT / ".anya").resolve()))
 
 from bid_tech import style, tables, planner, gate, align
 
@@ -187,7 +187,7 @@ OUT = ROOT / "docs" / "技术标-综合评分技术部分.docx"
 OUT.parent.mkdir(parents=True, exist_ok=True)
 
 plan = planner.build_default_plan("示例项目技术标")
-plan.save(ROOT / ".aaai" / "bid_plan.json")
+plan.save(ROOT / ".anya" / "bid_plan.json")
 
 doc = style.configure_document(header_text=plan.project_name)
 style.add_heading_cn(doc, plan.project_name, level=1)
@@ -210,10 +210,10 @@ tables.add_backup_table(doc, [("暴雨不宜户外", "户外参观", "室内场�
 doc.save(str(OUT))
 
 checklist = align.default_checklist_for_study_tour()
-align.save_checklist(checklist, ROOT / ".aaai" / "bid_align.json")
+align.save_checklist(checklist, ROOT / ".anya" / "bid_align.json")
 align_report = align.check_alignment(OUT, checklist)
 report = gate.evaluate_gate(OUT, plan, align_open_items=align_report.open_items)
-gate.save_report(report, ROOT / ".aaai" / "bid_gate_report.json")
+gate.save_report(report, ROOT / ".anya" / "bid_gate_report.json")
 print(report.format_text())
 if not report.passed:
     raise SystemExit("门禁未通过：补表后再交卷")

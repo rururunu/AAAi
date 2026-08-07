@@ -1,4 +1,4 @@
-//! Resolve the current AAAi accent color for the pin badge.
+//! Resolve the current Anya accent color for the pin badge.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 

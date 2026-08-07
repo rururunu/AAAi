@@ -111,7 +111,7 @@ impl Tool for ListFailureCandidatesTool {
         "list_failure_candidates"
     }
     fn description(&self) -> &str {
-        "Mine recent journal tool failures into reviewable rule/Skill candidates. Writes a Markdown report under .aaai/candidates/; does not auto-install anything."
+        "Mine recent journal tool failures into reviewable rule/Skill candidates. Writes a Markdown report under .anya/candidates/; does not auto-install anything."
     }
     fn parameters_schema(&self) -> Value {
         json!({

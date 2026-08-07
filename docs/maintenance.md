@@ -1,6 +1,6 @@
-# AAAi Maintenance Guide
+# Anya Maintenance Guide
 
-Operational handbook for developers and maintainers of AAAi. Pair with the
+Operational handbook for developers and maintainers of Anya. Pair with the
 [Architecture overview](./architecture-overview.md) for design context and
 [Releases](./release.md) for shipping.
 
@@ -12,7 +12,7 @@ Operational handbook for developers and maintainers of AAAi. Pair with the
 |                       |                                                     |
 | --------------------- | --------------------------------------------------- |
 | **Audience**          | Contributors, release managers, on-call maintainers |
-| **Product version**   | v0.2.1                                              |
+| **Product version**   | v0.2.2                                              |
 | **Primary platforms** | Windows 10 / 11 (x64)                               |
 
 ---
@@ -74,7 +74,7 @@ Recommended before merge: `pnpm check` **and** `cargo test --lib`.
 | ------------------------------- | ---------------------------------------- |
 | `package.json`                  | Frontend version, scripts, deps          |
 | `src-tauri/tauri.conf.json`     | Product version, windows, updater pubkey |
-| `src-tauri/Cargo.toml`          | Rust crate version (`peek` / bin `AAAi`) |
+| `src-tauri/Cargo.toml`          | Rust crate version (`peek` / bin `Anya`) |
 | `src-tauri/permissions/*.toml`  | Tauri capability / ACL fragments         |
 | `src-tauri/prompts/*.md`        | Stable system prompts                    |
 | `src-tauri/prompts/skills/*.md` | Skill playbooks (routing + behavior)     |
@@ -129,7 +129,7 @@ checks in `core/chat/db.rs` (pattern used for `tool_activities`, `estimated_toke
 `work_timeline`). Prefer additive columns with `Option` / default serde.
 
 **Resetting local state (dev only):** quit the app, then remove the app data
-directory for AAAi under the Windows local/roaming app data tree. Do not ship
+directory for Anya under the Windows local/roaming app data tree. Do not ship
 reset tools that wipe user history without confirmation.
 
 ---
@@ -160,7 +160,6 @@ reset tools that wipe user history without confirmation.
    `core/chat/prompts/mod.rs`).
 3. Put “When to use / When NOT to use” examples in the skill file itself.
 4. Run `cargo test --lib prompts` (or full `--lib`) after structural edits.
-5. Comments in Rust must explain _why_, without vendor marketing names.
 
 ### 5.4 Provider change
 
@@ -186,7 +185,7 @@ reset tools that wipe user history without confirmation.
 | Stuck “executing” after crash                   | Journal settle                | Restart; inspect message `status` and running tools                        |
 | Tools appear above / below thinking incorrectly | Timeline                      | Live: store `workTimeline`; History: DB `work_timeline` JSON               |
 | Soft follow-up creates new bubble               | Soft-inject                   | Active assistant for session? `AgentRuntime` inject path?                  |
-| Diff / undo missing                             | Checkpoint                    | Was edit applied via AAAi tools this session?                              |
+| Diff / undo missing                             | Checkpoint                    | Was edit applied via Anya tools this session?                              |
 | Office tools missing                            | COM / process                 | Is Word/Excel/PPT running? Tool hint in context?                           |
 | MCP OAuth “lost”                                | mcp-remote pin                | Pinned package version + `MCP_REMOTE_CONFIG_DIR` stability                 |
 | Typecheck fail in `smithery.ts`                 | Frontend skills               | Unrelated skill ID typing — fix before release if `pnpm check` is required |
@@ -234,7 +233,6 @@ When cutting `vX.Y.Z`:
 ## 9. Coding conventions
 
 - Prefer small, reviewable diffs; match existing naming and module boundaries.
-- Comments: explain **why**, never “inspired by &lt;vendor&gt;”.
 - New `ChatMessage` fields: update struct, serde, SQLite migration, all literals
   (or helpers), frontend types, and persistence tests.
 - New Bus events: define in `core/event`, project in adapters, subscribe in
@@ -295,7 +293,7 @@ cd src-tauri; cargo test --lib
 pnpm tauri:build
 
 # Release metadata
-pnpm release:json -- --tag v0.2.1 --notes "…"
+pnpm release:json -- --tag v0.2.2 --notes "…"
 
 # Sync external skill vendors (when used)
 pnpm sync-skills

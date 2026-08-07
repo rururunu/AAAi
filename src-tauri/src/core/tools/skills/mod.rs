@@ -76,7 +76,7 @@ pub fn require_skill_enabled(name: &str) -> Result<(), ToolError> {
     )))
 }
 
-/// Materialize `.aaai/bid_tech` helpers for async skill runners outside this module.
+/// Materialize `.anya/bid_tech` helpers for async skill runners outside this module.
 pub(crate) fn materialize_bid_tech_for_workspace(
     workspace_root: &Path,
 ) -> Result<PathBuf, ToolError> {
@@ -989,7 +989,7 @@ impl Tool for DocxSkillTool {
         "docx"
     }
     fn description(&self) -> &str {
-        "Create or edit Word .docx with the docx skill (docx-js, OOXML unzip/edit, tracked changes, comments, validate). Materializes helper scripts to .aaai/docx. For 技术标 prefer generate_bid_tech."
+        "Create or edit Word .docx with the docx skill (docx-js, OOXML unzip/edit, tracked changes, comments, validate). Materializes helper scripts to .anya/docx. For 技术标 prefer generate_bid_tech."
     }
     fn parameters_schema(&self) -> Value {
         json!({

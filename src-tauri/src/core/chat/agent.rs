@@ -16,7 +16,8 @@ use crate::runtime::ToolManager;
 use tracing::Instrument;
 
 use super::agent_loop::challenge::{ChallengeOutcome, CompletionGate};
-use super::agent_loop::failure::FailureBreaker;
+use super::agent_loop::failure::{FailureAction, FailureBreaker};
+use super::agent_loop::challenge::push_challenge_message;
 use super::agent_loop::mid_turn_compact;
 use super::agent_loop::soft_inject::drain_soft_injects;
 use super::agent_loop::stream_turn::{self, StreamTurnResult};
@@ -270,16 +271,26 @@ impl AgentRunner {
                 }
             }
 
-            if let Some(reason) = failure_breaker.check(&outcomes) {
-                let _ = tx
-                    .send(StreamEvent::TurnComplete {
-                        content: format!("已停止：{reason}。"),
-                        reasoning: None,
-                        tool_calls: vec![],
-                        finish_reason: Some("tool_failure_breaker".to_string()),
-                    })
-                    .await;
-                return Ok(());
+            match failure_breaker.check(&outcomes) {
+                FailureAction::Stop { reason } => {
+                    let _ = tx
+                        .send(StreamEvent::TurnComplete {
+                            content: format!("已停止：{reason}"),
+                            reasoning: None,
+                            tool_calls: vec![],
+                            finish_reason: Some("tool_failure_breaker".to_string()),
+                        })
+                        .await;
+                    return Ok(());
+                }
+                FailureAction::Challenge {
+                    status_kind,
+                    message,
+                } => {
+                    push_challenge_message(&mut request, &mut user_msg_index, &message);
+                    let _ = tx.send(StreamEvent::Status { kind: status_kind }).await;
+                }
+                FailureAction::Continue => {}
             }
 
             if let Some(status_kind) =

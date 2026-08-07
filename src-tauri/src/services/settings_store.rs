@@ -7,8 +7,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::models::settings::AppSettings;
 
 const SETTINGS_FILE: &str = "settings.json";
-const RELEASE_APP_IDENTIFIER: &str = "ai.aaai.desktop";
-const DEBUG_APP_IDENTIFIER: &str = "ai.aaai.desktop.debug";
+const RELEASE_APP_IDENTIFIER: &str = "ai.anya.desktop";
+const DEBUG_APP_IDENTIFIER: &str = "ai.anya.desktop.debug";
 
 fn app_identifier() -> &'static str {
     if cfg!(debug_assertions) {
@@ -29,10 +29,21 @@ pub fn configure_prestart_webview() {
     let Some(app_data) = std::env::var_os("APPDATA") else {
         return;
     };
-    let path = PathBuf::from(app_data)
-        .join(app_identifier())
+    let app_data = PathBuf::from(app_data);
+    let path = app_data.join(app_identifier()).join(SETTINGS_FILE);
+    let legacy_path = app_data
+        .join(if cfg!(debug_assertions) {
+            "ai.aaai.desktop.debug"
+        } else {
+            "ai.aaai.desktop"
+        })
         .join(SETTINGS_FILE);
-    let hardware_acceleration_enabled = fs::read_to_string(path)
+    let settings_file = if path.is_file() {
+        path
+    } else {
+        legacy_path
+    };
+    let hardware_acceleration_enabled = fs::read_to_string(settings_file)
         .ok()
         .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
         .and_then(|settings| {
@@ -73,11 +84,40 @@ fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|error| error.to_string())
 }
 
+/// One-time copy from the previous app id so existing installs keep settings after the rename.
+fn migrate_legacy_settings_file(new_path: &PathBuf) {
+    const LEGACY_IDENTIFIERS: &[&str] = &["ai.aaai.desktop", "ai.aaai.desktop.debug"];
+    let Some(app_data) = std::env::var_os("APPDATA").map(PathBuf::from) else {
+        return;
+    };
+    for legacy_id in LEGACY_IDENTIFIERS {
+        let legacy = app_data.join(legacy_id).join(SETTINGS_FILE);
+        if !legacy.is_file() {
+            continue;
+        }
+        if let Some(parent) = new_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if fs::copy(&legacy, new_path).is_ok() {
+            tracing::info!(
+                from = %legacy.display(),
+                to = %new_path.display(),
+                "migrated settings from legacy app identifier"
+            );
+            return;
+        }
+    }
+}
+
 pub fn load_settings(app: &AppHandle) -> AppSettings {
     let path = match settings_path(app) {
         Ok(path) => path,
         Err(_) => return AppSettings::default(),
     };
+
+    if !path.exists() {
+        migrate_legacy_settings_file(&path);
+    }
 
     let raw = match fs::read_to_string(&path) {
         Ok(raw) => raw,

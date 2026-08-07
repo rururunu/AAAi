@@ -126,14 +126,14 @@ watch(
     const raw = url?.trim() || "";
     const key = cacheKey?.trim() || "";
 
-    // Installed items: prefer disk cache keyed by stable install id.
+    // Installed items: show remote immediately, upgrade to local disk cache when ready.
     if (kind && key) {
       const peeked = peekInstallIcon(kind, key);
-      displayIconUrl.value = peeked || "";
+      displayIconUrl.value = peeked || raw;
       void lookupInstallIcon(kind, key).then((local) => {
         if (cancelled) return;
-        // Local hit wins; otherwise fall back to the stored remote URL (no new cache write).
-        displayIconUrl.value = local || raw;
+        if (local) displayIconUrl.value = local;
+        else if (!displayIconUrl.value) displayIconUrl.value = raw;
       });
       return;
     }

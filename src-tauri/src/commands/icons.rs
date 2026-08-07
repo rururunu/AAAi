@@ -117,6 +117,38 @@ pub fn lookup_install_icon(
     Ok(find_existing(&dir, &key).map(|path| path.to_string_lossy().into_owned()))
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IconLookupEntry {
+    pub kind: String,
+    pub cache_key: String,
+}
+
+/// Batch disk lookup for install icons. Keys in the result are `kind:cacheKey`.
+#[tauri::command]
+pub fn lookup_install_icons(
+    app: AppHandle,
+    entries: Vec<IconLookupEntry>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let mut out = std::collections::HashMap::new();
+    for entry in entries {
+        let Ok((kind, key)) = sanitize_cache_key(&entry.kind, &entry.cache_key) else {
+            continue;
+        };
+        let Ok(dir) = kind_dir(&app, &kind) else {
+            continue;
+        };
+        if let Some(path) = find_existing(&dir, &key) {
+            // Preserve the caller-facing key so the frontend memory map matches.
+            out.insert(
+                format!("{}:{}", entry.kind.trim(), entry.cache_key.trim()),
+                path.to_string_lossy().into_owned(),
+            );
+        }
+    }
+    Ok(out)
+}
+
 /// Cache an icon for an installed MCP/Skill.
 /// Keyed by install identity; downloads only when that key is missing on disk.
 #[tauri::command]
@@ -136,7 +168,7 @@ pub async fn cache_install_icon(
 
     let response = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
-        .user_agent(concat!("AAAi/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Anya/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| error.to_string())?
         .get(&url)

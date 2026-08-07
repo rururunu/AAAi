@@ -86,9 +86,15 @@
                 v-for="(part, partIdx) in inlineMessageParts(userContent(item.message).message)"
                 :key="`${item.message.id}-part-${partIdx}`"
               >
-                <span v-if="part.kind === 'mention'" class="user-mention-chip" :title="part.path">
+                <span
+                  v-if="part.kind === 'mention'"
+                  class="user-mention-chip"
+                  :class="{ 'user-dir-mention': part.isDir }"
+                  :title="normalizeMentionPath(part.path)"
+                >
+                  <Folder v-if="part.isDir" :size="12" class="user-mention-fallback" />
                   <img
-                    v-if="fileIconForPath(part.path)"
+                    v-else-if="fileIconForPath(part.path)"
                     class="user-mention-icon"
                     :src="fileIconForPath(part.path) || ''"
                     alt=""
@@ -274,8 +280,13 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { Bot, Check, Copy, File, Undo2, Zap } from "@lucide/vue";
+import { Bot, Check, Copy, File, Folder, Undo2, Zap } from "@lucide/vue";
 import { codeLanguageForPath } from "@/services/chat/codeLanguage";
+import {
+  isDirMention,
+  mentionDisplayLabel,
+  normalizeMentionPath,
+} from "@/services/chat/composerSegments";
 import {
   mcpMentionIconUrl,
   mcpMentionLabel,
@@ -283,7 +294,7 @@ import {
   skillMentionIconUrl,
   skillMentionLabel,
 } from "@/services/chat/hashMentionDisplay";
-import { lookupInstallIcon } from "@/services/iconCache";
+import { lookupInstallIcon, peekInstallIcon, warmInstallIcons } from "@/services/iconCache";
 import AgentWorkDetails from "@/components/chat/AgentWorkDetails.vue";
 import CodeChangesSummary from "@/components/chat/CodeChangesSummary.vue";
 import AssistantActivityIndicator from "@/components/chat/AssistantActivityIndicator.vue";
@@ -373,12 +384,20 @@ function markHashIconBroken(kind: "skill" | "mcp", id: string) {
 }
 
 function warmHashIcons() {
-  for (const server of settingStore.mcpServers ?? []) {
-    void lookupInstallIcon("mcp", server.id).then((local) => {
+  const servers = settingStore.mcpServers ?? [];
+  void warmInstallIcons(
+    servers.map((server) => ({
+      kind: "mcp" as const,
+      cacheKey: server.id,
+      url: server.iconUrl,
+    })),
+  ).then(() => {
+    for (const server of servers) {
+      const local = peekInstallIcon("mcp", server.id);
       const key = hashChipKey("mcp", server.id);
       if (local && !brokenHashIcons[key]) resolvedHashIcons[key] = local;
-    });
-  }
+    }
+  });
 }
 
 watch(
@@ -471,13 +490,9 @@ function userContent(message: ChatMessage) {
   return parseSelectionAttachment(stripSoftInjectMarker(message.content));
 }
 
-function fileIconForPath(path: string) {
-  return codeLanguageForPath(path).icon;
-}
-
 type InlineMessagePart =
   | { kind: "text"; text: string }
-  | { kind: "mention"; path: string; name: string }
+  | { kind: "mention"; path: string; name: string; isDir: boolean }
   | { kind: "skill"; id: string }
   | { kind: "mcp"; id: string };
 
@@ -489,6 +504,13 @@ function inlineMessageParts(text: string): InlineMessagePart[] {
   let lastIndex = 0;
   const re = new RegExp(INLINE_TOKEN_RE.source, "g");
   let match: RegExpExecArray | null;
+  const mentionPaths: string[] = [];
+  while ((match = re.exec(text)) !== null) {
+    if (!(match[3] && match[4])) {
+      mentionPaths.push(match[1] || match[2] || "");
+    }
+  }
+  re.lastIndex = 0;
   while ((match = re.exec(text)) !== null) {
     if (match.index > lastIndex) {
       parts.push({ kind: "text", text: text.slice(lastIndex, match.index) });
@@ -498,8 +520,9 @@ function inlineMessageParts(text: string): InlineMessagePart[] {
       parts.push({ kind, id: match[4] });
     } else {
       const path = match[1] || match[2] || "";
-      const name = path.split(/[/\\]/).pop() || path;
-      parts.push({ kind: "mention", path, name });
+      const isDir = isDirMention(path);
+      const name = mentionDisplayLabel(path, { isDir, catalog: mentionPaths });
+      parts.push({ kind: "mention", path, name, isDir });
     }
     lastIndex = match.index + match[0].length;
   }
@@ -507,6 +530,10 @@ function inlineMessageParts(text: string): InlineMessagePart[] {
     parts.push({ kind: "text", text: text.slice(lastIndex) });
   }
   return parts.length > 0 ? parts : [{ kind: "text", text }];
+}
+
+function fileIconForPath(path: string) {
+  return codeLanguageForPath(normalizeMentionPath(path)).icon;
 }
 
 function copyableUserText(message: ChatMessage) {
@@ -1092,9 +1119,12 @@ onUnmounted(() => {
   color: var(--peek-text);
   font-size: 12px;
   font-weight: 550;
-  line-height: 24px;
+  line-height: 16px;
   vertical-align: middle;
   overflow: hidden;
+}
+.user-mention-chip.user-dir-mention {
+  max-width: min(320px, 100%);
 }
 .user-mention-icon {
   flex: none;
@@ -1111,6 +1141,8 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 16px;
+  padding: 1px 0;
 }
 .user-hash-skill {
   border-color: color-mix(in srgb, var(--peek-accent) 40%, transparent);

@@ -17,6 +17,7 @@ export const settingsFieldIds = [
   "reasoningLanguage",
   "showReasoning",
   "passToolReasoning",
+  "continueThinkingAfterTools",
   "memoryEnabled",
   "mem0ApiKey",
   "mem0UserId",
@@ -111,6 +112,19 @@ export type SettingsI18nKey =
   | "settings.provider.baseUrl"
   | "settings.provider.modelsList"
   | "settings.provider.modelsPlaceholder"
+  | "settings.provider.addModel"
+  | "settings.provider.modelsEmpty"
+  | "settings.provider.removeModel"
+  | "settings.provider.configured"
+  | "settings.provider.notConfigured"
+  | "settings.provider.presets"
+  | "settings.provider.presetHint"
+  | "settings.provider.addBlank"
+  | "settings.provider.modelsHint"
+  | "settings.provider.fetchModels"
+  | "settings.provider.fetchingModels"
+  | "settings.provider.fetchModelsFailed"
+  | "settings.provider.urlPlaceholder"
   | "settings.provider.save"
   | "settings.provider.saved"
   | "settings.provider.back"
@@ -160,18 +174,32 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.provider.custom": "Custom Provider",
   "settings.provider.title": "Provider Configurations",
   "settings.provider.description":
-    "Configure DeepSeek, Gemini (Antigravity), or custom OpenAI-compatible providers.",
+    "Configure DeepSeek, Gemini, or OpenAI-compatible vendors (MiMo, Kimi, GLM, MiniMax, Ark).",
   "settings.provider.apiKey": "API Key",
   "settings.provider.baseUrl": "Base URL",
   "settings.provider.modelsList": "Model List",
-  "settings.provider.modelsPlaceholder":
-    "Enter model IDs, e.g. gpt-4o, llama3 (separated by commas or newlines)",
+  "settings.provider.modelsPlaceholder": "Model ID, e.g. gpt-4o",
+  "settings.provider.addModel": "Add",
+  "settings.provider.modelsEmpty": "No models yet.",
+  "settings.provider.removeModel": "Remove model",
+  "settings.provider.configured": "Configured",
+  "settings.provider.notConfigured": "Not configured",
+  "settings.provider.presets": "Add provider",
+  "settings.provider.presetHint":
+    "Same card layout as above — pick a vendor to prefill URL and models, then enter your API key.",
+  "settings.provider.addBlank": "Custom / blank",
+  "settings.provider.modelsHint":
+    "Press Enter or Add. You can paste several IDs separated by commas.",
+  "settings.provider.fetchModels": "Fetch from API",
+  "settings.provider.fetchingModels": "Fetching…",
+  "settings.provider.fetchModelsFailed": "Could not list models from this endpoint.",
+  "settings.provider.urlPlaceholder": "https://api.example.com/v1",
   "settings.provider.save": "Save Settings",
   "settings.provider.saved": "Settings saved successfully",
   "settings.provider.back": "Back",
   "settings.provider.name": "Provider Name",
   "settings.provider.namePlaceholder": "e.g. Ollama, OpenRouter",
-  "settings.provider.add": "Add Custom Provider",
+  "settings.provider.add": "Add",
   "settings.provider.delete": "Delete Provider",
   "settings.provider.deleteConfirm": "Are you sure you want to delete this provider?",
 
@@ -211,7 +239,7 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
     "Adjust window opacity and enable frosted glass background.",
   "settings.fields.primaryHotkey.title": "Primary shortcut",
   "settings.fields.primaryHotkey.description":
-    "Record the modifier to open AAAi with two quick taps (short presses). Turn off the switch to stop listening for this global shortcut. Default: double Alt.",
+    "Record the modifier to open Anya with two quick taps (short presses). Turn off the switch to stop listening for this global shortcut. Default: double Alt.",
   "settings.fields.secondaryHotkey.title": "Secondary shortcut",
   "settings.fields.secondaryHotkey.description":
     "Record a backup shortcut for apps that steal double-Alt (e.g. IDEA). Turn off the switch to stop listening for this global shortcut. Default: Ctrl+Alt+Space.",
@@ -241,7 +269,10 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
     "Show model reasoning in chat when the provider supplies it.",
   "settings.fields.passToolReasoning.title": "Pass tool-turn reasoning",
   "settings.fields.passToolReasoning.description":
-    "Include reasoning_content on assistant turns with tool_calls (required by DeepSeek thinking + tools; turning off may cause 400 errors).",
+    "Include reasoning text on assistant turns with tool calls (needed for thinking + tools; turning off may cause request errors).",
+  "settings.fields.continueThinkingAfterTools.title": "Continue thinking after tools",
+  "settings.fields.continueThinkingAfterTools.description":
+    "Keep thinking on for every agent round after tools (default). Turn off to skip thinking on later rounds and save tokens.",
   "settings.fields.memoryEnabled.title": "Enable memory",
   "settings.fields.memoryEnabled.description":
     "Recall relevant memories and save durable preferences and project rules.",
@@ -281,10 +312,10 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
     "When enabled, each turn injects a YAGNI ladder: reuse existing code, prefer stdlib/native features, and write the smallest correct change without cutting safety or validation.",
   "settings.fields.pixpinPinAiEnabled.title": "PixPin pin badge",
   "settings.fields.pixpinPinAiEnabled.description":
-    "When a PixPin pin is on screen, show a small AI badge at its bottom-right. Click to open AAAi with that image attached.",
+    "When a PixPin pin is on screen, show a small AI badge at its bottom-right. Click to open Anya with that image attached.",
   "settings.fields.snipastePinAiEnabled.title": "Snipaste pin badge",
   "settings.fields.snipastePinAiEnabled.description":
-    "When a Snipaste pin is on screen, show a small AI badge at its bottom-right. Click to open AAAi with that image attached.",
+    "When a Snipaste pin is on screen, show a small AI badge at its bottom-right. Click to open Anya with that image attached.",
   "settings.fields.appName.title": "Application Name",
   "settings.fields.appName.description": "The installed application name.",
   "settings.fields.appVersion.title": "Version",
@@ -366,18 +397,30 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.custom": "自定义提供商",
     "settings.provider.title": "模型提供商配置",
     "settings.provider.description":
-      "配置 DeepSeek、Gemini（Antigravity）或自定义 OpenAI 兼容提供商。",
+      "配置 DeepSeek、Gemini，或小米 MiMo / Kimi / 智谱 / MiniMax / 火山方舟等 OpenAI 兼容厂商。",
     "settings.provider.apiKey": "API Key",
     "settings.provider.baseUrl": "Base URL",
     "settings.provider.modelsList": "模型列表",
-    "settings.provider.modelsPlaceholder":
-      "请输入模型 ID，例如 gpt-4o, llama3（使用逗号或换行分隔）",
+    "settings.provider.modelsPlaceholder": "模型 ID，例如 gpt-4o",
+    "settings.provider.addModel": "添加",
+    "settings.provider.modelsEmpty": "暂无模型",
+    "settings.provider.removeModel": "移除模型",
+    "settings.provider.configured": "已配置",
+    "settings.provider.notConfigured": "未配置",
+    "settings.provider.presets": "添加提供商",
+    "settings.provider.presetHint": "与上方卡片同款布局 — 点选厂商预填地址与模型，再填写 API Key。",
+    "settings.provider.addBlank": "自定义 / 空白",
+    "settings.provider.modelsHint": "回车或点添加。也可粘贴多个 ID，用逗号分隔。",
+    "settings.provider.fetchModels": "从接口拉取",
+    "settings.provider.fetchingModels": "拉取中…",
+    "settings.provider.fetchModelsFailed": "无法从该接口列出模型。",
+    "settings.provider.urlPlaceholder": "https://api.example.com/v1",
     "settings.provider.save": "保存设置",
     "settings.provider.saved": "设置保存成功",
     "settings.provider.back": "返回",
     "settings.provider.name": "提供商名称",
     "settings.provider.namePlaceholder": "例如 Ollama, OpenRouter",
-    "settings.provider.add": "添加自定义提供商",
+    "settings.provider.add": "添加",
     "settings.provider.delete": "删除提供商",
     "settings.provider.deleteConfirm": "确定要删除此提供商吗？",
 
@@ -402,7 +445,7 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.opacity.description": "调整窗口背景透明度与毛玻璃效果。",
     "settings.fields.primaryHotkey.title": "主快捷键",
     "settings.fields.primaryHotkey.description":
-      "录制用于打开 AAAi 的修饰键：需快速连按两下短按才会弹出。关闭开关后不再监听该全局快捷键。默认：双击 Alt。",
+      "录制用于打开 Anya 的修饰键：需快速连按两下短按才会弹出。关闭开关后不再监听该全局快捷键。默认：双击 Alt。",
     "settings.fields.secondaryHotkey.title": "副快捷键",
     "settings.fields.secondaryHotkey.description":
       "为会抢走双击 Alt 的应用（如 IDEA）录制备用快捷键。关闭开关后不再监听该全局快捷键。默认：Ctrl+Alt+Space。",
@@ -428,7 +471,10 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.showReasoning.description": "模型提供推理内容时，在聊天中显示思考过程。",
     "settings.fields.passToolReasoning.title": "工具轮次回传推理",
     "settings.fields.passToolReasoning.description":
-      "开启后，含 tool_calls 的 assistant 轮次会把 reasoning_content 带回 API（DeepSeek Thinking + 工具所必需；关闭可能导致 400）。",
+      "开启后，含 tool_calls 的 assistant 轮次会把推理内容带回 API（思考 + 工具协议需要；关闭可能导致请求失败）。",
+    "settings.fields.continueThinkingAfterTools.title": "续轮思考",
+    "settings.fields.continueThinkingAfterTools.description":
+      "工具执行后的每一轮继续开启思考（默认开启）。关闭后后续轮次跳过思考以节省 token。",
     "settings.fields.memoryEnabled.title": "启用记忆",
     "settings.fields.memoryEnabled.description":
       "自动召回相关记忆，并按规则保存长期偏好与项目约定。",
@@ -465,10 +511,10 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
       "开启后，每轮对话注入 YAGNI 决策阶梯：优先复用现有代码与标准库/原生能力，只写最小正确改动，且不砍安全与校验。",
     "settings.fields.pixpinPinAiEnabled.title": "PixPin 贴图角标",
     "settings.fields.pixpinPinAiEnabled.description":
-      "检测到 PixPin 贴图时，在其右下角显示 AI 角标。点击后打开 AAAi 并将该图片附加到消息中。",
+      "检测到 PixPin 贴图时，在其右下角显示 AI 角标。点击后打开 Anya 并将该图片附加到消息中。",
     "settings.fields.snipastePinAiEnabled.title": "Snipaste 贴图角标",
     "settings.fields.snipastePinAiEnabled.description":
-      "检测到 Snipaste 贴图时，在其右下角显示 AI 角标。点击后打开 AAAi 并将该图片附加到消息中。",
+      "检测到 Snipaste 贴图时，在其右下角显示 AI 角标。点击后打开 Anya 并将该图片附加到消息中。",
     "settings.fields.appName.title": "Application Name",
     "settings.fields.appName.description": "应用名称",
     "settings.fields.appVersion.title": "Version",
@@ -528,16 +574,26 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.apiKey": "API キー",
     "settings.provider.baseUrl": "ベース URL",
     "settings.provider.modelsList": "モデルリスト",
-    "settings.provider.modelsPlaceholder":
-      "モデルIDを入力（カンマまたは改行で区切る、例: gpt-4o, llama3）",
+    "settings.provider.modelsPlaceholder": "モデルID（例: gpt-4o）",
+    "settings.provider.addModel": "追加",
+    "settings.provider.modelsEmpty": "モデルなし",
+    "settings.provider.removeModel": "モデルを削除",
+    "settings.provider.configured": "設定済み",
+    "settings.provider.notConfigured": "未設定",
+    "settings.provider.presets": "クイック追加",
+    "settings.provider.presetHint":
+      "ベンダーを選ぶと Base URL とモデル候補が入ります。API Key を入力してください。",
+    "settings.provider.addBlank": "空白",
+    "settings.provider.modelsHint": "Enter または追加。カンマ区切りで複数貼り付け可。",
+    "settings.provider.urlPlaceholder": "https://api.example.com/v1",
     "settings.provider.save": "設定を保存",
-    "settings.provider.saved": "設定が正常に保存されました",
+    "settings.provider.saved": "設定を保存しました",
     "settings.provider.back": "戻る",
     "settings.provider.name": "プロバイダー名",
     "settings.provider.namePlaceholder": "例: Ollama, OpenRouter",
-    "settings.provider.add": "カスタムプロバイダーを追加",
+    "settings.provider.add": "追加",
     "settings.provider.delete": "プロバイダーを削除",
-    "settings.provider.deleteConfirm": "このプロバイダーを削除してもよろしいですか？",
+    "settings.provider.deleteConfirm": "このプロバイダーを削除しますか？",
 
     "settings.groups.appearance": "外観",
     "settings.groups.ai": "DeepSeek",
@@ -570,6 +626,9 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.passToolReasoning.title": "ツール回合の推論を返す",
     "settings.fields.passToolReasoning.description":
       "tool_calls 付きの assistant ターンで reasoning_content を API に戻します（Thinking + ツールで必須。オフにすると 400 になる場合があります）。",
+    "settings.fields.continueThinkingAfterTools.title": "ツール後も思考を続ける",
+    "settings.fields.continueThinkingAfterTools.description":
+      "ツール実行後の各ラウンドでも思考を続けます（既定でオン）。オフにすると後続ラウンドの思考を省略してトークンを節約します。",
     "settings.fields.memoryEnabled.title": "メモリを有効化",
     "settings.fields.memoryEnabled.description":
       "関連するメモリを呼び出し、長期的な設定やプロジェクトルールを保存します。",
@@ -655,16 +714,27 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.apiKey": "API ключ",
     "settings.provider.baseUrl": "Базовый URL",
     "settings.provider.modelsList": "Список моделей",
-    "settings.provider.modelsPlaceholder":
-      "Введите ID моделей, например gpt-4o, llama3 (через запятую или новую строку)",
+    "settings.provider.modelsPlaceholder": "ID модели, напр. gpt-4o",
+    "settings.provider.addModel": "Добавить",
+    "settings.provider.modelsEmpty": "Моделей пока нет",
+    "settings.provider.removeModel": "Удалить модель",
+    "settings.provider.configured": "Настроен",
+    "settings.provider.notConfigured": "Не настроен",
+    "settings.provider.presets": "Быстрое добавление",
+    "settings.provider.presetHint":
+      "Выберите вендора, чтобы заполнить Base URL и модели, затем вставьте API-ключ.",
+    "settings.provider.addBlank": "Пустой",
+    "settings.provider.modelsHint":
+      "Enter или Добавить. Можно вставить несколько ID через запятую.",
+    "settings.provider.urlPlaceholder": "https://api.example.com/v1",
     "settings.provider.save": "Сохранить настройки",
     "settings.provider.saved": "Настройки успешно сохранены",
     "settings.provider.back": "Назад",
     "settings.provider.name": "Имя провайдера",
     "settings.provider.namePlaceholder": "например, Ollama, OpenRouter",
-    "settings.provider.add": "Добавить провайдера",
+    "settings.provider.add": "Добавить",
     "settings.provider.delete": "Удалить провайдера",
-    "settings.provider.deleteConfirm": "Вы уверены, что хотите удалить этого провайдера?",
+    "settings.provider.deleteConfirm": "Удалить этого провайдера?",
 
     "settings.groups.appearance": "Внешний вид",
     "settings.groups.ai": "DeepSeek",
@@ -697,6 +767,9 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.passToolReasoning.title": "Возврат reasoning в tool-ходах",
     "settings.fields.passToolReasoning.description":
       "Передавать reasoning_content для assistant-ходов с tool_calls (нужно для DeepSeek thinking + tools; выключение может дать 400).",
+    "settings.fields.continueThinkingAfterTools.title": "Продолжать рассуждения после tools",
+    "settings.fields.continueThinkingAfterTools.description":
+      "Сохранять рассуждения в каждом раунде после tools (по умолчанию вкл.). Выключите, чтобы пропускать рассуждения и экономить токены.",
     "settings.fields.memoryEnabled.title": "Включить память",
     "settings.fields.memoryEnabled.description":
       "Находит связанную память и сохраняет долгосрочные предпочтения и правила проекта.",
@@ -784,16 +857,26 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.apiKey": "API-Schlüssel",
     "settings.provider.baseUrl": "Basis-URL",
     "settings.provider.modelsList": "Modellliste",
-    "settings.provider.modelsPlaceholder":
-      "Modell-IDs eingeben, z.B. gpt-4o, llama3 (durch Komma oder Zeilenumbruch getrennt)",
+    "settings.provider.modelsPlaceholder": "Modell-ID, z.B. gpt-4o",
+    "settings.provider.addModel": "Hinzufügen",
+    "settings.provider.modelsEmpty": "Noch keine Modelle",
+    "settings.provider.removeModel": "Modell entfernen",
+    "settings.provider.configured": "Konfiguriert",
+    "settings.provider.notConfigured": "Nicht konfiguriert",
+    "settings.provider.presets": "Schnell hinzufügen",
+    "settings.provider.presetHint":
+      "Anbieter wählen, um Base URL und Modelle vorzufüllen — dann API-Key einfügen.",
+    "settings.provider.addBlank": "Leer",
+    "settings.provider.modelsHint": "Enter oder Hinzufügen. Mehrere IDs per Komma einfügen.",
+    "settings.provider.urlPlaceholder": "https://api.example.com/v1",
     "settings.provider.save": "Einstellungen speichern",
-    "settings.provider.saved": "Einstellungen erfolgreich gespeichert",
+    "settings.provider.saved": "Einstellungen gespeichert",
     "settings.provider.back": "Zurück",
     "settings.provider.name": "Anbietername",
     "settings.provider.namePlaceholder": "z.B. Ollama, OpenRouter",
-    "settings.provider.add": "Anbieter hinzufügen",
+    "settings.provider.add": "Hinzufügen",
     "settings.provider.delete": "Anbieter löschen",
-    "settings.provider.deleteConfirm": "Sind Sie sicher, dass Sie diesen Anbieter löschen möchten?",
+    "settings.provider.deleteConfirm": "Diesen Anbieter wirklich löschen?",
 
     "settings.groups.appearance": "Darstellung",
     "settings.groups.ai": "DeepSeek",
@@ -828,6 +911,9 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.passToolReasoning.title": "Tool-Runden-Reasoning zurückgeben",
     "settings.fields.passToolReasoning.description":
       "reasoning_content bei Assistant-Turns mit tool_calls mitsenden (für DeepSeek Thinking + Tools nötig; Aus kann zu 400 führen).",
+    "settings.fields.continueThinkingAfterTools.title": "Weiterdenken nach Tools",
+    "settings.fields.continueThinkingAfterTools.description":
+      "Thinking in jeder Agent-Runde nach Tools belassen (Standard an). Ausschalten spart Tokens, indem spaetere Runden ohne Thinking laufen.",
     "settings.fields.memoryEnabled.title": "Speicher aktivieren",
     "settings.fields.memoryEnabled.description":
       "Ruft relevante Erinnerungen ab und speichert dauerhafte Einstellungen und Projektregeln.",
@@ -916,16 +1002,26 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.apiKey": "Clé API",
     "settings.provider.baseUrl": "URL de base",
     "settings.provider.modelsList": "Liste des modèles",
-    "settings.provider.modelsPlaceholder":
-      "Entrez les ID de modèles, ex. gpt-4o, llama3 (séparés par des virgules ou retours à la ligne)",
+    "settings.provider.modelsPlaceholder": "ID du modèle, ex. gpt-4o",
+    "settings.provider.addModel": "Ajouter",
+    "settings.provider.modelsEmpty": "Aucun modèle",
+    "settings.provider.removeModel": "Retirer le modèle",
+    "settings.provider.configured": "Configuré",
+    "settings.provider.notConfigured": "Non configuré",
+    "settings.provider.presets": "Ajout rapide",
+    "settings.provider.presetHint":
+      "Choisissez un fournisseur pour préremplir l’URL et les modèles, puis collez la clé API.",
+    "settings.provider.addBlank": "Vide",
+    "settings.provider.modelsHint": "Entrée ou Ajouter. Plusieurs ID séparés par des virgules.",
+    "settings.provider.urlPlaceholder": "https://api.example.com/v1",
     "settings.provider.save": "Enregistrer les paramètres",
-    "settings.provider.saved": "Paramètres enregistrés avec succès",
+    "settings.provider.saved": "Paramètres enregistrés",
     "settings.provider.back": "Retour",
     "settings.provider.name": "Nom du fournisseur",
     "settings.provider.namePlaceholder": "ex. Ollama, OpenRouter",
-    "settings.provider.add": "Ajouter un fournisseur",
+    "settings.provider.add": "Ajouter",
     "settings.provider.delete": "Supprimer le fournisseur",
-    "settings.provider.deleteConfirm": "Êtes-vous sûr de vouloir supprimer ce fournisseur?",
+    "settings.provider.deleteConfirm": "Supprimer ce fournisseur ?",
 
     "settings.groups.appearance": "Apparence",
     "settings.groups.ai": "DeepSeek",
@@ -963,6 +1059,9 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.passToolReasoning.title": "Renvoyer le raisonnement des tours d\u2019outils",
     "settings.fields.passToolReasoning.description":
       "Inclure reasoning_content sur les tours assistant avec tool_calls (requis pour DeepSeek thinking + tools ; le désactiver peut provoquer une erreur 400).",
+    "settings.fields.continueThinkingAfterTools.title": "Continuer a reflechir apres les outils",
+    "settings.fields.continueThinkingAfterTools.description":
+      "Garder la reflexion active a chaque tour apres les outils (active par defaut). Desactiver pour economiser des tokens.",
     "settings.fields.memoryEnabled.title": "Activer la mémoire",
     "settings.fields.memoryEnabled.description":
       "Rappelle les souvenirs pertinents et enregistre les préférences durables et les règles du projet.",
@@ -1053,16 +1152,26 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.provider.apiKey": "API 키",
     "settings.provider.baseUrl": "기본 URL",
     "settings.provider.modelsList": "모델 목록",
-    "settings.provider.modelsPlaceholder":
-      "모델 ID 입력 (쉼표 또는 줄바꿈으로 구분, 예: gpt-4o, llama3)",
+    "settings.provider.modelsPlaceholder": "모델 ID, 예: gpt-4o",
+    "settings.provider.addModel": "추가",
+    "settings.provider.modelsEmpty": "모델 없음",
+    "settings.provider.removeModel": "모델 제거",
+    "settings.provider.configured": "구성됨",
+    "settings.provider.notConfigured": "미구성",
+    "settings.provider.presets": "빠른 추가",
+    "settings.provider.presetHint":
+      "공급자를 선택하면 Base URL과 모델이 채워집니다. API Key를 입력하세요.",
+    "settings.provider.addBlank": "빈 항목",
+    "settings.provider.modelsHint": "Enter 또는 추가. 쉼표로 여러 ID를 붙여넣을 수 있습니다.",
+    "settings.provider.urlPlaceholder": "https://api.example.com/v1",
     "settings.provider.save": "설정 저장",
-    "settings.provider.saved": "설정이 성공적으로 저장되었습니다",
+    "settings.provider.saved": "설정이 저장되었습니다",
     "settings.provider.back": "이전",
     "settings.provider.name": "제공자 이름",
     "settings.provider.namePlaceholder": "예: Ollama, OpenRouter",
-    "settings.provider.add": "사용자 정의 제공자 추가",
+    "settings.provider.add": "추가",
     "settings.provider.delete": "제공자 삭제",
-    "settings.provider.deleteConfirm": "이 제공자를 삭제하시겠습니까?",
+    "settings.provider.deleteConfirm": "이 제공자를 삭제할까요?",
 
     "settings.groups.appearance": "모양",
     "settings.groups.ai": "DeepSeek",
@@ -1094,6 +1203,9 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.passToolReasoning.title": "도구 턴 추론 회수",
     "settings.fields.passToolReasoning.description":
       "tool_calls가 있는 assistant 턴에 reasoning_content를 API로 다시 보냅니다(DeepSeek Thinking + 도구에 필요; 끄면 400이 날 수 있음).",
+    "settings.fields.continueThinkingAfterTools.title": "도구 이후에도 계속 사고",
+    "settings.fields.continueThinkingAfterTools.description":
+      "도구 실행 후 매 라운드에서도 사고를 유지합니다(기본 켜짐). 끄면 이후 라운드 사고를 건너뛰어 토큰을 절약합니다.",
     "settings.fields.memoryEnabled.title": "메모리 사용",
     "settings.fields.memoryEnabled.description":
       "관련 메모리를 불러오고 장기 환경설정과 프로젝트 규칙을 저장합니다.",
@@ -1173,7 +1285,8 @@ const settingsFieldPaths: Record<"zh-CN" | "en-US", Partial<Record<SettingFieldI
     reasoningEffort: "AI › DeepSeek › Reasoning Effort",
     reasoningLanguage: "AI › DeepSeek › Reasoning Language",
     showReasoning: "AI › Chat › Reasoning Display",
-    passToolReasoning: "AI › DeepSeek › Tool Reasoning",
+    passToolReasoning: "AI › Reasoning › Tool History",
+    continueThinkingAfterTools: "AI › Reasoning › Continue After Tools",
     memoryEnabled: "Memory / mem0 / Enabled",
     mem0ApiKey: "Memory / mem0 / API Key",
     mem0UserId: "Memory / mem0 / User ID",
@@ -1209,7 +1322,8 @@ const settingsFieldPaths: Record<"zh-CN" | "en-US", Partial<Record<SettingFieldI
     reasoningEffort: "AI › DeepSeek › Reasoning Effort",
     reasoningLanguage: "AI › DeepSeek › Reasoning Language",
     showReasoning: "AI › 聊天 › 思考过程显示",
-    passToolReasoning: "AI › DeepSeek › Tool Reasoning",
+    passToolReasoning: "AI › 推理 › 工具历史",
+    continueThinkingAfterTools: "AI › 推理 › 续轮思考",
     memoryEnabled: "记忆 / mem0 / 启用",
     mem0ApiKey: "记忆 / mem0 / API Key",
     mem0UserId: "记忆 / mem0 / User ID",
@@ -1266,7 +1380,8 @@ const settingsFieldKeywords: Record<
     reasoningEffort: ["reasoning", "effort", "thinking", "deepseek"],
     reasoningLanguage: ["reasoning", "language", "response"],
     showReasoning: ["reasoning", "thinking", "display", "chat"],
-    passToolReasoning: ["reasoning", "tool", "passthrough", "thinking", "deepseek"],
+    passToolReasoning: ["reasoning", "tool", "passthrough", "thinking"],
+    continueThinkingAfterTools: ["reasoning", "thinking", "continue", "tools", "token"],
     memoryEnabled: ["memory", "enabled", "mem0"],
     mem0ApiKey: ["memory", "mem0", "api", "key"],
     mem0UserId: ["memory", "mem0", "user", "id"],
@@ -1302,7 +1417,8 @@ const settingsFieldKeywords: Record<
     reasoningEffort: ["reasoning", "effort", "思考", "推理", "deepseek"],
     reasoningLanguage: ["reasoning", "language", "推理语言", "回答语言"],
     showReasoning: ["思考过程", "推理", "显示", "reasoning", "thinking"],
-    passToolReasoning: ["reasoning", "tool", "工具", "回传", "thinking", "deepseek"],
+    passToolReasoning: ["reasoning", "tool", "工具", "回传", "thinking"],
+    continueThinkingAfterTools: ["续轮", "思考", "工具", "token", "thinking", "continue"],
     memoryEnabled: ["记忆", "启用", "memory", "mem0"],
     mem0ApiKey: ["记忆", "mem0", "api", "key", "密钥"],
     mem0UserId: ["记忆", "mem0", "user", "id", "用户"],

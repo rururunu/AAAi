@@ -3,10 +3,10 @@
 
 物化后用法（在工作区根目录）::
 
-    python .aaai/bid_tech/cli.py inspect path/to/file.docx
-    python .aaai/bid_tech/cli.py gate path/to/file.docx --plan .aaai/bid_plan.json
-    python .aaai/bid_tech/cli.py align path/to/file.docx --checklist .aaai/bid_align.json
-    python .aaai/bid_tech/cli.py outline --out .aaai/bid_plan_outline.md
+    python .anya/bid_tech/cli.py inspect path/to/file.docx
+    python .anya/bid_tech/cli.py gate path/to/file.docx --plan .anya/bid_plan.json
+    python .anya/bid_tech/cli.py align path/to/file.docx --checklist .anya/bid_align.json
+    python .anya/bid_tech/cli.py outline --out .anya/bid_plan_outline.md
 """
 
 from __future__ import annotations
@@ -49,19 +49,19 @@ def main(argv: list[str] | None = None) -> int:
 
     p_outline = sub.add_parser("outline", help="写出默认章节大纲")
     p_outline.add_argument("--project", default="技术标-综合评分技术部分")
-    p_outline.add_argument("--out", default=".aaai/bid_plan_outline.md")
-    p_outline.add_argument("--plan-json", default=".aaai/bid_plan.json")
+    p_outline.add_argument("--out", default=".anya/bid_plan_outline.md")
+    p_outline.add_argument("--plan-json", default=".anya/bid_plan.json")
 
     p_ref = sub.add_parser("reference", help="从参考 docx 提取可迁移画像")
     p_ref.add_argument("docx")
-    p_ref.add_argument("--out", default=".aaai/ref_profile.json")
+    p_ref.add_argument("--out", default=".anya/ref_profile.json")
     p_ref.add_argument("--print", action="store_true", help="同时打印摘要")
 
     p_pfr = sub.add_parser("plan-from-ref", help="用参考画像生成/校准 bid_plan.json")
-    p_pfr.add_argument("--profile", default=".aaai/ref_profile.json")
+    p_pfr.add_argument("--profile", default=".anya/ref_profile.json")
     p_pfr.add_argument("--project", default="技术标-综合评分技术部分")
-    p_pfr.add_argument("--out", default=".aaai/bid_plan.json")
-    p_pfr.add_argument("--outline", default=".aaai/bid_plan_outline.md")
+    p_pfr.add_argument("--out", default=".anya/bid_plan.json")
+    p_pfr.add_argument("--outline", default=".anya/bid_plan_outline.md")
 
     args = parser.parse_args(argv)
 

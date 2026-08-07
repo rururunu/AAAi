@@ -337,7 +337,7 @@ fn extract_path_from_args(arguments: &str) -> Option<String> {
         })
 }
 
-fn push_challenge_message(
+pub(crate) fn push_challenge_message(
     request: &mut ChatRequest,
     user_msg_index: &mut Option<usize>,
     feedback: &str,
@@ -561,7 +561,6 @@ mod tests {
         let mut gate = CompletionGate::new();
         let outcome = ToolOutcome {
             call_id: "1".into(),
-            activity_id: "tool-1".into(),
             tool_name: "read_file".into(),
             arguments: r#"{"path":"a.rs"}"#.into(),
             result: "ok".into(),

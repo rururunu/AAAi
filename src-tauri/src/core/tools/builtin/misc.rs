@@ -254,7 +254,7 @@ impl Tool for RebuildCodebaseIndexTool {
         "rebuild_codebase_index"
     }
     fn description(&self) -> &str {
-        "Rebuild the workspace symbol/path index under .aaai/index. Use after large refactors when search_codebase looks stale."
+        "Rebuild the workspace symbol/path index under .anya/index. Use after large refactors when search_codebase looks stale."
     }
     fn parameters_schema(&self) -> Value {
         json!({ "type": "object", "properties": {} })
@@ -263,6 +263,6 @@ impl Tool for RebuildCodebaseIndexTool {
         let index = crate::core::tools::workspace_index::WorkspaceIndex::open(&ctx.workspace_root)
             .map_err(ToolError::new)?;
         let count = index.rebuild().map_err(ToolError::new)?;
-        Ok(format!("indexed {count} records into .aaai/index"))
+        Ok(format!("indexed {count} records into .anya/index"))
     }
 }

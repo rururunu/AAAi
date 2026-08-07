@@ -48,7 +48,17 @@ pub(super) fn resolve_multimodal_endpoint(
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .collect();
-        if !custom_ids.contains(&mm_model) {
+        let hint_matches = !provider_hint.is_empty() && custom.id == provider_hint;
+        let configured = !custom.api_key.trim().is_empty() && !custom.base_url.trim().is_empty();
+        if !hint_matches && !custom_ids.contains(&mm_model) {
+            continue;
+        }
+        if !configured {
+            if hint_matches {
+                return Err(ProviderError::message(
+                    "API Key / Base URL for the multimodal provider is not configured. Please set it in Settings.",
+                ));
+            }
             continue;
         }
         if custom.api_key.trim().is_empty() {
@@ -101,7 +111,7 @@ pub(crate) fn multimodal_transport_error_message(error: &reqwest::Error) -> Stri
     } else if lower.contains("connection refused") {
         "Connection refused: the provider address is unreachable, or the local proxy port is not running."
     } else if lower.contains("error sending request") {
-        "Could not establish a network connection to the multimodal provider. If you use Clash/V2Ray (especially fake-ip mode), enable the system proxy or add AAAi to proxy rules and retry."
+        "Could not establish a network connection to the multimodal provider. If you use Clash/V2Ray (especially fake-ip mode), enable the system proxy or add Anya to proxy rules and retry."
     } else {
         "The network request could not be sent. Check network, system proxy, and the multimodal Base URL."
     };

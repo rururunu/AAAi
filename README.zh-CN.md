@@ -1,10 +1,10 @@
-# AAAi
+# Anya
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" alt="AAAi" width="112" height="112" />
+  <img src="src-tauri/icons/icon.png" alt="Anya" width="112" height="112" />
 </p>
 
-<h2 align="center">在 Windows 上随时唤出的 AI 对话与编码助手</h2>
+<h2 align="center">将你的工作&疑问随手交给Anya</h2>
 
 <p align="center">
   双击 <kbd>Alt</kbd>，在任意应用中唤出悬浮窗。
@@ -18,7 +18,7 @@
 
 <p align="center">
   <img alt="platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" />
-  <img alt="release" src="https://img.shields.io/badge/version-v0.2.1-4D6BFE?style=flat-square" />
+  <img alt="release" src="https://img.shields.io/badge/version-v0.2.2-4D6BFE?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-Unlicense-3DA639?style=flat-square" />
   <img alt="stack" src="https://img.shields.io/badge/Tauri%202%20%2B%20Vue%203%20%2B%20Rust-black?style=flat-square" />
 </p>
@@ -41,17 +41,17 @@ English docs: [README.md](./README.md) · [Architecture](./docs/architecture-ove
 在任意应用中双击 <kbd>Alt</kbd> 即可显示或隐藏悬浮窗。直接提问、追问，并在输入栏下方切换 Agent / 模型 / 审批策略。
 
 <p align="center">
-  <img src="./docs/image/Alt%2BAlt.png" alt="AAAi 悬浮窗对话" width="560" />
+  <img src="./docs/image/Alt%2BAlt.png" alt="Anya 悬浮窗对话" width="560" />
 </p>
 
-AAAi 会尝试读取当前文本选区或资源管理器选中项；也可将图片与文件粘贴 / 拖入输入框。
+Anya 会尝试读取当前文本选区或资源管理器选中项；也可将图片与文件粘贴 / 拖入输入框。
 
 <p align="center">
-  <img src="./docs/image/select_text_recognition.webp" alt="选中文本后唤出 AAAi 并识别上下文" width="800" />
+  <img src="./docs/image/select_text_recognition.webp" alt="选中文本后唤出 Anya 并识别上下文" width="800" />
 </p>
 
 <p align="center">
-  <img src="./docs/image/select_image_recognition.webp" alt="选中图片后唤出 AAAi 并附加图片" width="800" />
+  <img src="./docs/image/select_image_recognition.webp" alt="选中图片后唤出 Anya 并附加图片" width="800" />
 </p>
 
 在 IDE 外唤出时，会话会作为**临时快速提问**，不会绑定工作区，避免写入旧项目。
@@ -61,10 +61,10 @@ AAAi 会尝试读取当前文本选区或资源管理器选中项；也可将图
 
 ### IDE 上下文插件
 
-安装配套插件后，VS Code / IntelliJ 可将当前文件、工作区、语言与选区推送到本机 AAAi（尽力而为；AAAi 未运行时不影响编辑器）。
+安装配套插件后，VS Code / IntelliJ 可将当前文件、工作区、语言与选区推送到本机 Anya（尽力而为；Anya 未运行时不影响编辑器）。
 
-- [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=AAAi.aaai-ide-context)
-- [IntelliJ Platform](https://plugins.jetbrains.com/plugin/33163-aaai-ide-context)
+- [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=Anya.anya-ide-context)
+- [IntelliJ Platform](https://plugins.jetbrains.com/plugin/33163-anya-ide-context)
 
 ---
 
@@ -73,7 +73,7 @@ AAAi 会尝试读取当前文本选区或资源管理器选中项；也可将图
 工作台是完整的桌面界面。悬浮窗里的临时快速提问会出现在这里，与置顶会话、项目工作区放在一起，方便同时沟通与切换管理。
 
 <p align="center">
-  <img src="./docs/image/workspace.png" alt="AAAi 工作台：置顶、工作区与快速提问" width="900" />
+  <img src="./docs/image/workspace.png" alt="Anya 工作台：置顶、工作区与快速提问" width="900" />
 </p>
 
 - **置顶** — 重要会话固定在上方。
@@ -82,7 +82,7 @@ AAAi 会尝试读取当前文本选区或资源管理器选中项；也可将图
 
 ### 审查变更
 
-Agent 修改文件后，AAAi 会给出按文件汇总，并提供 Diff 视图，方便逐处核对增删。
+Agent 修改文件后，Anya 会给出按文件汇总，并提供 Diff 视图，方便逐处核对增删。
 
 <p align="center">
   <img src="./docs/image/workspace-diff.png" alt="在 Diff 面板中审查 Agent 的文件变更" width="900" />
@@ -90,7 +90,7 @@ Agent 修改文件后，AAAi 会给出按文件汇总，并提供 Diff 视图，
 
 - 任务列表与验证结果仍留在对话时间线中。
 - 点击 **审查** 可查看并排或统一 Diff。
-- 当前会话内由 AAAi 应用的变更支持撤销（检查点）。
+- 当前会话内由 Anya 应用的变更支持撤销（检查点）。
 
 ### 设置
 
@@ -131,7 +131,7 @@ Ask 不开放写文件 / Shell / Git；Agent 在设置中的审批策略下开�
 - **Skills** — 内置与厂商技能（docx、pandoc、research、review、技术标等）以 playbook 形式加载，可按子 Agent 执行。
 - **MCP** — 连接 stdio / 远程 MCP 服务（含 Smithery 相关辅助）。
 - **LSP** — 配置后可提供语言服务诊断。
-- **贴图角标** — 可选为 PixPin / Snipaste 贴图启用 AAAi 角标，带着图片开聊。
+- **贴图角标** — 可选为 PixPin / Snipaste 贴图启用 Anya 角标，带着图片开聊。
 - **子 Agent** — 复杂任务可拆给子 Agent，进度仍汇总在主对话中。
 - **记忆** — 本地记忆工具；可选 mem0 云同步。
 - **网页搜索** — 配置 Serper 或 Tavily API Key 后可用。
@@ -176,7 +176,7 @@ API Key、OAuth 令牌、设置与聊天记录默认保存在本机。选区与�
 
 ## 技术架构（摘要）
 
-AAAi 为单进程 **Tauri 2** 应用：WebView2（Vue 3 + Pinia）负责呈现；Rust 宿主负责
+Anya 为单进程 **Tauri 2** 应用：WebView2（Vue 3 + Pinia）负责呈现；Rust 宿主负责
 OS 集成、聊天领域逻辑、模型 I/O 与工具执行。
 
 ```mermaid
@@ -188,7 +188,7 @@ flowchart TB
     PV[图片预览]
   end
 
-  subgraph Host["AAAi.exe — Rust 宿主"]
+  subgraph Host["Anya.exe — Rust 宿主"]
     CMD[commands / EventBus]
     CHAT[ChatService · StreamManager · AgentRunner]
     TOOLS[ToolRegistry · Skills · MCP · Office]
@@ -246,7 +246,7 @@ cd src-tauri && cargo test --lib
 pnpm tauri:build
 ```
 
-安装包输出至 `src-tauri/target/release/bundle/msi/`，文件名为 `AAAi_0.2.1_x64.msi`（无 `_en-US` 后缀）。
+安装包输出至 `src-tauri/target/release/bundle/msi/`，文件名为 `Anya_0.2.2_x64.msi`（无 `_en-US` 后缀）。
 
 发布与应用内更新见 [发布与远程更新](./docs/release.zh-CN.md) · [English](./docs/release.md)。
 

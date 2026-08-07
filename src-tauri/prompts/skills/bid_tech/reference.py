@@ -9,8 +9,8 @@
 
 用法::
 
-    python .aaai/bid_tech/cli.py reference path/to/参考.docx --out .aaai/ref_profile.json
-    python .aaai/bid_tech/cli.py plan-from-ref --profile .aaai/ref_profile.json --project 新项目
+    python .anya/bid_tech/cli.py reference path/to/参考.docx --out .anya/ref_profile.json
+    python .anya/bid_tech/cli.py plan-from-ref --profile .anya/ref_profile.json --project 新项目
 """
 
 from __future__ import annotations

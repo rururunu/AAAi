@@ -57,8 +57,8 @@ export function useWorkbenchSessions(options: UseWorkbenchSessionsOptions) {
     null,
   );
 
-  const sessionsWithLiveTokens = computed(() =>
-    sessions.value.map((session) => {
+  const sessionsWithLiveTokens = computed(() => {
+    const base = sessions.value.map((session) => {
       if (session.sessionId !== activeSessionId.value) return session;
       return {
         ...session,
@@ -67,8 +67,32 @@ export function useWorkbenchSessions(options: UseWorkbenchSessionsOptions) {
           0,
         ),
       };
-    }),
-  );
+    });
+    const knownIds = base.map((session) => session.sessionId);
+    // Touch compose map so draft-only sessions recompute when drafts change.
+    void chatStore.sessionCompose;
+    const draftOnly = chatStore.listDraftOnlySessions(knownIds).map((draft) => ({
+      sessionId: draft.sessionId,
+      workspaceId: draft.workspaceId,
+      preview: draft.preview,
+      messageCount: 0,
+      turnCount: 0,
+      estimatedTokens: 0,
+      updatedAt: draft.updatedAt,
+    }));
+    return [...draftOnly, ...base];
+  });
+
+  const draftSessionIds = computed(() => {
+    void chatStore.sessionCompose;
+    const ids: string[] = [];
+    for (const session of sessionsWithLiveTokens.value) {
+      if (chatStore.sessionHasDraft(session.sessionId)) {
+        ids.push(session.sessionId);
+      }
+    }
+    return ids;
+  });
   const quickAskSessions = computed(() =>
     sessionsWithLiveTokens.value.filter((session) => !session.workspaceId),
   );
@@ -131,6 +155,7 @@ export function useWorkbenchSessions(options: UseWorkbenchSessionsOptions) {
     const sessionId = createSessionId();
     chatStore.setSessionMessages(sessionId, []);
     chatStore.ensureCompose(sessionId);
+    chatStore.setComposeDraft(sessionId, "", { workspaceId });
     chatStore.setOverlayDraftSession(sessionId);
     activeSessionId.value = sessionId;
     activeSessionWorkspaceId.value = workspaceId;
@@ -160,14 +185,15 @@ export function useWorkbenchSessions(options: UseWorkbenchSessionsOptions) {
     cancelStagedEdit();
     clearSessionUnread(sessionId);
     const summary = sessions.value.find((session) => session.sessionId === sessionId);
-    activeSessionWorkspaceId.value = summary?.workspaceId ?? null;
-    if (summary?.workspaceId) {
-      await switchWorkspace(summary.workspaceId);
+    const compose = chatStore.ensureCompose(sessionId);
+    const workspaceId = summary?.workspaceId ?? compose.draftWorkspaceId ?? null;
+    activeSessionWorkspaceId.value = workspaceId;
+    if (workspaceId) {
+      await switchWorkspace(workspaceId);
     } else {
       await clearCurrentWorkspace();
     }
     activeSessionId.value = sessionId;
-    chatStore.ensureCompose(sessionId);
     chatStore.setOverlayDraftSession(sessionId);
     await chatStore.loadHistory(sessionId);
     await refreshCheckpoints();
@@ -183,14 +209,21 @@ export function useWorkbenchSessions(options: UseWorkbenchSessionsOptions) {
     });
     if (!confirmed) return;
     pendingStagedEdit.value = null;
-    await deleteChatSession(sessionId);
+    try {
+      await deleteChatSession(sessionId);
+    } catch (error) {
+      // Draft-only sessions may not exist on the backend yet.
+      console.warn("delete_chat_session skipped:", error);
+    }
     chatStore.removeCompose(sessionId);
     delete chatStore.sessions[sessionId];
     clearSessionUnread(sessionId);
     removePendingInteraction(sessionId);
     await refreshSessions();
     if (activeSessionId.value === sessionId) {
-      const next = sessions.value[0]?.sessionId;
+      const next = sessionsWithLiveTokens.value.find(
+        (session) => session.sessionId !== sessionId,
+      )?.sessionId;
       if (next) await selectConversation(next);
       else await createQuickConversation();
     }
@@ -287,6 +320,7 @@ export function useWorkbenchSessions(options: UseWorkbenchSessionsOptions) {
     checkpoints,
     pendingStagedEdit,
     sessionsWithLiveTokens,
+    draftSessionIds,
     quickAskSessions,
     sessionsByWorkspace,
     hasConversationMessages,

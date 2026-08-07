@@ -118,7 +118,39 @@ pub async fn list_chat_models(app: AppHandle) -> Result<Vec<ChatModelInfo>, Stri
     }
 
     for custom in &settings.custom_providers {
-        if !custom.base_url.trim().is_empty() && !custom.models.trim().is_empty() {
+        let base = custom.base_url.trim();
+        let key = custom.api_key.trim();
+        if base.is_empty() {
+            continue;
+        }
+
+        let mut remote_ok = false;
+        if !key.is_empty() {
+            let models_url = deepseek::normalize_models_url(base);
+            match deepseek::list_openai_compatible_models(
+                &models_url,
+                key,
+                &custom.id,
+                Some(&custom.name),
+            )
+            .await
+            {
+                Ok(models) if !models.is_empty() => {
+                    all_models.extend(models);
+                    remote_ok = true;
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    eprintln!(
+                        "custom provider {} list_models error: {error}",
+                        custom.name
+                    );
+                }
+            }
+        }
+
+        // Keep manually configured models when remote listing is unavailable.
+        if !remote_ok && !custom.models.trim().is_empty() {
             let custom_models: Vec<ChatModelInfo> = custom
                 .models
                 .split([',', '\n'])
@@ -144,6 +176,26 @@ pub async fn list_chat_models(app: AppHandle) -> Result<Vec<ChatModelInfo>, Stri
     }
 
     Ok(all_models)
+}
+
+#[tauri::command]
+pub async fn list_custom_provider_models(
+    base_url: String,
+    api_key: String,
+) -> Result<Vec<String>, String> {
+    let base = base_url.trim();
+    let key = api_key.trim();
+    if base.is_empty() {
+        return Err("Base URL is required".into());
+    }
+    if key.is_empty() {
+        return Err("API Key is required".into());
+    }
+    let models_url = deepseek::normalize_models_url(base);
+    let models = deepseek::list_openai_compatible_models(&models_url, key, "custom", None)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(models.into_iter().map(|model| model.id).collect())
 }
 
 #[tauri::command]
@@ -225,10 +277,10 @@ mod environment_context_tests {
     #[test]
     fn command_and_chat_service_use_equivalent_workspace_resolution() {
         let service_context = RequestContext {
-            active_file: Some(r"C:\code\AAAi\src\main.rs".to_string()),
+            active_file: Some(r"C:\code\Anya\src\main.rs".to_string()),
             workspace: Some(WorkspaceContext {
-                name: "AAAi".to_string(),
-                root: r"C:\code\AAAi".to_string(),
+                name: "Anya".to_string(),
+                root: r"C:\code\Anya".to_string(),
             }),
             git_status: Some("## main".to_string()),
             ..RequestContext::default()

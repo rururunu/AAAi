@@ -11,9 +11,9 @@ from pathlib import Path
 
 # cli / 示例与 package 同级时：父目录加入 path，从而 `import bid_tech`
 _HERE = Path(__file__).resolve().parent
-_AAAI = _HERE.parent
-if str(_AAAI) not in sys.path:
-    sys.path.insert(0, str(_AAAI))
+_ANYA = _HERE.parent
+if str(_ANYA) not in sys.path:
+    sys.path.insert(0, str(_ANYA))
 
 from bid_tech import align, gate, planner, style, tables  # noqa: E402
 

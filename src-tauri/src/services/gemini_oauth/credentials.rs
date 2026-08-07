@@ -11,8 +11,8 @@ const OAUTH_LOCAL_FILE_NAMES: &[&str] = &[
 ];
 const EMBEDDED_OAUTH_BYTES: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/agy-oauth-credentials.bin"));
-const EMBEDDED_OAUTH_MAGIC: &[u8] = b"AAAI-OAUTH-1";
-const EMBEDDED_OAUTH_KEY: &[u8] = b"AAAi-build-credential";
+const EMBEDDED_OAUTH_MAGIC: &[u8] = b"ANYA-OAUTH-1";
+const EMBEDDED_OAUTH_KEY: &[u8] = b"Anya-build-credential";
 
 #[derive(Debug, Clone)]
 pub(super) struct OAuthCredentials {
@@ -45,10 +45,10 @@ struct OAuthCredentialsBlock {
 }
 
 pub(super) fn load_oauth_credentials(app: &AppHandle) -> Result<OAuthCredentials, String> {
-    let env_client_id = std::env::var("AAAI_AGY_OAUTH_CLIENT_ID")
+    let env_client_id = std::env::var("ANYA_AGY_OAUTH_CLIENT_ID")
         .or_else(|_| std::env::var("AGY_OAUTH_CLIENT_ID"))
         .unwrap_or_default();
-    let env_client_secret = std::env::var("AAAI_AGY_OAUTH_CLIENT_SECRET")
+    let env_client_secret = std::env::var("ANYA_AGY_OAUTH_CLIENT_SECRET")
         .or_else(|_| std::env::var("AGY_OAUTH_CLIENT_SECRET"))
         .unwrap_or_default();
     if let Some(credentials) = normalize_oauth_credentials(env_client_id, env_client_secret) {
@@ -84,28 +84,41 @@ pub(super) fn load_oauth_credentials(app: &AppHandle) -> Result<OAuthCredentials
         .collect::<Vec<_>>()
         .join(", ");
     Err(format!(
-        "Missing Antigravity OAuth credentials. Create agy-oauth.local.json with client_id and client_secret, or set AAAI_AGY_OAUTH_CLIENT_ID / AAAI_AGY_OAUTH_CLIENT_SECRET. Searched: {searched}"
+        "Missing Antigravity OAuth credentials. Create agy-oauth.local.json with client_id and client_secret, or set ANYA_AGY_OAUTH_CLIENT_ID / ANYA_AGY_OAUTH_CLIENT_SECRET. Searched: {searched}"
     ))
 }
 
 fn embedded_oauth_credentials() -> Option<OAuthCredentials> {
-    let mut payload = EMBEDDED_OAUTH_BYTES.strip_prefix(EMBEDDED_OAUTH_MAGIC)?;
-    let client_id = read_obfuscated_field(&mut payload)?;
-    let client_secret = read_obfuscated_field(&mut payload)?;
+    decode_embedded_oauth(EMBEDDED_OAUTH_BYTES, EMBEDDED_OAUTH_MAGIC, EMBEDDED_OAUTH_KEY).or_else(
+        || {
+            // Previous brand used a different obfuscation key; keep reading those blobs.
+            decode_embedded_oauth(
+                EMBEDDED_OAUTH_BYTES,
+                b"AAAI-OAUTH-1",
+                b"AAAi-build-credential",
+            )
+        },
+    )
+}
+
+fn decode_embedded_oauth(bytes: &[u8], magic: &[u8], key: &[u8]) -> Option<OAuthCredentials> {
+    let mut payload = bytes.strip_prefix(magic)?;
+    let client_id = read_obfuscated_field(&mut payload, key)?;
+    let client_secret = read_obfuscated_field(&mut payload, key)?;
     if !payload.is_empty() {
         return None;
     }
     normalize_oauth_credentials(client_id, client_secret)
 }
 
-fn read_obfuscated_field(payload: &mut &[u8]) -> Option<String> {
+fn read_obfuscated_field(payload: &mut &[u8], key: &[u8]) -> Option<String> {
     let length_bytes: [u8; 4] = payload.get(..4)?.try_into().ok()?;
     let length = usize::try_from(u32::from_le_bytes(length_bytes)).ok()?;
     let encrypted = payload.get(4..4 + length)?;
     let decoded = encrypted
         .iter()
         .enumerate()
-        .map(|(index, byte)| byte ^ EMBEDDED_OAUTH_KEY[index % EMBEDDED_OAUTH_KEY.len()])
+        .map(|(index, byte)| byte ^ key[index % key.len()])
         .collect::<Vec<_>>();
     *payload = payload.get(4 + length..)?;
     String::from_utf8(decoded).ok()

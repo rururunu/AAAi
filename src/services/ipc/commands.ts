@@ -26,11 +26,7 @@ import type {
   RewindSessionResponse,
 } from "@/types/chat";
 import { IPC_COMMANDS } from "@/types/ipc";
-import type {
-  AppSettings,
-  AppSettingsPatch,
-  GeminiAuthStatus,
-} from "@/types/setting";
+import type { AppSettings, AppSettingsPatch, GeminiAuthStatus } from "@/types/setting";
 import type { TokenUsageReport } from "@/types/tokenUsage";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -38,9 +34,7 @@ export function ipcInvoke<TResponse>(
   command: string,
   payload?: Record<string, unknown>,
 ): Promise<TResponse> {
-  return payload
-    ? invoke<TResponse>(command, payload)
-    : invoke<TResponse>(command);
+  return payload ? invoke<TResponse>(command, payload) : invoke<TResponse>(command);
 }
 
 export function openSettings() {
@@ -79,17 +73,11 @@ export function setWindowSessionView(sessionId?: string) {
 }
 
 export function hideOverlay(label?: string) {
-  return ipcInvoke<void>(
-    IPC_COMMANDS.hideOverlay,
-    label ? { label } : undefined,
-  );
+  return ipcInvoke<void>(IPC_COMMANDS.hideOverlay, label ? { label } : undefined);
 }
 
 export function minimizeOverlay(label?: string) {
-  return ipcInvoke<void>(
-    IPC_COMMANDS.minimizeOverlay,
-    label ? { label } : undefined,
-  );
+  return ipcInvoke<void>(IPC_COMMANDS.minimizeOverlay, label ? { label } : undefined);
 }
 
 export function closeOverlay(label: string) {
@@ -156,6 +144,13 @@ export function listChatSessions() {
 
 export function listChatModels() {
   return ipcInvoke<ChatModelInfo[]>(IPC_COMMANDS.listChatModels);
+}
+
+export function listCustomProviderModels(baseUrl: string, apiKey: string) {
+  return ipcInvoke<string[]>(IPC_COMMANDS.listCustomProviderModels, {
+    baseUrl,
+    apiKey,
+  });
 }
 
 export function getContextUsage(request: ContextUsageRequest = {}) {

@@ -1,8 +1,8 @@
 # 发布与远程更新
 
-AAAi 使用 [Tauri Updater](https://v2.tauri.app/plugin/updater/) 从 GitHub Releases 拉取更新。客户端配置的地址为：
+Anya 使用 [Tauri Updater](https://v2.tauri.app/plugin/updater/) 从 GitHub Releases 拉取更新。客户端配置的地址为：
 
-`https://github.com/rururunu/AAAi/releases/latest/download/latest.json`
+`https://github.com/rururunu/Anya/releases/latest/download/latest.json`
 
 ## `latest.json` 在哪？
 
@@ -15,8 +15,8 @@ AAAi 使用 [Tauri Updater](https://v2.tauri.app/plugin/updater/) 从 GitHub Rel
 
 构建 MSI 后，签名文件与安装包在：
 
-- `src-tauri/target/release/bundle/msi/AAAi_<version>_x64.msi`
-- `src-tauri/target/release/bundle/msi/AAAi_<version>_x64.msi.sig`
+- `src-tauri/target/release/bundle/msi/Anya_<version>_x64.msi`
+- `src-tauri/target/release/bundle/msi/Anya_<version>_x64.msi.sig`
 
 `.msi.sig` 里的内容会写入 `latest.json` 的 `platforms.windows-x86_64.signature` 字段（填**文件内容**，不是 URL）。
 
@@ -25,10 +25,10 @@ AAAi 使用 [Tauri Updater](https://v2.tauri.app/plugin/updater/) 从 GitHub Rel
 ## 密钥（首次配置）
 
 ```powershell
-pnpm tauri signer generate -w "$env:USERPROFILE\.tauri\aaai.key" --ci
+pnpm tauri signer generate -w "$env:USERPROFILE\.tauri\anya.key" --ci
 ```
 
-- **私钥**：`%USERPROFILE%\.tauri\aaai.key`（勿提交、勿泄露；丢失后无法为已安装用户发更新）
+- **私钥**：`%USERPROFILE%\.tauri\anya.key`（勿提交、勿泄露；丢失后无法为已安装用户发更新）
 - **公钥**：已写入 `src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`；本地还可放在 `src-tauri/updater.pubkey`（已在 `.gitignore`）
 
 GitHub Actions 需在仓库 Secrets 中配置：
@@ -37,7 +37,7 @@ GitHub Actions 需在仓库 Secrets 中配置：
 | ------------------------------------ | ---------------------------------------- |
 | `TAURI_SIGNING_PRIVATE_KEY`          | 私钥文件完整内容                         |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 私钥密码（未设密码可留空）               |
-| `AAAI_UPDATER_PUBKEY`                | 公钥（可选；公钥已在 `tauri.conf.json`） |
+| `ANYA_UPDATER_PUBKEY`                | 公钥（可选；公钥已在 `tauri.conf.json`） |
 
 ---
 
@@ -53,7 +53,7 @@ GitHub Actions 需在仓库 Secrets 中配置：
 ### 2. 本地构建并签名
 
 ```powershell
-$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content "$env:USERPROFILE\.tauri\aaai.key" -Raw
+$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content "$env:USERPROFILE\.tauri\anya.key" -Raw
 pnpm tauri:build
 ```
 
@@ -62,7 +62,7 @@ pnpm tauri:build
 ### 3. 生成本地 `latest.json`
 
 ```powershell
-pnpm release:json -- --tag v0.2.1 --notes "更新说明（可选）"
+pnpm release:json -- --tag v0.2.2 --notes "更新说明（可选）"
 ```
 
 生成文件：**`release/latest.json`**。
@@ -71,13 +71,13 @@ pnpm release:json -- --tag v0.2.1 --notes "更新说明（可选）"
 
 ```json
 {
-  "version": "0.2.1",
+  "version": "0.2.2",
   "notes": "更新说明",
   "pub_date": "2026-08-06T08:00:00Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/rururunu/AAAi/releases/download/v0.2.1/AAAi_0.2.1_x64.msi",
-      "signature": "<AAAi_0.2.1_x64.msi.sig 文件的全部内容>"
+      "url": "https://github.com/rururunu/Anya/releases/download/v0.2.2/Anya_0.2.2_x64.msi",
+      "signature": "<Anya_0.2.2_x64.msi.sig 文件的全部内容>"
     }
   }
 }
@@ -85,19 +85,19 @@ pnpm release:json -- --tag v0.2.1 --notes "更新说明（可选）"
 
 ### 4. 在 GitHub 创建 Release
 
-1. 打开 [Releases](https://github.com/rururunu/AAAi/releases) → **Draft a new release**
-2. Tag：`v0.2.1`（与 `--tag` 一致）
+1. 打开 [Releases](https://github.com/rururunu/Anya/releases) → **Draft a new release**
+2. Tag：`v0.2.2`（与 `--tag` 一致）
 3. 填写 Release 说明（与 `notes` 可相同，给用户看）
 4. 上传 **3 个文件**：
-   - `AAAi_0.2.1_x64.msi`
-   - `AAAi_0.2.1_x64.msi.sig`
+   - `Anya_0.2.2_x64.msi`
+   - `Anya_0.2.2_x64.msi.sig`
    - `latest.json`（来自 `release/latest.json`，**文件名保持 `latest.json`**）
 5. 发布（不要勾 Pre-release，否则 `latest` 不会指向它）
 
 ### 5. 验证
 
-1. 浏览器打开：`https://github.com/rururunu/AAAi/releases/latest/download/latest.json`，确认 `version` 与 `url`、`signature` 正确
-2. 打开 AAAi → **设置 → 关于** → **检测更新**，或等待工作台右上角更新按钮
+1. 浏览器打开：`https://github.com/rururunu/Anya/releases/latest/download/latest.json`，确认 `version` 与 `url`、`signature` 正确
+2. 打开 Anya → **设置 → 关于** → **检测更新**，或等待工作台右上角更新按钮
 
 ---
 
@@ -106,8 +106,8 @@ pnpm release:json -- --tag v0.2.1 --notes "更新说明（可选）"
 仓库已包含 `.github/workflows/release.yml`：推送 `v*` 标签时自动构建、签名并上传 Release。
 
 ```powershell
-git tag v0.2.1
-git push origin v0.2.1
+git tag v0.2.2
+git push origin v0.2.2
 ```
 
 配置好上述 Secrets 后，无需再手动写 Release 正文或上传 MSI；`latest.json` 由 `tauri-action` 生成并上传。

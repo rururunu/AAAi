@@ -423,7 +423,7 @@ const DIFF_SIDEBAR_MIN_WIDTH = 420;
 const DIFF_SIDEBAR_MAX_WIDTH = 1000;
 const CHAT_PANE_MIN_WIDTH = 540;
 const DIFF_RESIZE_HANDLE_WIDTH = 7;
-const DIFF_SIDEBAR_WIDTH_KEY = "aaai.diffSidebarWidth.v3";
+const DIFF_SIDEBAR_WIDTH_KEY = "anya.diffSidebarWidth.v3";
 const storedDiffSidebarWidth = Number(localStorage.getItem(DIFF_SIDEBAR_WIDTH_KEY));
 const diffSidebarWidth = ref(
   Number.isFinite(storedDiffSidebarWidth)

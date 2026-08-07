@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AAAi",
-  "version": "0.2.1",
-  "identifier": "ai.aaai.desktop",
+  "productName": "Anya",
+  "version": "0.2.2",
+  "identifier": "ai.anya.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:13330",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "overlay",
-        "title": "AAAi",
+        "title": "Anya",
         "url": "/#/overlay",
         "width": 640,
         "height": 82,
@@ -32,7 +32,7 @@
       },
       {
         "label": "workbench",
-        "title": "AAAi",
+        "title": "Anya",
         "url": "/#/workbench",
         "width": 1280,
         "height": 820,
@@ -75,7 +75,7 @@
       "active": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdBMTE5MTc3MDBERjBFRDQKUldUVUR0OEFkNUVSZXJ3Rm8rNnVvLy93c3R3eUhJY2FnMEhGK2pZQzZnWWQ1MDJ0MHdKNjhhN3cK",
       "endpoints": [
-        "https://github.com/rururunu/AAAi/releases/latest/download/latest.json"
+        "https://github.com/rururunu/Anya/releases/latest/download/latest.json"
       ],
       "dialog": false,
       "windows": {

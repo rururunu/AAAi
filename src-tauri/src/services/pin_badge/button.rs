@@ -1,4 +1,4 @@
-//! Native AI badge with the AAAi sparkle mark.
+//! Native AI badge with the Anya sparkle mark.
 //!
 //! The circle and centered four-pointed star are software-rendered with
 //! antialiasing, a restrained surface gradient, and a soft ambient shadow.
@@ -81,7 +81,7 @@ unsafe fn register_class_inner() -> Result<(), String> {
         hInstance: hinstance.into(),
         hCursor: cursor,
         hbrBackground: HBRUSH::default(),
-        lpszClassName: w!("AAAiPinAiButton"),
+        lpszClassName: w!("AnyaPinAiButton"),
         hIcon: HICON::default(),
         ..Default::default()
     };
@@ -105,8 +105,8 @@ pub fn create_button_for_pin(pin_hwnd: isize) -> Result<HWND, String> {
         let hinstance = GetModuleHandleW(None).map_err(|e| e.to_string())?;
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED,
-            w!("AAAiPinAiButton"),
-            w!("AAAi"),
+            w!("AnyaPinAiButton"),
+            w!("Anya"),
             WS_POPUP,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -195,7 +195,7 @@ pub fn invalidate_button(button: HWND) {
     }
 }
 
-/// Returns true if the cursor is currently over any AAAi pin badge window.
+/// Returns true if the cursor is currently over any Anya pin badge window.
 pub fn cursor_over_any_badge(badges: &HashMap<isize, HWND>) -> bool {
     let mut pt = POINT::default();
     if unsafe { GetCursorPos(&mut pt) }.is_err() {
@@ -494,7 +494,7 @@ fn point_in_polygon(x: f32, y: f32, points: &[(f32, f32); 8]) -> bool {
     inside
 }
 
-/// Cardinal four-point star (N/E/S/W tips) with concave sides — AAAi sparkle mark.
+/// Cardinal four-point star (N/E/S/W tips) with concave sides — Anya sparkle mark.
 fn four_point_star_points(cx: f32, cy: f32, outer_r: f32, inner_r: f32) -> [(f32, f32); 8] {
     let mut points = [(0.0, 0.0); 8];
     for (i, point) in points.iter_mut().enumerate() {

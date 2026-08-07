@@ -1,6 +1,6 @@
 {
   "id": "write_readme",
-  "prompt": "Create README with title AAAi Eval.",
+  "prompt": "Create README with title Anya Eval.",
   "script": [
     {
       "content": "",
@@ -9,7 +9,7 @@
           "name": "write_file",
           "arguments": {
             "path": "README",
-            "content": "# AAAi Eval\n"
+            "content": "# Anya Eval\n"
           }
         }
       ]
@@ -34,7 +34,7 @@
     {
       "type": "fileContains",
       "path": "README",
-      "text": "AAAi Eval"
+      "text": "Anya Eval"
     }
   ]
 }

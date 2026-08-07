@@ -1,7 +1,7 @@
 //! Materialize the Anthropic-style `docx` skill scripts into the workspace.
 //!
 //! Vendor tree lives at `prompts/skills/vendor/docx/` (populated by `pnpm sync-skills`).
-//! Playbook text is in `prompts/skills/docx.md` (paths rewritten for `.aaai/docx/scripts`).
+//! Playbook text is in `prompts/skills/docx.md` (paths rewritten for `.anya/docx/scripts`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,10 +10,10 @@ use crate::core::tools::error::ToolError;
 
 /// Relative destination under the workspace root (documented for callers / tests).
 #[allow(dead_code)]
-pub const DOCX_REL_DIR: &str = ".aaai/docx";
+pub const DOCX_REL_DIR: &str = ".anya/docx";
 
 fn vendor_root() -> PathBuf {
-    if let Ok(raw) = std::env::var("AAAI_DOCX_SKILL_VENDOR") {
+    if let Ok(raw) = std::env::var("ANYA_DOCX_SKILL_VENDOR") {
         let path = PathBuf::from(raw);
         if path.is_dir() {
             return path;
@@ -53,19 +53,19 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), ToolError> {
     Ok(())
 }
 
-/// Copy vendor docx skill tree to `{workspace}/.aaai/docx/`.
+/// Copy vendor docx skill tree to `{workspace}/.anya/docx/`.
 pub fn materialize_docx_skill(workspace_root: &Path) -> Result<PathBuf, ToolError> {
     let vendor = vendor_root();
     let marker = vendor.join("scripts").join("merge_runs.py");
     if !marker.is_file() {
         return Err(ToolError::new(format!(
             "docx skill vendor missing at {}. Run `pnpm sync-skills` from the repo root \
-             (or set AAAI_DOCX_SKILL_VENDOR to an anthropics docx skill directory).",
+             (or set ANYA_DOCX_SKILL_VENDOR to an anthropics docx skill directory).",
             vendor.display()
         )));
     }
 
-    let dest = workspace_root.join(".aaai").join("docx");
+    let dest = workspace_root.join(".anya").join("docx");
     if dest.exists() {
         fs::remove_dir_all(&dest)
             .map_err(|error| ToolError::new(format!("cannot reset {}: {error}", dest.display())))?;
@@ -89,7 +89,7 @@ mod tests {
             );
             return;
         }
-        let tmp = std::env::temp_dir().join(format!("aaai-docx-{}", uuid::Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("anya-docx-{}", uuid::Uuid::new_v4()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).expect("tmpdir");
         let dest = materialize_docx_skill(&tmp).expect("materialize");

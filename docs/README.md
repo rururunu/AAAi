@@ -1,4 +1,4 @@
-# AAAi documentation
+# Anya documentation
 
 <p>
   <a href="./README.md">English</a> ·

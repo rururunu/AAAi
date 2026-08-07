@@ -1,7 +1,7 @@
-# AAAi Architecture Overview
+# Anya Architecture Overview
 
 This document describes the logical structure, dependency rules, control flow,
-persistence, and orchestration of AAAi. It is intended for contributors who need
+persistence, and orchestration of Anya. It is intended for contributors who need
 to locate code paths and reason about change impact.
 
 <p>
@@ -9,13 +9,13 @@ to locate code paths and reason about change impact.
   <a href="./architecture-overview.zh-CN.md">简体中文</a>
 </p>
 
-|             |                                     |
-| ----------- | ----------------------------------- |
-| **Product** | AAAi — Windows desktop AI assistant |
-| **Version** | v0.2.1                              |
-| **Runtime** | Tauri 2 (WebView2 + Rust)           |
-| **UI**      | Vue 3 · Vite · Pinia · TypeScript   |
-| **Domain**  | Rust (`src-tauri/src`)              |
+|             |                                                    |
+| ----------- | -------------------------------------------------- |
+| **Product** | Anya — Hand your work & questions to Anya anytime. |
+| **Version** | v0.2.2                                             |
+| **Runtime** | Tauri 2 (WebView2 + Rust)                          |
+| **UI**      | Vue 3 · Vite · Pinia · TypeScript                  |
+| **Domain**  | Rust (`src-tauri/src`)                             |
 
 **Related:** [Maintenance](./maintenance.md) · [Release](./release.md) · [Docs index](./README.md)
 
@@ -43,12 +43,12 @@ to locate code paths and reason about change impact.
 
 ## 2. System context
 
-AAAi runs as a **single native process** hosting multiple WebView windows. The
+Anya runs as a **single native process** hosting multiple WebView windows. The
 Rust host owns OS integration; WebViews own presentation and local UI state.
 
 ```mermaid
 flowchart LR
-  User((User)) -->|hotkey / tray / input| Host[AAAi process]
+  User((User)) -->|hotkey / tray / input| Host[Anya process]
   IDE[IDE plugins] -->|context push| Host
   Host -->|COM| Office[Word / Excel / PPT]
   Host -->|HTTPS SSE / REST| LLM[Model providers]
@@ -156,7 +156,7 @@ One OS process, multiple WebView labels. Domain state is shared in-process.
 
 ```mermaid
 flowchart TB
-  subgraph Process["AAAi.exe"]
+  subgraph Process["Anya.exe"]
     Rust["Rust host<br/>hotkey · tray · COM · SQLite · AgentRuntime"]
     WV1["WebView: workbench"]
     WV2["WebView: overlay"]
@@ -485,11 +485,11 @@ the same `session_id`.
 ```mermaid
 flowchart LR
   Tag[git tag v*] --> CI[release.yml]
-  CI --> MSI[AAAi_x_x64.msi + .sig]
+  CI --> MSI[Anya_x_x64.msi + .sig]
   CI --> LJ[latest.json]
   MSI --> GH[GitHub Release assets]
   LJ --> GH
-  App[Installed AAAi] -->|updater plugin| GH
+  App[Installed Anya] -->|updater plugin| GH
 ```
 
 Details: [release.md](./release.md).

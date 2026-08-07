@@ -19,6 +19,7 @@ commands.allow = [
   "reauthenticate_mcp_server",
   "cache_install_icon",
   "lookup_install_icon",
+  "lookup_install_icons",
   "clear_install_icon",
   "gemini_auth_status",
   "gemini_oauth_login",

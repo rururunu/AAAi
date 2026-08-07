@@ -9,26 +9,22 @@ pub(crate) fn build_api_body(
     stream: bool,
     effort: ReasoningEffort,
     pass_tool_reasoning: bool,
+    continue_thinking_after_tools: bool,
     include_thinking: bool,
 ) -> Value {
-    // After tools have already run in this turn, disable thinking so DeepSeek
-    // does not re-generate the same chain-of-thought every continuation step.
-    // Historical tool-call turns still pass reasoning_content (protocol).
     let continuing = is_tool_continuation(&request.messages);
-    let effective_effort = if continuing {
-        ReasoningEffort::Disabled
-    } else {
-        effort
-    };
-    // Thinking+tools requires returning prior reasoning_content. Force pass
-    // whenever effort is on, or when continuing a turn that already thought.
-    let effective_pass = match effort {
-        ReasoningEffort::Disabled => {
-            continuing && messages_have_tool_call_reasoning(&request.messages)
-        }
-        _ => true,
-    };
-    let _ = pass_tool_reasoning; // settings flag is superseded by the rules above
+    let effective_effort =
+        resolve_round_effort(effort, continuing, continue_thinking_after_tools);
+
+    // Thinking + tools requires prior reasoning text on tool-call history.
+    // Force pass when effort is on, or when a later round follows a thought
+    // that already ran tools — even if this round itself skips thinking.
+    let effective_pass = resolve_pass_tool_reasoning(
+        effort,
+        pass_tool_reasoning,
+        continuing,
+        &request.messages,
+    );
 
     let messages: Vec<_> = request
         .messages
@@ -72,6 +68,37 @@ pub(crate) fn build_api_body(
     }
 
     Value::Object(body)
+}
+
+/// Session-stable thinking policy for one provider round.
+///
+/// Default (`continue_thinking_after_tools = true`): keep the configured
+/// effort for every agent-loop round, including after tools.
+/// Opt-out: disable thinking on continuation rounds to save tokens.
+pub(super) fn resolve_round_effort(
+    effort: ReasoningEffort,
+    continuing: bool,
+    continue_thinking_after_tools: bool,
+) -> ReasoningEffort {
+    if continuing && !continue_thinking_after_tools {
+        ReasoningEffort::Disabled
+    } else {
+        effort
+    }
+}
+
+fn resolve_pass_tool_reasoning(
+    effort: ReasoningEffort,
+    pass_tool_reasoning: bool,
+    continuing: bool,
+    messages: &[ChatMessage],
+) -> bool {
+    let protocol_requires = continuing && messages_have_tool_call_reasoning(messages);
+    match effort {
+        ReasoningEffort::Disabled => protocol_requires,
+        // Prefer the user setting; still force-pass when the protocol requires it.
+        _ => pass_tool_reasoning || protocol_requires,
+    }
 }
 
 /// True when this request already includes tool results after the latest real
@@ -187,8 +214,9 @@ pub(super) fn message_to_api_json(message: &ChatMessage, pass_tool_reasoning: bo
                 "tool_calls": calls,
             });
             if pass_tool_reasoning {
-                // DeepSeek requires reasoning_content on every tool-call assistant
-                // message once thinking was used; use a space placeholder if empty.
+                // Protocol requires reasoning_content on every tool-call
+                // assistant message once thinking was used; space placeholder
+                // if empty.
                 let reasoning = message
                     .reasoning
                     .as_deref()

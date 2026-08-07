@@ -1,8 +1,8 @@
 //! CLI entry for the real AgentRunner eval harness.
 //!
 //! Usage:
-//!   cargo run --bin aaai-eval -- --tasks ../eval/tasks --results ../eval/results
-//!   cargo run --bin aaai-eval -- --no-challenge --filter empty
+//!   cargo run --bin anya-eval -- --tasks ../eval/tasks --results ../eval/results
+//!   cargo run --bin anya-eval -- --no-challenge --filter empty
 
 use std::env;
 use std::path::PathBuf;
@@ -50,7 +50,7 @@ fn main() -> ExitCode {
             }
             "--help" | "-h" => {
                 eprintln!(
-                    "aaai-eval [--tasks DIR] [--results DIR] [--filter ID] [--seeds N] [--no-challenge] [--no-compact] [--plan-mode]"
+                    "anya-eval [--tasks DIR] [--results DIR] [--filter ID] [--seeds N] [--no-challenge] [--no-compact] [--plan-mode]"
                 );
                 return ExitCode::SUCCESS;
             }

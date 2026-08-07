@@ -118,7 +118,7 @@ pub fn antigravity_transport_error_message(error: &reqwest::Error) -> String {
         || lower.contains("connection reset")
         || lower.contains("forcibly closed")
     {
-        "TLS handshake interrupted: the HTTPS connection was reset by the peer or an intermediary. Common with proxies that do not cover the desktop app, Clash fake-ip mismatches, or direct Google resets. Use TUN/system proxy mode and include AAAi in proxy rules; do not route googleapis.com via DIRECT."
+        "TLS handshake interrupted: the HTTPS connection was reset by the peer or an intermediary. Common with proxies that do not cover the desktop app, Clash fake-ip mismatches, or direct Google resets. Use TUN/system proxy mode and include Anya in proxy rules; do not route googleapis.com via DIRECT."
     } else if lower.contains("certificate") || lower.contains("invalid certificate") {
         "TLS certificate verification failed: check system time, or whether a proxy MITMs HTTPS without a trusted certificate."
     } else if lower.contains("tls") || lower.contains("ssl") {
@@ -126,7 +126,7 @@ pub fn antigravity_transport_error_message(error: &reqwest::Error) -> String {
     } else if lower.contains("connection refused") {
         "Connection refused: Google API is unreachable, or the local proxy port is not running."
     } else if lower.contains("error sending request") {
-        "Could not connect to Google Antigravity (cloudcode-pa.googleapis.com). A successful OAuth login does not guarantee API reachability—confirm Google services are reachable and enable the system proxy (Clash/V2Ray, etc.); add AAAi to proxy rules and retry."
+        "Could not connect to Google Antigravity (cloudcode-pa.googleapis.com). A successful OAuth login does not guarantee API reachability—confirm Google services are reachable and enable the system proxy (Clash/V2Ray, etc.); add Anya to proxy rules and retry."
     } else {
         "Antigravity network request failed: check network, system proxy, and Gemini sign-in status."
     };
@@ -506,7 +506,7 @@ fn wait_for_auth_code(listener: TcpListener, expected_state: &str) -> Result<Str
                 let _ = write_html_response(
                     &mut stream,
                     400,
-                    &format!("<h2>Sign-in failed</h2><p>{error}: {desc}</p><p>You can close this window and return to AAAi.</p>"),
+                    &format!("<h2>Sign-in failed</h2><p>{error}: {desc}</p><p>You can close this window and return to Anya.</p>"),
                 );
                 return Err(format!("Google denied authorization: {error} {desc}"));
             }
@@ -527,7 +527,7 @@ fn wait_for_auth_code(listener: TcpListener, expected_state: &str) -> Result<Str
             let _ = write_html_response(
                 &mut stream,
                 200,
-                "<h2>Sign-in successful</h2><p>You can close this window and return to AAAi.</p>",
+                "<h2>Sign-in successful</h2><p>You can close this window and return to Anya.</p>",
             );
             Ok(code)
         })();

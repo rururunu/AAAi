@@ -39,6 +39,9 @@ export interface SessionCompose {
   chatMode: "ask" | "agent";
   toolApprovalMode: "ask" | "auto" | "alwaysAllow";
   draft: string;
+  /** Workspace binding for draft-only (not-yet-sent) sessions shown in the sidebar. */
+  draftWorkspaceId?: string | null;
+  draftUpdatedAt?: number;
 }
 
 export function defaultCompose(): SessionCompose {
@@ -318,21 +321,67 @@ export const useChatStore = defineStore("chat", {
       persistComposeCache();
     },
     /** Persist the input draft for one conversation (debounced by callers). */
-    setComposeDraft(sessionId: string, draft: string) {
+    setComposeDraft(sessionId: string, draft: string, options?: { workspaceId?: string | null }) {
       if (!sessionId) {
         return;
       }
-      const current = this.sessionCompose[sessionId];
-      if (!current) {
+      const current = this.ensureCompose(sessionId);
+      const trimmed = draft.trim();
+      const next: SessionCompose = {
+        ...current,
+        draft,
+        draftUpdatedAt: trimmed ? Date.now() : undefined,
+      };
+      if (options && "workspaceId" in options) {
+        next.draftWorkspaceId = options.workspaceId ?? null;
+      }
+      if (current.draft === next.draft && current.draftWorkspaceId === next.draftWorkspaceId) {
         return;
       }
-      if (current.draft === draft) {
-        return;
-      }
-      const next = { ...current, draft };
       this.sessionCompose = { ...this.sessionCompose, [sessionId]: next };
       composeCache.entries[sessionId] = next;
       persistComposeCache();
+    },
+    /** True when the conversation has unsent composer text cached. */
+    sessionHasDraft(sessionId: string): boolean {
+      if (!sessionId) return false;
+      loadComposeCache();
+      const compose = this.sessionCompose[sessionId] ?? composeCache.entries[sessionId];
+      return Boolean(compose?.draft?.trim());
+    },
+    /** Local draft-only sessions that are not yet in the backend session list. */
+    listDraftOnlySessions(knownSessionIds: Iterable<string>): Array<{
+      sessionId: string;
+      workspaceId?: string;
+      preview: string;
+      updatedAt: number;
+    }> {
+      loadComposeCache();
+      const known = new Set(knownSessionIds);
+      // Prefer live store entries; fall back to disk cache for sessions not yet hydrated.
+      const entries = { ...composeCache.entries, ...this.sessionCompose };
+      const out: Array<{
+        sessionId: string;
+        workspaceId?: string;
+        preview: string;
+        updatedAt: number;
+      }> = [];
+      for (const [sessionId, compose] of Object.entries(entries)) {
+        const draft = compose.draft?.trim();
+        if (!draft || known.has(sessionId)) continue;
+        const messages = this.sessions[sessionId] ?? [];
+        if (messages.some((item) => item.role === "user" || item.role === "assistant")) {
+          continue;
+        }
+        out.push({
+          sessionId,
+          workspaceId: compose.draftWorkspaceId ?? undefined,
+          preview: draft,
+          updatedAt: compose.draftUpdatedAt ?? Date.now(),
+        });
+      }
+      out.sort((left, right) => right.updatedAt - left.updatedAt);
+      return out;
     },
     /** Drop the compose record when a conversation is deleted. */
     removeCompose(sessionId: string) {
@@ -1023,14 +1072,51 @@ export const useChatStore = defineStore("chat", {
         return;
       }
 
+      const previous = messages[index];
+      let workTimeline = previous.workTimeline ? [...previous.workTimeline] : undefined;
+      // Breaker/max-steps notices replace or append onto content; ensure they
+      // appear in the work timeline so AgentWorkDetails can render them.
+      const stopNotice = content
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .find((line) => line.startsWith("已停止：") || line.startsWith("Stopped:"));
+      if (stopNotice) {
+        const timelineText = (workTimeline ?? [])
+          .filter((item) => item.type === "content")
+          .map((item) => item.content)
+          .join("");
+        if (!timelineText.includes(stopNotice)) {
+          workTimeline = [
+            ...(workTimeline ?? []),
+            {
+              type: "content" as const,
+              id: `${messageId}-stop-notice`,
+              content: `\n\n${stopNotice}`,
+            },
+          ];
+        }
+      }
+
+      // Prefer live streamed text when ChatFinished carries a shorter last-round
+      // snapshot (multi-turn agent loops). Never shrink content/reasoning.
+      const nextContent = content.length >= previous.content.length ? content : previous.content;
+      const nextReasoning = (() => {
+        if (reasoning === undefined) return previous.reasoning;
+        const prev = previous.reasoning ?? "";
+        if (!prev) return reasoning;
+        if (!reasoning) return previous.reasoning;
+        return reasoning.length >= prev.length ? reasoning : previous.reasoning;
+      })();
+
       const next = [...messages];
       const completed: ChatMessage = {
-        ...next[index],
-        content,
+        ...previous,
+        content: nextContent,
         status: "done",
         completedAt: Date.now(),
         activityStatus: undefined,
-        ...(reasoning !== undefined ? { reasoning } : {}),
+        ...(workTimeline ? { workTimeline } : {}),
+        ...(nextReasoning !== undefined ? { reasoning: nextReasoning } : {}),
       };
       completed.estimatedTokens = estimateMessageTokens({
         ...completed,

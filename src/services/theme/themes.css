@@ -1,53 +1,6 @@
-/* The only application themes are the explicit built-in light and dark schemes. */
+/* The only application themes are the explicit built-in light and dark schemes.
+   App default is light (:root). */
 :root,
-[data-theme="dark"] {
-  color-scheme: dark;
-  --peek-bg: #1f1f1f;
-  --peek-sidebar: #181818;
-  --peek-surface: #252526;
-  --peek-input-bg: #292929;
-  --peek-text: #f3f4f6;
-  --peek-muted: #b7bcc5;
-  --peek-faint: #858b96;
-  --peek-accent: #f3f4f6;
-  --peek-border: rgba(255, 255, 255, 0.14);
-  --peek-strong-border: rgba(255, 255, 255, 0.24);
-  --peek-icon: #e5e7eb;
-  --peek-active-fg: #ffffff;
-  --peek-list-bg: #252526;
-  --peek-list-active: #343941;
-  --peek-placeholder: #8b8b8b;
-  --peek-send-bg: #333333;
-  --peek-send-fg: #c8c8c8;
-  --peek-send-active-bg: #0e639c;
-  --peek-send-active-fg: #ffffff;
-  --peek-primary-foreground: #1b1b1b;
-  --peek-user-bubble-bg: #2b2b2b;
-  --peek-user-bubble-border: rgba(255, 255, 255, 0.14);
-  --peek-user-bubble-text: #e1e1e1;
-  --peek-warning: #cca700;
-  --peek-danger: #f14c4c;
-  --peek-success: #73c991;
-  --peek-info: #75beff;
-  --peek-focus: #f3f4f6;
-  --peek-shadow: rgb(0 0 0 / 28%);
-  --peek-scrollbar: rgba(255, 255, 255, 0.14);
-  --peek-scrollbar-hover: rgba(255, 255, 255, 0.28);
-  --peek-code-fg: #e6edf3;
-  --peek-code-muted: #8b949e;
-  --peek-code-selection: #264f78;
-  --peek-syntax-comment: #8b949e;
-  --peek-syntax-keyword: #ff7b72;
-  --peek-syntax-string: #a5d6ff;
-  --peek-syntax-number: #79c0ff;
-  --peek-syntax-function: #d2a8ff;
-  --peek-syntax-type: #ffa657;
-  --peek-syntax-variable: #ffa198;
-  --peek-syntax-property: #79c0ff;
-  --peek-syntax-operator: #ff7b72;
-  --peek-syntax-punctuation: #c9d1d9;
-}
-
 [data-theme="light"] {
   color-scheme: light;
   --peek-bg: #f8f8f8;
@@ -94,6 +47,54 @@
   --peek-syntax-property: #0550ae;
   --peek-syntax-operator: #cf222e;
   --peek-syntax-punctuation: #1f2328;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --peek-bg: #1f1f1f;
+  --peek-sidebar: #181818;
+  --peek-surface: #252526;
+  --peek-input-bg: #292929;
+  --peek-text: #f3f4f6;
+  --peek-muted: #b7bcc5;
+  --peek-faint: #858b96;
+  --peek-accent: #f3f4f6;
+  --peek-border: rgba(255, 255, 255, 0.14);
+  --peek-strong-border: rgba(255, 255, 255, 0.24);
+  --peek-icon: #e5e7eb;
+  --peek-active-fg: #ffffff;
+  --peek-list-bg: #252526;
+  --peek-list-active: #343941;
+  --peek-placeholder: #8b8b8b;
+  --peek-send-bg: #333333;
+  --peek-send-fg: #c8c8c8;
+  --peek-send-active-bg: #0e639c;
+  --peek-send-active-fg: #ffffff;
+  --peek-primary-foreground: #1b1b1b;
+  --peek-user-bubble-bg: #2b2b2b;
+  --peek-user-bubble-border: rgba(255, 255, 255, 0.14);
+  --peek-user-bubble-text: #e1e1e1;
+  --peek-warning: #cca700;
+  --peek-danger: #f14c4c;
+  --peek-success: #73c991;
+  --peek-info: #75beff;
+  --peek-focus: #f3f4f6;
+  --peek-shadow: rgb(0 0 0 / 28%);
+  --peek-scrollbar: rgba(255, 255, 255, 0.14);
+  --peek-scrollbar-hover: rgba(255, 255, 255, 0.28);
+  --peek-code-fg: #e6edf3;
+  --peek-code-muted: #8b949e;
+  --peek-code-selection: #264f78;
+  --peek-syntax-comment: #8b949e;
+  --peek-syntax-keyword: #ff7b72;
+  --peek-syntax-string: #a5d6ff;
+  --peek-syntax-number: #79c0ff;
+  --peek-syntax-function: #d2a8ff;
+  --peek-syntax-type: #ffa657;
+  --peek-syntax-variable: #ffa198;
+  --peek-syntax-property: #79c0ff;
+  --peek-syntax-operator: #ff7b72;
+  --peek-syntax-punctuation: #c9d1d9;
 }
 
 :root,

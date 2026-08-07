@@ -1,6 +1,6 @@
 /**
  * Smithery MCP Registry client (https://registry.smithery.ai/servers).
- * Remote/hosted servers install via mcp-remote → AAAi stdio MCP runtime.
+ * Remote/hosted servers install via mcp-remote → Anya stdio MCP runtime.
  */
 
 import type { McpServerConfig } from "@/types/setting";
@@ -138,7 +138,7 @@ export async function searchSmitheryMcpServers(
   if (q) params.set("q", q);
   params.set("page", String(options.page ?? 1));
   params.set("pageSize", String(options.pageSize ?? 20));
-  // Prefer hosted/remote servers — AAAi connects them via mcp-remote.
+  // Prefer hosted/remote servers — Anya connects them via mcp-remote.
   if (options.remoteOnly !== false) params.set("remote", "1");
 
   const response = await fetch(`${REGISTRY_BASE}/servers?${params.toString()}`);
@@ -385,7 +385,7 @@ export type SmitheryInstallPlan = {
   deploymentUrl: string;
 };
 
-/** Build an AAAi stdio install that bridges to Smithery's hosted HTTP MCP. */
+/** Build an Anya stdio install that bridges to Smithery's hosted HTTP MCP. */
 export function buildSmitheryMcpInstall(
   detail: SmitheryMcpServerDetail,
   options?: { apiKey?: string },

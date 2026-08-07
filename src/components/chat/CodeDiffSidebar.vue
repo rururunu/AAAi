@@ -191,9 +191,9 @@ const activeId = ref("");
 const closedIds = ref<Set<string>>(new Set());
 const changeFilesRef = ref<HTMLElement | null>(null);
 const copiedId = ref("");
-const storedViewMode = localStorage.getItem("aaai.diffViewMode");
+const storedViewMode = localStorage.getItem("anya.diffViewMode");
 const viewMode = ref<DiffViewMode>(storedViewMode === "unified" ? "unified" : "split");
-const wrapLines = ref(localStorage.getItem("aaai.diffWrapLines") !== "false");
+const wrapLines = ref(localStorage.getItem("anya.diffWrapLines") !== "false");
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 const closeTabLabel = computed(() => tr(settingStore.language, "diff.closeTab"));
@@ -262,11 +262,11 @@ function scrollFileTabs(event: WheelEvent) {
 }
 function setViewMode(mode: DiffViewMode) {
   viewMode.value = mode;
-  localStorage.setItem("aaai.diffViewMode", mode);
+  localStorage.setItem("anya.diffViewMode", mode);
 }
 function toggleLineWrap() {
   wrapLines.value = !wrapLines.value;
-  localStorage.setItem("aaai.diffWrapLines", String(wrapLines.value));
+  localStorage.setItem("anya.diffWrapLines", String(wrapLines.value));
 }
 function fileName(path: string) {
   return path.replace(/\\/g, "/").split("/").pop() || path;

@@ -10,14 +10,16 @@ import {
   type AppSettings,
   type AppSettingsPatch,
   type ColorScheme,
+  COLOR_SCHEME_CACHE_KEY,
   defaultGeminiOAuthSettings,
+  readCachedColorScheme,
 } from "@/types/setting";
 
 const LEGACY_STORAGE_KEY = "peek.settings";
 let settingsUpdateSequence = 0;
 
 const defaultSettings: AppSettings = {
-  colorScheme: "dark",
+  colorScheme: "light",
   language: "zh-CN",
   deepseekApiKey: "",
   geminiOauth: defaultGeminiOAuthSettings(),
@@ -46,6 +48,7 @@ const defaultSettings: AppSettings = {
   reasoningEffort: "disabled",
   reasoningLanguage: "auto",
   passToolReasoning: true,
+  continueThinkingAfterTools: true,
   showReasoning: true,
   agentWorkDisplay: "detailed",
   multiModelCollaboration: false,
@@ -65,6 +68,11 @@ const defaultSettings: AppSettings = {
 
 export function applyTheme(settings: Pick<AppSettings, "colorScheme" | "language">) {
   const colorScheme = normalizeColorScheme(settings.colorScheme);
+  try {
+    localStorage.setItem(COLOR_SCHEME_CACHE_KEY, colorScheme);
+  } catch {
+    // ignore quota / private mode
+  }
   const root = document.documentElement;
   const nextDark = colorScheme === "dark";
   const sameTheme =
@@ -79,6 +87,11 @@ export function applyTheme(settings: Pick<AppSettings, "colorScheme" | "language
   root.dataset.theme = colorScheme;
   root.classList.toggle("dark", nextDark);
   root.style.colorScheme = colorScheme;
+}
+
+/** Theme to paint before settings finish loading (matches boot splash). */
+export function bootstrapThemeHint(language: AppLanguage = "zh-CN") {
+  return { colorScheme: readCachedColorScheme(), language };
 }
 
 export function applyZoom(zoom: number) {
@@ -133,6 +146,7 @@ function applyCommonSettings(target: AppSettings, settings: AppSettings) {
   target.reasoningEffort = settings.reasoningEffort ?? "disabled";
   target.reasoningLanguage = settings.reasoningLanguage ?? "auto";
   target.passToolReasoning = settings.passToolReasoning ?? true;
+  target.continueThinkingAfterTools = settings.continueThinkingAfterTools ?? true;
   target.showReasoning = settings.showReasoning ?? true;
   target.agentWorkDisplay = settings.agentWorkDisplay === "compact" ? "compact" : "detailed";
   target.multiModelCollaboration = settings.multiModelCollaboration ?? false;

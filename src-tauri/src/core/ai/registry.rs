@@ -30,22 +30,37 @@ fn provider_has_model(provider: &CustomProviderConfig, model: &str) -> bool {
         .any(|id| !id.is_empty() && id == model)
 }
 
+fn provider_is_configured(provider: &CustomProviderConfig) -> bool {
+    let url = provider.base_url.trim();
+    let key = provider.api_key.trim();
+    !url.is_empty()
+        && !key.is_empty()
+        && (url.starts_with("http://") || url.starts_with("https://"))
+}
+
 fn custom_provider_for_selection<'a>(
     settings: &'a AppSettings,
     model: &str,
     provider_hint: &str,
 ) -> Option<&'a CustomProviderConfig> {
-    if provider_hint.is_empty() {
-        return settings
+    if !provider_hint.is_empty() {
+        if let Some(provider) = settings
             .custom_providers
             .iter()
-            .find(|provider| provider_has_model(provider, model));
+            .find(|provider| provider.id == provider_hint)
+        {
+            // Explicit provider selection: allow any model once the endpoint is configured.
+            if provider_is_configured(provider) || provider_has_model(provider, model) {
+                return Some(provider);
+            }
+        }
+        return None;
     }
 
     settings
         .custom_providers
         .iter()
-        .find(|provider| provider.id == provider_hint && provider_has_model(provider, model))
+        .find(|provider| provider_has_model(provider, model))
 }
 
 /// Resolve the provider by an explicit model + provider-hint selection.
@@ -100,6 +115,15 @@ pub(crate) fn resolve_provider_for_selection(
         })
     };
 
+    let resolve_continue_thinking_after_tools = {
+        let app = app.clone();
+        Arc::new(move || {
+            settings_store::get_settings(&app)
+                .map(|settings| settings.continue_thinking_after_tools)
+                .unwrap_or(true)
+        })
+    };
+
     let resolve_base_url = {
         let app = app.clone();
         let selected_model = model.clone();
@@ -121,6 +145,7 @@ pub(crate) fn resolve_provider_for_selection(
         resolve_model,
         resolve_effort,
         resolve_pass_tool_reasoning,
+        resolve_continue_thinking_after_tools,
         Some(resolve_base_url),
     ))
 }
@@ -137,6 +162,7 @@ mod tests {
             base_url: format!("https://{id}.example/v1"),
             api_key: api_key.into(),
             models: "shared-model".into(),
+            preset_id: None,
         }
     }
 

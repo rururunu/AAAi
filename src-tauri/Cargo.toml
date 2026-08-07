@@ -1,18 +1,18 @@
 [package]
 name = "peek"
-version = "0.2.1"
-description = "AAAi — Windows overlay AI assistant"
+version = "0.2.2"
+description = "Hand your work & questions to Anya anytime."
 authors = ["you"]
 edition = "2021"
-default-run = "AAAi"
+default-run = "Anya"
 
 [[bin]]
-name = "AAAi"
+name = "Anya"
 path = "src/main.rs"
 
 [[bin]]
-name = "aaai-eval"
-path = "src/bin/aaai_eval.rs"
+name = "anya-eval"
+path = "src/bin/anya_eval.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

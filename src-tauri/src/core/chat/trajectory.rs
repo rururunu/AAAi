@@ -142,12 +142,12 @@ pub async fn mine_failure_candidates(
     })
 }
 
-/// Write a reviewable Markdown report under `.aaai/candidates/` (does not install skills).
+/// Write a reviewable Markdown report under `.anya/candidates/` (does not install skills).
 pub fn write_candidate_report(
     workspace: &Path,
     report: &FailureCandidateReport,
 ) -> Result<PathBuf, String> {
-    let dir = workspace.join(".aaai").join("candidates");
+    let dir = workspace.join(".anya").join("candidates");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("failures-{}.md", report.generated_at_ms));
     let mut body = String::from(

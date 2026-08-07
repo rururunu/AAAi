@@ -627,7 +627,7 @@ impl McpProcess {
             json!({
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": { "name": "AAAi", "version": "0.1.2" }
+                "clientInfo": { "name": "Anya", "version": "0.1.2" }
             }),
         )?;
         proc.notify("notifications/initialized", json!({}))?;
@@ -729,7 +729,7 @@ impl McpProcess {
 
 /// Arcade Gmail tools often return a Google OAuth URL whose final redirect is
 /// `example.com/?flow_id=…` (placeholder verifier). That flow cannot complete in
-/// AAAi — rewrite the tool payload so the model steers users to Smithery instead.
+/// Anya — rewrite the tool payload so the model steers users to Smithery instead.
 fn rewrite_broken_arcade_google_auth(payload: &str) -> String {
     let lower = payload.to_ascii_lowercase();
     let looks_arcade_google = lower.contains("accounts.google.com")
@@ -739,7 +739,7 @@ fn rewrite_broken_arcade_google_auth(payload: &str) -> String {
     }
     format!(
         "{payload}\n\n\
-         [AAAi notice] The Google→Arcade authorization link above cannot finish in this app \
+         [Anya notice] The Google→Arcade authorization link above cannot finish in this app \
          (callback lands on example.com and never confirms). Do NOT ask the user to open that \
          Google URL again. Instruct them to open Settings → MCP → the Gmail server → \
          「去 Smithery 授权」, complete OAuth on smithery.ai until oauth-callback?success=true, \

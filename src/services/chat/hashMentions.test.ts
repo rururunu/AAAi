@@ -55,4 +55,22 @@ describe("hashMentions", () => {
     expect(filterHashMentionItems(items, "skill:").map((item) => item.id)).toEqual(["docx"]);
     expect(filterHashMentionItems(items, "mcp").map((item) => item.id)).toEqual(["gmail"]);
   });
+
+  it("ranks frequently used items first when query is empty", () => {
+    const items: HashMentionItem[] = [
+      { kind: "skill", id: "pandoc", title: "Pandoc" },
+      { kind: "skill", id: "docx", title: "Docx" },
+      { kind: "mcp", id: "gmail", title: "Gmail" },
+    ];
+    const usage = {
+      skill: { docx: { count: 8, lastUsedAt: 1000 } },
+      mcp: { gmail: { count: 30, lastUsedAt: 1000 } },
+    };
+    // Skills stay above MCP even if an MCP is used more often.
+    expect(filterHashMentionItems(items, "", usage, 2000).map((item) => item.id)).toEqual([
+      "docx",
+      "pandoc",
+      "gmail",
+    ]);
+  });
 });

@@ -98,6 +98,22 @@ pub async fn init_db(db_path: &Path) -> Result<SqlitePool, String> {
     .await
     .map_err(|e| e.to_string())?;
 
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_chat_messages_session_ts
+         ON chat_messages(session_id, timestamp);",
+    )
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_chat_messages_status
+         ON chat_messages(status);",
+    )
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
     init_chat_session_schema(&pool).await?;
     crate::core::chat::journal::init_journal_schema(&pool).await?;
     crate::core::chat::journal::compact_recovery_journal(&pool).await?;
@@ -322,6 +338,8 @@ mod session_workspace_tests {
     }
 }
 
+const MESSAGE_SELECT_COLUMNS: &str = "id, session_id, role, content, reasoning, tool_activities, tool_calls, tool_call_id, name, status, timestamp, estimated_tokens, work_timeline";
+
 pub async fn save_message(pool: &SqlitePool, msg: &ChatMessage) -> Result<(), String> {
     let role_str = match msg.role {
         Role::System => "system",
@@ -338,18 +356,9 @@ pub async fn save_message(pool: &SqlitePool, msg: &ChatMessage) -> Result<(), St
         MessageStatus::Cancelled => "cancelled",
     };
 
-    let tool_calls_json = msg
-        .tool_calls
-        .as_ref()
-        .and_then(|tc| serde_json::to_string(tc).ok());
-    let tool_activities_json = msg
-        .tool_activities
-        .as_ref()
-        .and_then(|value| serde_json::to_string(value).ok());
-    let work_timeline_json = msg
-        .work_timeline
-        .as_ref()
-        .and_then(|value| serde_json::to_string(value).ok());
+    let tool_calls_json = serialize_tool_calls(msg.tool_calls.as_ref());
+    let tool_activities_json = serialize_tool_activities(msg.tool_activities.as_ref());
+    let work_timeline_json = serialize_work_timeline(msg.work_timeline.as_ref());
     let timestamp_val = msg.timestamp as i64;
     let estimated_tokens = if matches!(
         msg.status,
@@ -389,87 +398,185 @@ pub async fn save_message(pool: &SqlitePool, msg: &ChatMessage) -> Result<(), St
     Ok(())
 }
 
-pub async fn load_all_messages(pool: &SqlitePool) -> Result<Vec<ChatMessage>, String> {
-    let rows = sqlx::query(
-        "SELECT id, session_id, role, content, reasoning, tool_activities, tool_calls, tool_call_id, name, status, timestamp, estimated_tokens, work_timeline
-         FROM chat_messages
-         ORDER BY timestamp ASC;"
+/// Update only the large tool/timeline columns so mid-turn tool completions
+/// do not rewrite content/reasoning on every activity.
+pub async fn save_message_tool_fields(pool: &SqlitePool, msg: &ChatMessage) -> Result<(), String> {
+    let tool_activities_json = serialize_tool_activities(msg.tool_activities.as_ref());
+    let work_timeline_json = serialize_work_timeline(msg.work_timeline.as_ref());
+    let estimated_tokens = msg.estimated_tokens.map(|tokens| tokens as i64);
+
+    sqlx::query(
+        "UPDATE chat_messages
+         SET tool_activities = ?, work_timeline = ?, estimated_tokens = ?
+         WHERE id = ?",
     )
-    .fetch_all(pool)
+    .bind(tool_activities_json)
+    .bind(work_timeline_json)
+    .bind(estimated_tokens)
+    .bind(&msg.id)
+    .execute(pool)
     .await
     .map_err(|e| e.to_string())?;
 
-    let mut messages = Vec::new();
+    Ok(())
+}
+
+fn serialize_tool_activities(activities: Option<&Vec<ToolActivity>>) -> Option<String> {
+    let activities = activities?;
+    let capped: Vec<ToolActivity> = activities
+        .iter()
+        .map(|activity| {
+            let mut activity = activity.clone();
+            if let Some(result) = activity.result.as_mut() {
+                *result = crate::core::chat::limits::truncate_tool_output(
+                    result,
+                    crate::core::chat::limits::STORED_TOOL_RESULT_MAX_CHARS,
+                );
+            }
+            if let Some(preview) = activity.preview.as_mut() {
+                if let Some(old) = preview.old_text.as_mut() {
+                    *old = crate::core::chat::limits::truncate_chars(
+                        old,
+                        crate::core::chat::limits::STORED_PREVIEW_TEXT_MAX_CHARS,
+                    );
+                }
+                if let Some(new) = preview.new_text.as_mut() {
+                    *new = crate::core::chat::limits::truncate_chars(
+                        new,
+                        crate::core::chat::limits::STORED_PREVIEW_TEXT_MAX_CHARS,
+                    );
+                }
+                preview.unified_diff = crate::core::chat::limits::truncate_chars(
+                    &preview.unified_diff,
+                    crate::core::chat::limits::STORED_PREVIEW_TEXT_MAX_CHARS,
+                );
+            }
+            activity
+        })
+        .collect();
+    serde_json::to_string(&capped).ok()
+}
+
+fn serialize_work_timeline(
+    timeline: Option<&Vec<crate::core::runtime::WorkTimelineItem>>,
+) -> Option<String> {
+    use crate::core::runtime::WorkTimelineItem;
+    let timeline = timeline?;
+    let capped: Vec<WorkTimelineItem> = timeline
+        .iter()
+        .map(|item| match item {
+            WorkTimelineItem::Reasoning { id, content } => WorkTimelineItem::Reasoning {
+                id: id.clone(),
+                content: crate::core::chat::limits::truncate_chars(
+                    content,
+                    crate::core::chat::limits::STORED_TIMELINE_ITEM_MAX_CHARS,
+                ),
+            },
+            WorkTimelineItem::Content { id, content } => WorkTimelineItem::Content {
+                id: id.clone(),
+                content: crate::core::chat::limits::truncate_chars(
+                    content,
+                    crate::core::chat::limits::STORED_TIMELINE_ITEM_MAX_CHARS,
+                ),
+            },
+            other => other.clone(),
+        })
+        .collect();
+    serde_json::to_string(&capped).ok()
+}
+
+fn serialize_tool_calls(calls: Option<&Vec<ToolCallPayload>>) -> Option<String> {
+    let calls = calls?;
+    let capped: Vec<ToolCallPayload> = calls
+        .iter()
+        .map(|call| {
+            let mut call = call.clone();
+            call.arguments = crate::core::chat::limits::truncate_chars(
+                &call.arguments,
+                crate::core::chat::limits::STORED_TOOL_CALL_ARGS_MAX_CHARS,
+            );
+            call
+        })
+        .collect();
+    serde_json::to_string(&capped).ok()
+}
+
+fn parse_message_row(row: &sqlx::sqlite::SqliteRow) -> ChatMessage {
+    let id: String = row.get("id");
+    let session_id: String = row.get("session_id");
+
+    let role_str: String = row.get("role");
+    let role = match role_str.as_str() {
+        "system" => Role::System,
+        "assistant" => Role::Assistant,
+        "tool" => Role::Tool,
+        _ => Role::User,
+    };
+
+    let content: String = row.get("content");
+    let reasoning: Option<String> = row.get("reasoning");
+    let tool_activities_str: Option<String> = row.get("tool_activities");
+    let tool_activities: Option<Vec<ToolActivity>> =
+        tool_activities_str.and_then(|value| serde_json::from_str(&value).ok());
+
+    let tool_calls_str: Option<String> = row.get("tool_calls");
+    let tool_calls: Option<Vec<ToolCallPayload>> =
+        tool_calls_str.and_then(|s| serde_json::from_str(&s).ok());
+
+    let work_timeline_str: Option<String> = row.get("work_timeline");
+    let work_timeline: Option<Vec<crate::core::runtime::WorkTimelineItem>> =
+        work_timeline_str.and_then(|value| serde_json::from_str(&value).ok());
+
+    let tool_call_id: Option<String> = row.get("tool_call_id");
+    let name: Option<String> = row.get("name");
+
+    let status_str: String = row.get("status");
+    let status = match status_str.as_str() {
+        "pending" => MessageStatus::Pending,
+        "streaming" => MessageStatus::Streaming,
+        "done" => MessageStatus::Done,
+        "error" => MessageStatus::Error,
+        "cancelled" => MessageStatus::Cancelled,
+        _ => MessageStatus::Done,
+    };
+
+    let timestamp_val: i64 = row.get("timestamp");
+    let timestamp = timestamp_val as u64;
+    let cached_tokens = row.get::<Option<i64>, _>("estimated_tokens");
+
+    ChatMessage {
+        id,
+        session_id,
+        role,
+        content,
+        reasoning,
+        tool_activities,
+        tool_calls,
+        tool_call_id,
+        name,
+        status,
+        timestamp,
+        estimated_tokens: cached_tokens.map(|tokens| tokens.max(0) as usize),
+        work_timeline,
+    }
+}
+
+async fn finalize_loaded_messages(
+    pool: &SqlitePool,
+    mut messages: Vec<ChatMessage>,
+) -> Result<Vec<ChatMessage>, String> {
     let mut token_backfill = Vec::new();
-    for row in rows {
-        let id: String = row.get("id");
-        let session_id: String = row.get("session_id");
-
-        let role_str: String = row.get("role");
-        let role = match role_str.as_str() {
-            "system" => Role::System,
-            "assistant" => Role::Assistant,
-            "tool" => Role::Tool,
-            _ => Role::User,
-        };
-
-        let content: String = row.get("content");
-        let reasoning: Option<String> = row.get("reasoning");
-        let tool_activities_str: Option<String> = row.get("tool_activities");
-        let tool_activities: Option<Vec<ToolActivity>> =
-            tool_activities_str.and_then(|value| serde_json::from_str(&value).ok());
-
-        let tool_calls_str: Option<String> = row.get("tool_calls");
-        let tool_calls: Option<Vec<ToolCallPayload>> =
-            tool_calls_str.and_then(|s| serde_json::from_str(&s).ok());
-
-        let work_timeline_str: Option<String> = row.get("work_timeline");
-        let work_timeline: Option<Vec<crate::core::runtime::WorkTimelineItem>> =
-            work_timeline_str.and_then(|value| serde_json::from_str(&value).ok());
-
-        let tool_call_id: Option<String> = row.get("tool_call_id");
-        let name: Option<String> = row.get("name");
-
-        let status_str: String = row.get("status");
-        let status = match status_str.as_str() {
-            "pending" => MessageStatus::Pending,
-            "streaming" => MessageStatus::Streaming,
-            "done" => MessageStatus::Done,
-            "error" => MessageStatus::Error,
-            "cancelled" => MessageStatus::Cancelled,
-            _ => MessageStatus::Done,
-        };
-
-        let timestamp_val: i64 = row.get("timestamp");
-        let timestamp = timestamp_val as u64;
-
-        let cached_tokens = row.get::<Option<i64>, _>("estimated_tokens");
-        let mut message = ChatMessage {
-            id,
-            session_id,
-            role,
-            content,
-            reasoning,
-            tool_activities,
-            tool_calls,
-            tool_call_id,
-            name,
-            status,
-            timestamp,
-            estimated_tokens: cached_tokens.map(|tokens| tokens.max(0) as usize),
-            work_timeline,
-        };
+    for message in &mut messages {
         if message.estimated_tokens.is_none()
             && !matches!(
                 message.status,
                 MessageStatus::Pending | MessageStatus::Streaming
             )
         {
-            let estimated_tokens = crate::core::chat::limits::estimate_message_tokens(&message);
+            let estimated_tokens = crate::core::chat::limits::estimate_message_tokens(message);
             message.estimated_tokens = Some(estimated_tokens);
             token_backfill.push((message.id.clone(), estimated_tokens));
         }
-        messages.push(message);
     }
 
     if !token_backfill.is_empty() {
@@ -489,6 +596,143 @@ pub async fn load_all_messages(pool: &SqlitePool) -> Result<Vec<ChatMessage>, St
     }
 
     Ok(messages)
+}
+
+#[cfg(test)]
+pub async fn load_all_messages(pool: &SqlitePool) -> Result<Vec<ChatMessage>, String> {
+    let query = format!(
+        "SELECT {MESSAGE_SELECT_COLUMNS}
+         FROM chat_messages
+         ORDER BY timestamp ASC;"
+    );
+    let rows = sqlx::query(&query)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let messages = rows.iter().map(parse_message_row).collect();
+    finalize_loaded_messages(pool, messages).await
+}
+
+pub async fn load_messages_for_session(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> Result<Vec<ChatMessage>, String> {
+    let query = format!(
+        "SELECT {MESSAGE_SELECT_COLUMNS}
+         FROM chat_messages
+         WHERE session_id = ?
+         ORDER BY timestamp ASC;"
+    );
+    let rows = sqlx::query(&query)
+        .bind(session_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let messages = rows.iter().map(parse_message_row).collect();
+    finalize_loaded_messages(pool, messages).await
+}
+
+/// Messages left mid-turn after a crash — loaded at startup for hydrate/settle
+/// without pulling every session into memory.
+pub async fn load_orphaned_messages(pool: &SqlitePool) -> Result<Vec<ChatMessage>, String> {
+    let query = format!(
+        "SELECT {MESSAGE_SELECT_COLUMNS}
+         FROM chat_messages
+         WHERE status IN ('pending', 'streaming')
+         ORDER BY timestamp ASC;"
+    );
+    let rows = sqlx::query(&query)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let messages = rows.iter().map(parse_message_row).collect();
+    finalize_loaded_messages(pool, messages).await
+}
+
+pub async fn load_session_summaries(
+    pool: &SqlitePool,
+) -> Result<Vec<crate::models::chat::ChatSessionSummary>, String> {
+    let rows = sqlx::query(
+        "SELECT
+            m.session_id AS session_id,
+            s.workspace_id AS workspace_id,
+            s.title AS title,
+            COUNT(*) AS message_count,
+            SUM(CASE WHEN m.role = 'user' THEN 1 ELSE 0 END) AS turn_count,
+            SUM(COALESCE(m.estimated_tokens, 0)) AS estimated_tokens,
+            MAX(m.timestamp) AS updated_at,
+            (
+                SELECT u.content
+                FROM chat_messages u
+                WHERE u.session_id = m.session_id AND u.role = 'user'
+                ORDER BY u.timestamp ASC
+                LIMIT 1
+            ) AS preview_content,
+            (
+                SELECT a.content
+                FROM chat_messages a
+                WHERE a.session_id = m.session_id AND a.role = 'assistant'
+                ORDER BY a.timestamp ASC
+                LIMIT 1
+            ) AS assistant_preview
+         FROM chat_messages m
+         LEFT JOIN chat_sessions s ON s.session_id = m.session_id
+         GROUP BY m.session_id
+         ORDER BY updated_at DESC;",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let session_id: String = row.get("session_id");
+            let title: Option<String> = row.get("title");
+            let preview_content: Option<String> = row.get("preview_content");
+            let assistant_preview: Option<String> = row.get("assistant_preview");
+            let preview = title
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string())
+                .or_else(|| {
+                    preview_content
+                        .as_deref()
+                        .map(super::selection::visible_user_text)
+                        .filter(|value| !value.is_empty())
+                        .map(|value| truncate_session_preview(&value))
+                })
+                .or_else(|| {
+                    assistant_preview
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(truncate_session_preview)
+                })
+                .unwrap_or_else(|| "（空会话）".into());
+
+            crate::models::chat::ChatSessionSummary {
+                session_id,
+                workspace_id: row.get("workspace_id"),
+                preview,
+                message_count: row.get::<i64, _>("message_count").max(0) as usize,
+                turn_count: row.get::<i64, _>("turn_count").max(0) as usize,
+                estimated_tokens: row.get::<i64, _>("estimated_tokens").max(0) as usize,
+                updated_at: row.get::<i64, _>("updated_at").max(0) as u64,
+            }
+        })
+        .collect())
+}
+
+fn truncate_session_preview(value: &str) -> String {
+    const MAX: usize = 72;
+    let normalized = value.replace('\n', " ").trim().to_string();
+    if normalized.chars().count() <= MAX {
+        return normalized;
+    }
+    let truncated: String = normalized.chars().take(MAX).collect();
+    format!("{truncated}…")
 }
 
 #[cfg(test)]
@@ -589,6 +833,106 @@ mod message_persistence_tests {
                 .unwrap();
         assert_eq!(cached, Some(6));
     }
+
+    #[tokio::test]
+    async fn truncates_oversized_tool_results_on_save() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE chat_messages (
+                id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL,
+                content TEXT NOT NULL, reasoning TEXT, tool_activities TEXT,
+                tool_calls TEXT, tool_call_id TEXT, name TEXT,
+                status TEXT NOT NULL, timestamp INTEGER NOT NULL,
+                estimated_tokens INTEGER, work_timeline TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let huge = "x".repeat(crate::core::chat::limits::STORED_TOOL_RESULT_MAX_CHARS + 500);
+        let message = ChatMessage {
+            id: "assistant-1".into(),
+            session_id: "session-1".into(),
+            role: Role::Assistant,
+            content: "done".into(),
+            reasoning: None,
+            work_timeline: None,
+            tool_activities: Some(vec![ToolActivity {
+                id: "activity-1".into(),
+                subagent_id: None,
+                parent_activity_id: None,
+                tool_name: "read_file".into(),
+                title: "Read".into(),
+                kind: "read".into(),
+                detail: None,
+                arguments: None,
+                result: Some(huge),
+                preview: None,
+                success: true,
+                status: "done".into(),
+            }]),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+            status: MessageStatus::Done,
+            timestamp: 1,
+            estimated_tokens: Some(1),
+        };
+
+        save_message(&pool, &message).await.unwrap();
+        let loaded = load_messages_for_session(&pool, "session-1")
+            .await
+            .unwrap();
+        let result = loaded[0].tool_activities.as_ref().unwrap()[0]
+            .result
+            .as_ref()
+            .unwrap();
+        assert!(
+            result.chars().count()
+                <= crate::core::chat::limits::STORED_TOOL_RESULT_MAX_CHARS + 40
+        );
+        assert!(result.contains("truncated"));
+    }
+
+    #[tokio::test]
+    async fn loads_messages_for_one_session_only() {
+        let path = std::env::temp_dir().join(format!(
+            "anya-session-load-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let pool = init_db(&path).await.unwrap();
+        for (id, session) in [("a1", "s1"), ("a2", "s2")] {
+            let message = ChatMessage {
+                id: id.into(),
+                session_id: session.into(),
+                role: Role::User,
+                content: format!("hello {session}"),
+                reasoning: None,
+                work_timeline: None,
+                tool_activities: None,
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+                status: MessageStatus::Done,
+                timestamp: 1,
+                estimated_tokens: Some(2),
+            };
+            save_message(&pool, &message).await.unwrap();
+        }
+
+        let s1 = load_messages_for_session(&pool, "s1").await.unwrap();
+        assert_eq!(s1.len(), 1);
+        assert_eq!(s1[0].id, "a1");
+
+        let summaries = load_session_summaries(&pool).await.unwrap();
+        assert_eq!(summaries.len(), 2);
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    }
 }
 
 #[cfg(test)]
@@ -598,7 +942,7 @@ mod token_usage_persistence_tests {
 
     #[tokio::test]
     async fn stores_and_filters_usage_records() {
-        let path = std::env::temp_dir().join(format!("aaai-token-{}.db", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("anya-token-{}.db", uuid::Uuid::new_v4()));
         let pool = init_db(&path).await.unwrap();
         record_token_usage(
             &pool,

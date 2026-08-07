@@ -29,6 +29,6 @@ const isWorkbench = getCurrentWebviewWindow().label === "workbench";
 .route-boot-fill {
   width: 100%;
   height: 100%;
-  background: #1f1f1f;
+  background: var(--peek-bg, #1f1f1f);
 }
 </style>

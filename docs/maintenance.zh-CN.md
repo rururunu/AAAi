@@ -1,6 +1,6 @@
-# AAAi 维护手册
+# Anya 维护手册
 
-面向 AAAi 开发者与维护者的操作手册。设计背景见
+面向 Anya 开发者与维护者的操作手册。设计背景见
 [技术架构总览](./architecture-overview.zh-CN.md)；发版流程见
 [发布与远程更新](./release.zh-CN.md)。
 
@@ -12,7 +12,7 @@
 |              |                                |
 | ------------ | ------------------------------ |
 | **读者**     | 贡献者、发版负责人、日常维护者 |
-| **产品版本** | v0.2.1                         |
+| **产品版本** | v0.2.2                         |
 | **主平台**   | Windows 10 / 11（x64）         |
 
 ---
@@ -73,7 +73,7 @@ cargo test --lib
 | ------------------------------- | ----------------------------------------- |
 | `package.json`                  | 前端版本、脚本、依赖                      |
 | `src-tauri/tauri.conf.json`     | 产品版本、窗口、updater 公钥              |
-| `src-tauri/Cargo.toml`          | Rust crate 版本（`peek` / 二进制 `AAAi`） |
+| `src-tauri/Cargo.toml`          | Rust crate 版本（`peek` / 二进制 `Anya`） |
 | `src-tauri/permissions/*.toml`  | Tauri capability / ACL                    |
 | `src-tauri/prompts/*.md`        | 稳定系统提示词                            |
 | `src-tauri/prompts/skills/*.md` | Skill playbook（路由 + 行为）             |
@@ -126,7 +126,7 @@ AltAltAi/
 （`tool_activities`、`estimated_tokens`、`work_timeline` 同模式）。字段用
 `Option` / serde default。
 
-**清空本地状态（仅开发）：**退出应用后删除 Windows 本地/漫游应用数据中的 AAAi
+**清空本地状态（仅开发）：**退出应用后删除 Windows 本地/漫游应用数据中的 Anya
 目录。不要提供无确认的历史清空能力给普通用户。
 
 ---
@@ -155,7 +155,6 @@ AltAltAi/
 2. **核心**提示词不得写入具体 skill 产品名（见 `core/chat/prompts` 测试）。
 3. 「何时用 / 何时不用」写在 skill 文件自身。
 4. 结构调整后跑 `cargo test --lib`（或 prompts 相关过滤）。
-5. Rust 注释只解释 _为什么_，不要写厂商营销名。
 
 ### 5.4 Provider 变更
 
@@ -181,7 +180,7 @@ AltAltAi/
 | 崩溃后卡在「执行中」   | Journal 结算           | 重启；看 `status` 与 running tools                   |
 | 工具与思考上下颠倒     | Timeline               | 实时：store `workTimeline`；历史：DB `work_timeline` |
 | 追问冒出新气泡         | Soft-inject            | 会话是否已有活跃 assistant？                         |
-| Diff / 撤销缺失        | Checkpoint             | 是否本会话由 AAAi 工具写入？                         |
+| Diff / 撤销缺失        | Checkpoint             | 是否本会话由 Anya 工具写入？                         |
 | Office 工具缺失        | COM / 进程             | Word/Excel/PPT 是否在跑？                            |
 | MCP OAuth「丢失」      | mcp-remote 钉版本      | 包版本钉死 + 配置目录稳定                            |
 | `smithery.ts` 类型错误 | 前端 skills            | 与本次无关也可能阻塞 `pnpm check`                    |
@@ -227,7 +226,6 @@ AltAltAi/
 ## 9. 编码约定
 
 - 小而可审的 diff；贴合现有命名与模块边界。
-- 注释解释 **为什么**，不要写「借鉴某某厂商」。
 - 新增 `ChatMessage` 字段：改结构、serde、SQLite 迁移、字面量/helper、前端类型、持久化测试。
 - 新增 Bus 事件：`core/event` 定义 → adapters 投影 → `main.ts` / ipc 订阅 → 写入架构 §12。
 - 勿提交 `__pycache__`、密钥、带真实签名的本地 `release/*.json`。
@@ -279,7 +277,7 @@ cd src-tauri; cargo test --lib
 pnpm tauri:build
 
 # 发版元数据
-pnpm release:json -- --tag v0.2.1 --notes "…"
+pnpm release:json -- --tag v0.2.2 --notes "…"
 
 # 同步外部 skill（如使用）
 pnpm sync-skills

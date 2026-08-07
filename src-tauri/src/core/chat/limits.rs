@@ -54,6 +54,13 @@ pub const MCP_MAX_TOTAL_TOOLS: usize = 128;
 /// Soft cap on serialized inputSchema / description size per MCP tool.
 pub const MCP_MAX_TOOL_SCHEMA_CHARS: usize = 8_000;
 
+/// Caps applied when persisting tool/timeline JSON into SQLite so one message
+/// row cannot grow without bound from large tool results or diffs.
+pub const STORED_TOOL_RESULT_MAX_CHARS: usize = 12_000;
+pub const STORED_PREVIEW_TEXT_MAX_CHARS: usize = 6_000;
+pub const STORED_TIMELINE_ITEM_MAX_CHARS: usize = 32_000;
+pub const STORED_TOOL_CALL_ARGS_MAX_CHARS: usize = 8_000;
+
 pub fn estimate_tokens(text: &str) -> usize {
     if !text.contains("data:image/") {
         let chars = text.chars().count();

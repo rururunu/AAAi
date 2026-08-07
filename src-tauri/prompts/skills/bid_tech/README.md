@@ -1,7 +1,7 @@
 # bid_tech 维护说明
 
 本目录是内置 skill `generate_bid_tech` 的 Python 工具包源码。
-运行时由 Rust `bid_tech_assets::materialize_bid_tech_lib` 写入工作区 `.aaai/bid_tech/`。
+运行时由 Rust `bid_tech_assets::materialize_bid_tech_lib` 写入工作区 `.anya/bid_tech/`。
 完成后由只读 skill `review_bid_tech` 评议合理性。
 
 ## 模块
@@ -23,7 +23,7 @@
 
 1. 只改本目录源码（不要改用户工作区里物化出来的副本当源）。
 2. `cargo test --lib bid_tech` 确认物化路径仍包含全部文件（含 `quality.py`）。
-3. 本地：`python .aaai/bid_tech/cli.py …`（先跑一次 generate_bid_tech 或手动复制本目录）。
+3. 本地：`python .anya/bid_tech/cli.py …`（先跑一次 generate_bid_tech 或手动复制本目录）。
 
 ## 设计约束
 

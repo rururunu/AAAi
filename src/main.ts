@@ -24,6 +24,8 @@ import { hideBootSplash, waitForNextPaint } from "@/services/bootSplash";
 import { markPeekWindow } from "@/services/overlay/appearance";
 import { installBrowserGuards } from "@/services/browserGuards";
 import { createLogger, rootLogger } from "@/services/logger";
+import { recordToolActivityUsage } from "@/services/usage/resourceUsage";
+import { warmInstalledResourceIcons } from "@/services/warmIcons";
 import type {
   ChatContextNoticeEvent,
   ChatDeltaEvent,
@@ -34,7 +36,7 @@ import type {
   ChatUserContentEvent,
 } from "@/types/chat";
 import { useChatStore } from "@/stores/chat";
-import { applyTheme, useSettingStore } from "@/stores/setting";
+import { applyTheme, bootstrapThemeHint, useSettingStore } from "@/stores/setting";
 import "./styles/index.css";
 
 installBrowserGuards();
@@ -107,10 +109,7 @@ async function bootstrap() {
   // cut to a blank frame between splash → Suspense → Main loading.
   if (windowLabel === "workbench") {
     void router.replace("/workbench");
-    applyTheme({
-      colorScheme: "dark",
-      language: settingStore.language,
-    });
+    applyTheme(bootstrapThemeHint(settingStore.language));
     // Load persisted settings before Main mounts. Otherwise its first render
     // sees the default onboardingCompleted=false and opens the wizard before
     // the persisted value arrives.
@@ -119,6 +118,7 @@ async function bootstrap() {
       colorScheme: settingStore.colorScheme,
       language: settingStore.language,
     });
+    void warmInstalledResourceIcons(settingStore.mcpServers);
     app.mount("#app");
     await router.isReady();
     await waitForNextPaint();
@@ -127,28 +127,24 @@ async function bootstrap() {
     markPeekWindow();
     hideBootSplash({ fadeMs: 0 });
     void router.replace("/overlay");
-    applyTheme({
-      colorScheme: "dark",
-      language: settingStore.language,
-    });
+    applyTheme(bootstrapThemeHint(settingStore.language));
     await settingStore.load();
     applyTheme({
       colorScheme: settingStore.colorScheme,
       language: settingStore.language,
     });
+    void warmInstalledResourceIcons(settingStore.mcpServers);
     app.mount("#app");
     await router.isReady();
     await waitForNextPaint();
   } else {
-    applyTheme({
-      colorScheme: "dark",
-      language: settingStore.language,
-    });
+    applyTheme(bootstrapThemeHint(settingStore.language));
     await settingStore.load();
     applyTheme({
       colorScheme: settingStore.colorScheme,
       language: settingStore.language,
     });
+    void warmInstalledResourceIcons(settingStore.mcpServers);
   }
 
   await listenSettingsChanged((settings) => {
@@ -284,13 +280,16 @@ async function bootstrap() {
     }
   });
 
-  const handleToolActivity = (payload: unknown) => {
+  const handleToolActivity = (payload: unknown, options?: { recordUsage?: boolean }) => {
     streamBatch.drain();
     const normalized = normalizeToolActivityEvent(
       payload as Parameters<typeof normalizeToolActivityEvent>[0],
     );
     if (!normalized) {
       return;
+    }
+    if (options?.recordUsage && normalized.activity.status === "running") {
+      recordToolActivityUsage(normalized.activity.toolName, normalized.activity.arguments);
     }
     const { sessionId, messageId, activity } = normalized;
     if (
@@ -301,7 +300,7 @@ async function bootstrap() {
     }
   };
 
-  await listenToolStarted(handleToolActivity);
+  await listenToolStarted((payload) => handleToolActivity(payload, { recordUsage: true }));
   await listenToolFinished(handleToolActivity);
 
   await listenTaskListUpdated((payload) => {

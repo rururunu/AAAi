@@ -27,11 +27,11 @@ description: 阅读已生成的技术标 .docx，评议行程/投保/组织/安�
 - 技术标 `.docx` 路径
 - （可选）招标/参考要点、门禁报告路径
 
-优先用工作区 `.aaai/bid_tech`：
+优先用工作区 `.anya/bid_tech`：
 
 ```text
-python .aaai/bid_tech/cli.py inspect "<docx>"
-python .aaai/bid_tech/cli.py gate "<docx>" --plan .aaai/bid_plan.json
+python .anya/bid_tech/cli.py inspect "<docx>"
+python .anya/bid_tech/cli.py gate "<docx>" --plan .anya/bid_plan.json
 ```
 
 必要时再抽读正文关键章节（投保、活动日程、组织配比、出行、安全）。

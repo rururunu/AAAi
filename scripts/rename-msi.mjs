@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 /**
  * Tauri MSI default name: `{product}_{version}_{arch}_{locale}.msi`
- * (e.g. AAAi_0.2.1_x64_en-US.msi). Strip the locale suffix for release assets.
+ * (e.g. Anya_0.2.1_x64_en-US.msi). Strip the locale suffix for release assets.
  */
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const msiDir = join(root, "src-tauri", "target", "release", "bundle", "msi");

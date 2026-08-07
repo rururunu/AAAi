@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -34,6 +34,8 @@ where
 
 pub struct ConversationManager {
     sessions: Arc<Mutex<HashMap<String, Vec<ChatMessage>>>>,
+    /// Sessions whose message list has been loaded from SQLite (or created fresh).
+    loaded_sessions: Arc<Mutex<HashSet<String>>>,
     session_workspaces: Arc<Mutex<HashMap<String, String>>>,
     session_titles: Arc<Mutex<HashMap<String, String>>>,
     db_pool: sqlx::SqlitePool,
@@ -53,18 +55,21 @@ impl ConversationManager {
 
         let journal = super::journal::SessionJournal::new(db_pool.clone());
 
-        // Load all existing messages into sessions map
-        let all_messages = block_on_compat({
+        // Startup only hydrates orphaned mid-turn rows. Full session history is
+        // loaded on demand when that session is opened.
+        let orphaned = block_on_compat({
             let db_pool = db_pool.clone();
             async move {
-                super::db::load_all_messages(&db_pool)
+                super::db::load_orphaned_messages(&db_pool)
                     .await
-                    .expect("Failed to load messages from SQLite")
+                    .expect("Failed to load orphaned messages from SQLite")
             }
         });
 
-        let mut sessions = HashMap::new();
-        for msg in all_messages {
+        let mut sessions: HashMap<String, Vec<ChatMessage>> = HashMap::new();
+        let mut loaded_sessions: HashSet<String> = HashSet::new();
+        for msg in orphaned {
+            loaded_sessions.insert(msg.session_id.clone());
             sessions
                 .entry(msg.session_id.clone())
                 .or_insert_with(Vec::new)
@@ -82,7 +87,6 @@ impl ConversationManager {
                     flat
                 }
             });
-            // Write hydrated content back into the session map.
             let by_id: HashMap<String, ChatMessage> =
                 flat.into_iter().map(|m| (m.id.clone(), m)).collect();
             for messages in sessions.values_mut() {
@@ -117,6 +121,39 @@ impl ConversationManager {
             });
         }
 
+        // Orphans only contain mid-turn rows. Reload each touched session fully
+        // so reopen does not show a partial transcript.
+        let sessions_needing_full_load: Vec<String> = loaded_sessions.iter().cloned().collect();
+        for session_id in sessions_needing_full_load {
+            let pool = db_pool.clone();
+            let sid = session_id.clone();
+            let full = block_on_compat(async move {
+                super::db::load_messages_for_session(&pool, &sid)
+                    .await
+                    .unwrap_or_default()
+            });
+            // Prefer settled in-memory copies for ids we already finalized.
+            let settled_by_id: HashMap<String, ChatMessage> = sessions
+                .remove(&session_id)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|m| (m.id.clone(), m))
+                .collect();
+            let merged: Vec<ChatMessage> = full
+                .into_iter()
+                .map(|message| {
+                    settled_by_id
+                        .get(&message.id)
+                        .cloned()
+                        .unwrap_or(message)
+                })
+                .collect();
+            sessions.insert(session_id, merged);
+        }
+        // Mid-turn crash used to leave checkpoints only in memory — backfill so
+        // the last user message can still be rewound after restart.
+        ensure_conversation_checkpoints_for_sessions(&sessions);
+
         let session_workspaces = block_on_compat({
             let db_pool = db_pool.clone();
             async move {
@@ -136,6 +173,7 @@ impl ConversationManager {
 
         Self {
             sessions: Arc::new(Mutex::new(sessions)),
+            loaded_sessions: Arc::new(Mutex::new(loaded_sessions)),
             session_workspaces: Arc::new(Mutex::new(session_workspaces)),
             session_titles: Arc::new(Mutex::new(session_titles)),
             db_pool,
@@ -155,13 +193,90 @@ impl ConversationManager {
         Arc::clone(&self.sessions)
     }
 
+    /// Load one session's messages from SQLite the first time it is opened.
+    pub fn ensure_session_loaded(&self, session_id: &str) {
+        if session_id.is_empty() {
+            return;
+        }
+        if let Ok(loaded) = self.loaded_sessions.lock() {
+            if loaded.contains(session_id) {
+                return;
+            }
+        }
+
+        let pool = self.db_pool.clone();
+        let sid = session_id.to_string();
+        let mut messages = block_on_compat(async move {
+            super::db::load_messages_for_session(&pool, &sid)
+                .await
+                .unwrap_or_default()
+        });
+
+        // Settle any mid-turn leftovers discovered when the session is opened.
+        let dirty = {
+            let mut dirty = Vec::new();
+            for message in messages.iter_mut() {
+                if settle_message_in_place(message) {
+                    dirty.push(message.clone());
+                }
+            }
+            dirty
+        };
+        if !dirty.is_empty() {
+            let pool = self.db_pool.clone();
+            let journal = self.journal.clone();
+            tauri::async_runtime::spawn(async move {
+                for message in dirty {
+                    if let Err(e) = super::db::save_message(&pool, &message).await {
+                        eprintln!("Failed to settle interrupted message {}: {}", message.id, e);
+                    } else {
+                        journal.discard_message(&message.id);
+                    }
+                }
+            });
+        }
+
+        let mut checkpoint_map = HashMap::new();
+        checkpoint_map.insert(session_id.to_string(), messages.clone());
+        ensure_conversation_checkpoints_for_sessions(&checkpoint_map);
+
+        if let (Ok(mut sessions), Ok(mut loaded)) =
+            (self.sessions.lock(), self.loaded_sessions.lock())
+        {
+            if loaded.contains(session_id) {
+                return;
+            }
+            // Keep any messages appended while the DB load was in flight.
+            match sessions.get_mut(session_id) {
+                Some(existing) if !existing.is_empty() => {
+                    let existing_ids: HashSet<String> =
+                        existing.iter().map(|m| m.id.clone()).collect();
+                    for message in messages {
+                        if !existing_ids.contains(&message.id) {
+                            existing.push(message);
+                        }
+                    }
+                    existing.sort_by_key(|message| message.timestamp);
+                }
+                _ => {
+                    sessions.insert(session_id.to_string(), messages);
+                }
+            }
+            loaded.insert(session_id.to_string());
+        }
+    }
+
     pub fn append(&self, session_id: &str, mut message: ChatMessage) {
+        self.ensure_session_loaded(session_id);
         refresh_message_token_cache(&mut message);
         if let Ok(mut sessions) = self.sessions.lock() {
             sessions
                 .entry(session_id.to_string())
                 .or_default()
                 .push(message.clone());
+        }
+        if let Ok(mut loaded) = self.loaded_sessions.lock() {
+            loaded.insert(session_id.to_string());
         }
 
         // Save to database asynchronously
@@ -174,6 +289,7 @@ impl ConversationManager {
     }
 
     pub fn messages(&self, session_id: &str) -> Vec<ChatMessage> {
+        self.ensure_session_loaded(session_id);
         self.sessions
             .lock()
             .ok()
@@ -235,33 +351,68 @@ impl ConversationManager {
     }
 
     pub fn find_message(&self, message_id: &str) -> Result<(String, ChatMessage), ChatError> {
-        let sessions = self.sessions.lock().map_err(lock_error)?;
-
-        for (session_id, messages) in sessions.iter() {
-            if let Some(message) = messages.iter().find(|item| item.id == message_id) {
-                return Ok((session_id.clone(), message.clone()));
+        {
+            let sessions = self.sessions.lock().map_err(lock_error)?;
+            for (session_id, messages) in sessions.iter() {
+                if let Some(message) = messages.iter().find(|item| item.id == message_id) {
+                    return Ok((session_id.clone(), message.clone()));
+                }
             }
         }
 
-        Err(ChatError::MessageNotFound)
+        // Message may live in an unloaded session (e.g. cancel after restart).
+        let pool = self.db_pool.clone();
+        let mid = message_id.to_string();
+        let session_id = block_on_compat(async move {
+            sqlx::query_scalar::<_, String>("SELECT session_id FROM chat_messages WHERE id = ?")
+                .bind(mid)
+                .fetch_optional(&pool)
+                .await
+                .ok()
+                .flatten()
+        });
+        let Some(session_id) = session_id else {
+            return Err(ChatError::MessageNotFound);
+        };
+        self.ensure_session_loaded(&session_id);
+        let sessions = self.sessions.lock().map_err(lock_error)?;
+        sessions
+            .get(&session_id)
+            .and_then(|messages| {
+                messages
+                    .iter()
+                    .find(|item| item.id == message_id)
+                    .map(|message| (session_id.clone(), message.clone()))
+            })
+            .ok_or(ChatError::MessageNotFound)
     }
 
     pub fn list_sessions(&self) -> Vec<ChatSessionSummary> {
-        let sessions = match self.sessions.lock() {
-            Ok(guard) => guard,
-            Err(_) => return Vec::new(),
-        };
+        let pool = self.db_pool.clone();
+        let mut summaries = block_on_compat(async move {
+            super::db::load_session_summaries(&pool)
+                .await
+                .unwrap_or_default()
+        });
+
         let session_workspaces = self
             .session_workspaces
             .lock()
             .map(|workspaces| workspaces.clone())
             .unwrap_or_default();
 
-        let mut summaries = sessions
-            .iter()
-            .filter_map(|(session_id, messages)| {
+        // Overlay in-memory loaded sessions so an active stream's preview /
+        // counts stay accurate before the terminal SQLite flush.
+        if let Ok(sessions) = self.sessions.lock() {
+            let mut by_id: HashMap<String, usize> = summaries
+                .iter()
+                .enumerate()
+                .map(|(index, summary)| (summary.session_id.clone(), index))
+                .collect();
+
+            for (session_id, messages) in sessions.iter() {
                 if messages.is_empty() {
-                    return None;
+                    continue;
                 }
                 let preview = self
                     .session_title(session_id)
@@ -283,17 +434,31 @@ impl ConversationManager {
                             .unwrap_or_else(|| estimate_message_tokens(message))
                     })
                     .sum();
-                Some(ChatSessionSummary {
+                let summary = ChatSessionSummary {
                     session_id: session_id.clone(),
-                    workspace_id: session_workspaces.get(session_id).cloned(),
+                    workspace_id: session_workspaces
+                        .get(session_id)
+                        .cloned()
+                        .or_else(|| {
+                            summaries
+                                .iter()
+                                .find(|item| item.session_id == *session_id)
+                                .and_then(|item| item.workspace_id.clone())
+                        }),
                     preview,
                     message_count: messages.len(),
                     turn_count,
                     estimated_tokens,
                     updated_at,
-                })
-            })
-            .collect::<Vec<_>>();
+                };
+                if let Some(index) = by_id.get(session_id).copied() {
+                    summaries[index] = summary;
+                } else {
+                    by_id.insert(session_id.clone(), summaries.len());
+                    summaries.push(summary);
+                }
+            }
+        }
 
         summaries.sort_by_key(|summary| std::cmp::Reverse(summary.updated_at));
         summaries
@@ -307,6 +472,7 @@ impl ConversationManager {
         content: Option<String>,
         reasoning: Option<Option<String>>,
     ) -> Option<ChatMessage> {
+        self.ensure_session_loaded(session_id);
         let mut sessions = self.sessions.lock().ok()?;
         let messages = sessions.get_mut(session_id)?;
         let message = messages.iter_mut().find(|item| item.id == message_id)?;
@@ -321,21 +487,24 @@ impl ConversationManager {
         refresh_message_token_cache(&mut updated);
         *message = updated.clone();
 
-        // Save updated message to SQLite asynchronously
-        let is_terminal = !matches!(
+        // Streaming/pending rows stay in memory + journal; only terminal (or
+        // already-settled) updates rewrite the full SQLite row.
+        let should_persist = !matches!(
             &updated.status,
             MessageStatus::Pending | MessageStatus::Streaming
         );
-        let pool = self.db_pool.clone();
-        let journal = self.journal.clone();
-        let msg_to_save = updated.clone();
-        tauri::async_runtime::spawn(async move {
-            if let Err(e) = super::db::save_message(&pool, &msg_to_save).await {
-                eprintln!("Failed to save updated message to SQLite: {}", e);
-            } else if is_terminal {
-                journal.discard_message(&msg_to_save.id);
-            }
-        });
+        if should_persist {
+            let pool = self.db_pool.clone();
+            let journal = self.journal.clone();
+            let msg_to_save = updated.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = super::db::save_message(&pool, &msg_to_save).await {
+                    eprintln!("Failed to save updated message to SQLite: {}", e);
+                } else {
+                    journal.discard_message(&msg_to_save.id);
+                }
+            });
+        }
 
         Some(updated)
     }
@@ -397,15 +566,37 @@ impl ConversationManager {
         timeline.push(item);
     }
 
-    /// Drop the in-progress timeline for a message, used when a stream is
-    /// retried from scratch and its partial content/reasoning are discarded.
-    pub fn reset_work_timeline(&self, session_id: &str, message_id: &str) {
+    pub fn work_timeline_len(&self, session_id: &str, message_id: &str) -> usize {
+        self.sessions
+            .lock()
+            .ok()
+            .and_then(|sessions| {
+                sessions
+                    .get(session_id)?
+                    .iter()
+                    .find(|item| item.id == message_id)?
+                    .work_timeline
+                    .as_ref()
+                    .map(|timeline| timeline.len())
+            })
+            .unwrap_or(0)
+    }
+
+    /// Keep timeline items produced before `keep_len` (completed prior rounds)
+    /// and drop anything streamed during a failed/retried provider attempt.
+    pub fn truncate_work_timeline(&self, session_id: &str, message_id: &str, keep_len: usize) {
         if let Ok(mut sessions) = self.sessions.lock() {
             if let Some(message) = sessions
                 .get_mut(session_id)
                 .and_then(|messages| messages.iter_mut().find(|item| item.id == message_id))
             {
-                message.work_timeline = None;
+                if let Some(timeline) = message.work_timeline.as_mut() {
+                    if keep_len == 0 {
+                        message.work_timeline = None;
+                    } else if timeline.len() > keep_len {
+                        timeline.truncate(keep_len);
+                    }
+                }
             }
         }
     }
@@ -416,6 +607,7 @@ impl ConversationManager {
         message_id: &str,
         activity: ToolActivity,
     ) -> Option<ChatMessage> {
+        self.ensure_session_loaded(session_id);
         let should_persist = activity.status != "running";
         let mut sessions = self.sessions.lock().ok()?;
         let message = sessions
@@ -448,7 +640,7 @@ impl ConversationManager {
         let pool = self.db_pool.clone();
         let msg_to_save = updated.clone();
         tauri::async_runtime::spawn(async move {
-            if let Err(e) = super::db::save_message(&pool, &msg_to_save).await {
+            if let Err(e) = super::db::save_message_tool_fields(&pool, &msg_to_save).await {
                 eprintln!("Failed to save tool activity to SQLite: {}", e);
             }
         });
@@ -461,6 +653,7 @@ impl ConversationManager {
         session_id: &str,
         user_message_id: &str,
     ) -> Result<(), ChatError> {
+        self.ensure_session_loaded(session_id);
         let removed_ids = {
             let mut sessions = self.sessions.lock().map_err(lock_error)?;
             let messages = sessions
@@ -505,6 +698,9 @@ impl ConversationManager {
         if let Ok(mut sessions) = self.sessions.lock() {
             sessions.remove(session_id);
         }
+        if let Ok(mut loaded) = self.loaded_sessions.lock() {
+            loaded.remove(session_id);
+        }
         if let Ok(mut workspaces) = self.session_workspaces.lock() {
             workspaces.remove(session_id);
         }
@@ -545,6 +741,9 @@ impl ConversationManager {
     pub fn clear_all_sessions(&self) {
         if let Ok(mut sessions) = self.sessions.lock() {
             sessions.clear();
+        }
+        if let Ok(mut loaded) = self.loaded_sessions.lock() {
+            loaded.clear();
         }
         if let Ok(mut workspaces) = self.session_workspaces.lock() {
             workspaces.clear();
@@ -614,6 +813,36 @@ fn settle_orphaned_in_sessions(
         }
     }
     dirty
+}
+
+/// After a crash, `finish_turn` may never have run. Create conversation-only
+/// checkpoints for any user message that is missing one so rewind stays available.
+fn ensure_conversation_checkpoints_for_sessions(sessions: &HashMap<String, Vec<ChatMessage>>) {
+    let store = crate::core::checkpoint::shared_checkpoint_store();
+    for (session_id, messages) in sessions {
+        let existing = store.list(session_id).unwrap_or_default();
+        let have: std::collections::HashSet<String> = existing
+            .into_iter()
+            .filter_map(|checkpoint| checkpoint.user_message_id)
+            .collect();
+        let mut turn = 0usize;
+        for message in messages {
+            if message.role != Role::User {
+                continue;
+            }
+            turn += 1;
+            if have.contains(&message.id) {
+                continue;
+            }
+            let _ = store.ensure_conversation_checkpoint(
+                session_id,
+                turn,
+                &message.content,
+                &message.id,
+                None,
+            );
+        }
+    }
 }
 
 fn settle_message_in_place(message: &mut ChatMessage) -> bool {
@@ -731,7 +960,7 @@ mod rewind_tests {
     #[tokio::test]
     async fn truncate_is_persisted_before_returning() {
         let db_path = std::env::temp_dir().join(format!(
-            "aaai-rewind-conversation-{}.db",
+            "anya-rewind-conversation-{}.db",
             uuid::Uuid::new_v4()
         ));
         let manager = ConversationManager::new(db_path.clone());
@@ -801,7 +1030,7 @@ mod work_timeline_tests {
 
     fn temp_manager() -> (ConversationManager, std::path::PathBuf) {
         let db_path = std::env::temp_dir().join(format!(
-            "aaai-work-timeline-{}.db",
+            "anya-work-timeline-{}.db",
             uuid::Uuid::new_v4()
         ));
         (ConversationManager::new(db_path.clone()), db_path)
@@ -938,5 +1167,111 @@ mod work_timeline_tests {
         assert_eq!(timeline.len(), 1);
 
         cleanup(db_path);
+    }
+
+    #[test]
+    fn truncate_work_timeline_keeps_stable_prefix() {
+        let (manager, db_path) = temp_manager();
+        let session_id = "session";
+        let message = create_message(session_id, Role::Assistant, String::new(), MessageStatus::Streaming);
+        let message_id = message.id.clone();
+        manager
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.into(), vec![message]);
+
+        manager.append_work_timeline_text(
+            session_id,
+            &message_id,
+            TimelineTextKind::Reasoning,
+            "stable thought",
+        );
+        manager.upsert_tool_activity(
+            session_id,
+            &message_id,
+            ToolActivity {
+                id: "activity-1".into(),
+                subagent_id: None,
+                parent_activity_id: None,
+                tool_name: "read_file".into(),
+                title: "Read file".into(),
+                kind: "read".into(),
+                detail: None,
+                arguments: None,
+                result: None,
+                preview: None,
+                success: true,
+                status: "running".into(),
+            },
+        );
+        let stable_len = manager.work_timeline_len(session_id, &message_id);
+        manager.append_work_timeline_text(
+            session_id,
+            &message_id,
+            TimelineTextKind::Reasoning,
+            "retry partial",
+        );
+        assert_eq!(manager.work_timeline_len(session_id, &message_id), stable_len + 1);
+
+        manager.truncate_work_timeline(session_id, &message_id, stable_len);
+        let timeline = manager.messages(session_id)[0]
+            .work_timeline
+            .clone()
+            .expect("timeline");
+        assert_eq!(timeline.len(), stable_len);
+        assert!(matches!(
+            &timeline[0],
+            WorkTimelineItem::Reasoning { content, .. } if content == "stable thought"
+        ));
+
+        cleanup(db_path);
+    }
+}
+
+#[cfg(test)]
+mod lazy_load_tests {
+    use super::{create_message, ConversationManager};
+    use crate::core::chat::db;
+    use crate::core::runtime::{MessageStatus, Role};
+
+    #[tokio::test]
+    async fn startup_does_not_load_all_sessions_until_opened() {
+        let db_path = std::env::temp_dir().join(format!(
+            "anya-lazy-load-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let manager = ConversationManager::new(db_path.clone());
+        let keep = create_message("keep", Role::User, "one".into(), MessageStatus::Done);
+        let other = create_message("other", Role::User, "two".into(), MessageStatus::Done);
+        db::save_message(&manager.db_pool, &keep).await.unwrap();
+        db::save_message(&manager.db_pool, &other).await.unwrap();
+        drop(manager);
+
+        let reloaded = ConversationManager::new(db_path.clone());
+        {
+            let sessions = reloaded.sessions.lock().unwrap();
+            assert!(sessions.is_empty(), "startup should not preload history");
+        }
+        let summaries = reloaded.list_sessions();
+        assert_eq!(summaries.len(), 2);
+
+        let loaded = reloaded.messages("keep");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].content, "one");
+        {
+            let sessions = reloaded.sessions.lock().unwrap();
+            assert!(sessions.contains_key("keep"));
+            assert!(!sessions.contains_key("other"));
+        }
+
+        let other_loaded = reloaded.messages("other");
+        assert_eq!(other_loaded.len(), 1);
+        assert_eq!(other_loaded[0].content, "two");
+        drop(reloaded);
+
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("db-shm"));
+        let _ = std::fs::remove_file(db_path.with_extension("db-wal"));
     }
 }

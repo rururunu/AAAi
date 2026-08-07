@@ -1,19 +1,19 @@
-# AAAi 技术架构总览
+# Anya 技术架构总览
 
-本文描述 AAAi 的逻辑结构、依赖约束、控制流、持久化与编排，面向需要定位代码路径、评估变更影响的贡献者。
+本文描述 Anya 的逻辑结构、依赖约束、控制流、持久化与编排，面向需要定位代码路径、评估变更影响的贡献者。
 
 <p>
   <a href="./architecture-overview.md">English</a> ·
   <a href="./architecture-overview.zh-CN.md">简体中文</a>
 </p>
 
-|            |                                   |
-| ---------- | --------------------------------- |
-| **产品**   | AAAi — Windows 桌面 AI 助手       |
-| **版本**   | v0.2.1                            |
-| **运行时** | Tauri 2（WebView2 + Rust）        |
-| **界面**   | Vue 3 · Vite · Pinia · TypeScript |
-| **领域**   | Rust（`src-tauri/src`）           |
+|            |                                    |
+| ---------- | ---------------------------------- |
+| **产品**   | Anya — 将你的工作&疑问随手交给Anya |
+| **版本**   | v0.2.2                             |
+| **运行时** | Tauri 2（WebView2 + Rust）         |
+| **界面**   | Vue 3 · Vite · Pinia · TypeScript  |
+| **领域**   | Rust（`src-tauri/src`）            |
 
 **相关文档：** [维护手册](./maintenance.zh-CN.md) · [发布](./release.zh-CN.md) · [文档索引](./README.zh-CN.md)
 
@@ -41,11 +41,11 @@
 
 ## 2. 系统上下文
 
-AAAi 以**单个原生进程**托管多个 WebView 窗口。Rust 宿主负责 OS 集成；WebView 负责呈现与本地 UI 状态。
+Anya 以**单个原生进程**托管多个 WebView 窗口。Rust 宿主负责 OS 集成；WebView 负责呈现与本地 UI 状态。
 
 ```mermaid
 flowchart LR
-  User((用户)) -->|热键 / 托盘 / 输入| Host[AAAi 进程]
+  User((用户)) -->|热键 / 托盘 / 输入| Host[Anya 进程]
   IDE[IDE 插件] -->|上下文推送| Host
   Host -->|COM| Office[Word / Excel / PPT]
   Host -->|HTTPS SSE / REST| LLM[模型服务商]
@@ -151,7 +151,7 @@ services（window、hotkey、settings）→ 按需依赖 core
 
 ```mermaid
 flowchart TB
-  subgraph Process["AAAi.exe"]
+  subgraph Process["Anya.exe"]
     Rust["Rust 宿主<br/>hotkey · tray · COM · SQLite · AgentRuntime"]
     WV1["WebView: workbench"]
     WV2["WebView: overlay"]
@@ -463,11 +463,11 @@ Skills 位于 `src-tauri/prompts/skills/`（含厂商资源）。调用时常注
 ```mermaid
 flowchart LR
   Tag[git tag v*] --> CI[release.yml]
-  CI --> MSI[AAAi_x_x64.msi + .sig]
+  CI --> MSI[Anya_x_x64.msi + .sig]
   CI --> LJ[latest.json]
   MSI --> GH[GitHub Release assets]
   LJ --> GH
-  App[已安装 AAAi] -->|updater 插件| GH
+  App[已安装 Anya] -->|updater 插件| GH
 ```
 
 细节见 [release.zh-CN.md](./release.zh-CN.md)。

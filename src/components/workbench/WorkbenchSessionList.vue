@@ -30,6 +30,7 @@
           class="running-icon"
         />
         <span v-else-if="unreadSessionIds.includes(session.sessionId)" class="unread-dot" />
+        <PenLine v-else-if="hasDraft(session.sessionId)" :size="12" class="draft-icon" />
       </span>
       <button
         type="button"
@@ -44,7 +45,7 @@
 </template>
 
 <script setup lang="ts">
-import { LoaderCircle, ShieldAlert, Trash2 } from "@lucide/vue";
+import { LoaderCircle, PenLine, ShieldAlert, Trash2 } from "@lucide/vue";
 import { formatSessionPreview } from "@/services/chat/sessionPreview";
 import type { ChatSessionSummary } from "@/types/chat";
 import type { AppLanguage } from "@/types/setting";
@@ -58,6 +59,7 @@ const props = defineProps<{
   runningSessionIds: string[];
   attentionSessionIds: string[];
   unreadSessionIds: string[];
+  draftSessionIds?: string[];
   variant?: "workspace" | "quick";
 }>();
 const emit = defineEmits<{
@@ -67,6 +69,10 @@ const emit = defineEmits<{
 
 function displayPreview(session: ChatSessionSummary) {
   return formatSessionPreview(session.preview || "") || props.untitledLabel;
+}
+
+function hasDraft(sessionId: string) {
+  return (props.draftSessionIds ?? []).includes(sessionId);
 }
 function formatSessionTime(timestamp: number) {
   return new Intl.DateTimeFormat(props.language, {
@@ -97,6 +103,9 @@ function sessionStatusLabel(sessionId: string) {
   }
   if (props.unreadSessionIds.includes(sessionId)) {
     return props.language === "zh-CN" ? "任务已完成" : "Task completed";
+  }
+  if (hasDraft(sessionId)) {
+    return props.language === "zh-CN" ? "有未发送内容" : "Unsent draft";
   }
   return "";
 }
@@ -154,6 +163,10 @@ function sessionStatusLabel(sessionId: string) {
 }
 .attention-icon {
   color: var(--peek-warning, #d97706);
+}
+.draft-icon {
+  color: var(--peek-muted);
+  opacity: 0.85;
 }
 .unread-dot {
   width: 7px;

@@ -2,11 +2,41 @@ export type ColorScheme = "dark" | "light";
 
 export const LIGHT_COLOR_SCHEMES = new Set<ColorScheme>(["light"]);
 
+/** localStorage key so boot splash can paint the right theme before settings IPC. */
+export const COLOR_SCHEME_CACHE_KEY = "anya.colorScheme";
+
 export function normalizeColorScheme(value: unknown): ColorScheme {
   if (value === "paper" || value === "light" || value === "cream" || value === "frost") {
     return "light";
   }
-  return "dark";
+  if (
+    value === "dark" ||
+    value === "system" ||
+    value === "auto" ||
+    value === "default" ||
+    value === "nocturne" ||
+    value === "blue-black" ||
+    value === "midnight" ||
+    value === "forest" ||
+    value === "rose" ||
+    value === "ocean" ||
+    value === "graphite" ||
+    value === "ember" ||
+    value === "teal" ||
+    value === "ghost-pastel"
+  ) {
+    return "dark";
+  }
+  // Missing / unknown → light (app default)
+  return "light";
+}
+
+export function readCachedColorScheme(): ColorScheme {
+  try {
+    return normalizeColorScheme(localStorage.getItem(COLOR_SCHEME_CACHE_KEY));
+  } catch {
+    return "light";
+  }
 }
 
 export function isLightColorScheme(scheme: ColorScheme): boolean {
@@ -78,8 +108,10 @@ export interface CustomProviderConfig {
   name: string;
   baseUrl: string;
   apiKey: string;
-  /** Newline or comma-separated model IDs. */
+  /** Newline-separated model IDs (legacy comma-separated still accepted when loading). */
   models: string;
+  /** Optional preset template id (mimo / zhipu / …) for icons and defaults. */
+  presetId?: string;
 }
 
 export interface GeminiOAuthSettings {
@@ -147,8 +179,13 @@ export interface AppSettings {
   largeContextEnabled: boolean;
   reasoningEffort: ReasoningEffort;
   reasoningLanguage: ReasoningLanguage;
-  /** Pass reasoning_content back on tool-call turns (DeepSeek thinking + tools). */
+  /** Pass reasoning_content back on tool-call turns (thinking + tools protocol). */
   passToolReasoning: boolean;
+  /**
+   * Keep thinking enabled on agent-loop rounds after tools (default on).
+   * Turn off to skip thinking on continuation rounds and save tokens.
+   */
+  continueThinkingAfterTools: boolean;
   /** Display reasoning content supplied by the model in chat. */
   showReasoning: boolean;
   /** detailed = shell/diff inline; compact = fold into process details. */
@@ -205,6 +242,7 @@ export interface AppSettingsPatch {
   reasoningEffort?: ReasoningEffort;
   reasoningLanguage?: ReasoningLanguage;
   passToolReasoning?: boolean;
+  continueThinkingAfterTools?: boolean;
   showReasoning?: boolean;
   agentWorkDisplay?: AgentWorkDisplay;
   multiModelCollaboration?: boolean;

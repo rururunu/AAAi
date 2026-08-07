@@ -45,22 +45,19 @@ impl SessionJournal {
     pub fn new(pool: SqlitePool) -> Self {
         let (tx, mut rx) = mpsc::unbounded_channel::<JournalCommand>();
         async_runtime::spawn(async move {
-            while let Some(command) = rx.recv().await {
-                let result = match command {
-                    JournalCommand::Append(event) => insert_event(&pool, &event).await,
-                    JournalCommand::DeleteMessage(message_id) => {
-                        delete_by_column(&pool, "message_id", &message_id).await
+            while let Some(first) = rx.recv().await {
+                let mut batch = vec![first];
+                // Coalesce a short burst of appends into one transaction so
+                // streaming flushes don't pay one fsync-roundtrip each.
+                while batch.len() < 64 {
+                    match rx.try_recv() {
+                        Ok(command) => batch.push(command),
+                        Err(mpsc::error::TryRecvError::Empty) => break,
+                        Err(mpsc::error::TryRecvError::Disconnected) => break,
                     }
-                    JournalCommand::DeleteSession(session_id) => {
-                        delete_by_column(&pool, "session_id", &session_id).await
-                    }
-                    JournalCommand::DeleteAll => sqlx::query("DELETE FROM chat_journal_events")
-                        .execute(&pool)
-                        .await
-                        .map(|_| ())
-                        .map_err(|error| error.to_string()),
-                };
-                if let Err(error) = result {
+                }
+
+                if let Err(error) = apply_journal_commands(&pool, batch).await {
                     eprintln!("Failed to update chat journal: {error}");
                 }
             }
@@ -238,17 +235,66 @@ impl DeltaBuffer {
     }
 }
 
-async fn delete_by_column(pool: &SqlitePool, column: &str, value: &str) -> Result<(), String> {
-    let query = format!("DELETE FROM chat_journal_events WHERE {column} = ?");
-    sqlx::query(&query)
-        .bind(value)
-        .execute(pool)
+async fn apply_journal_commands(
+    pool: &SqlitePool,
+    commands: Vec<JournalCommand>,
+) -> Result<(), String> {
+    if commands.is_empty() {
+        return Ok(());
+    }
+
+    // Deletes must stay ordered relative to appends; run the batch as one
+    // transaction so a crash mid-burst cannot leave a half-applied flush.
+    let mut transaction = pool.begin().await.map_err(|error| error.to_string())?;
+    for command in commands {
+        match command {
+            JournalCommand::Append(event) => {
+                insert_event_in_tx(&mut transaction, &event).await?;
+            }
+            JournalCommand::DeleteMessage(message_id) => {
+                sqlx::query("DELETE FROM chat_journal_events WHERE message_id = ?")
+                    .bind(message_id)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
+            JournalCommand::DeleteSession(session_id) => {
+                sqlx::query("DELETE FROM chat_journal_events WHERE session_id = ?")
+                    .bind(session_id)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
+            JournalCommand::DeleteAll => {
+                sqlx::query("DELETE FROM chat_journal_events")
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+    }
+    transaction
+        .commit()
         .await
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
+#[cfg(test)]
 async fn insert_event(pool: &SqlitePool, event: &JournalEvent) -> Result<(), String> {
+    let mut transaction = pool.begin().await.map_err(|error| error.to_string())?;
+    insert_event_in_tx(&mut transaction, event).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+async fn insert_event_in_tx(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    event: &JournalEvent,
+) -> Result<(), String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -268,7 +314,7 @@ async fn insert_event(pool: &SqlitePool, event: &JournalEvent) -> Result<(), Str
         .bind(&payload)
         .bind(now)
         .bind(&event.message_id)
-        .execute(pool)
+        .execute(&mut **transaction)
         .await
         .map_err(|error| error.to_string())?;
         if updated.rows_affected() > 0 {
@@ -285,7 +331,7 @@ async fn insert_event(pool: &SqlitePool, event: &JournalEvent) -> Result<(), Str
     .bind(&event.kind)
     .bind(payload)
     .bind(now)
-    .execute(pool)
+    .execute(&mut **transaction)
     .await
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -348,6 +394,8 @@ pub async fn compact_recovery_journal(pool: &SqlitePool) -> Result<(), String> {
         "DROP TABLE retained_chat_journal",
         "CREATE INDEX idx_chat_journal_message
          ON chat_journal_events(message_id, seq)",
+        "CREATE INDEX idx_chat_journal_session_created
+         ON chat_journal_events(session_id, created_at)",
     ] {
         sqlx::query(statement)
             .execute(&mut *transaction)
@@ -379,6 +427,14 @@ pub async fn init_journal_schema(pool: &SqlitePool) -> Result<(), String> {
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_chat_journal_message
          ON chat_journal_events(message_id, seq);",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_chat_journal_session_created
+         ON chat_journal_events(session_id, created_at);",
     )
     .execute(pool)
     .await

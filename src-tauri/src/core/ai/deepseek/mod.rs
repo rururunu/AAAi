@@ -19,6 +19,7 @@ use super::provider::{AIProvider, ProviderError};
 
 pub(crate) use messages::build_api_body;
 pub use models::list_models;
+pub use models::{list_openai_compatible_models, normalize_models_url};
 pub(crate) use models::normalize_chat_completions_url;
 use stream::RETRY_BACKOFF;
 
@@ -33,6 +34,7 @@ pub struct DeepSeekProvider {
     resolve_model: Arc<dyn Fn() -> String + Send + Sync>,
     resolve_effort: Arc<dyn Fn() -> ReasoningEffort + Send + Sync>,
     resolve_pass_tool_reasoning: Arc<dyn Fn() -> bool + Send + Sync>,
+    resolve_continue_thinking_after_tools: Arc<dyn Fn() -> bool + Send + Sync>,
     /// Optional resolver that returns a custom chat-completions URL.
     /// When `None` (or the resolver returns `None`) the default `API_URL` is used.
     resolve_base_url: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
@@ -45,6 +47,7 @@ impl DeepSeekProvider {
         resolve_model: Arc<dyn Fn() -> String + Send + Sync>,
         resolve_effort: Arc<dyn Fn() -> ReasoningEffort + Send + Sync>,
         resolve_pass_tool_reasoning: Arc<dyn Fn() -> bool + Send + Sync>,
+        resolve_continue_thinking_after_tools: Arc<dyn Fn() -> bool + Send + Sync>,
         resolve_base_url: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
     ) -> Self {
         Self {
@@ -53,6 +56,7 @@ impl DeepSeekProvider {
             resolve_model,
             resolve_effort,
             resolve_pass_tool_reasoning,
+            resolve_continue_thinking_after_tools,
             resolve_base_url,
         }
     }
@@ -84,6 +88,10 @@ impl DeepSeekProvider {
 
     fn pass_tool_reasoning(&self) -> bool {
         (self.resolve_pass_tool_reasoning)()
+    }
+
+    fn continue_thinking_after_tools(&self) -> bool {
+        (self.resolve_continue_thinking_after_tools)()
     }
 
     fn chat_completions_url(&self) -> String {
@@ -131,6 +139,7 @@ impl DeepSeekProvider {
         let primary_url = self.chat_completions_url();
         let effort = self.effort();
         let pass_tool_reasoning = self.pass_tool_reasoning();
+        let continue_thinking_after_tools = self.continue_thinking_after_tools();
         let include_thinking = !primary_url.contains("generativelanguage.googleapis.com");
 
         let has_images = request
@@ -152,6 +161,7 @@ impl DeepSeekProvider {
                 true,
                 effort,
                 pass_tool_reasoning,
+                continue_thinking_after_tools,
                 include_thinking,
             );
             match run_chat_stream(&client, &primary_url, &primary_api_key, &body, &tx).await {
@@ -193,6 +203,7 @@ impl DeepSeekProvider {
             true,
             effort,
             pass_tool_reasoning,
+            continue_thinking_after_tools,
             include_thinking,
         );
         match run_chat_stream(&client, &url, &api_key, &body, &tx).await {
@@ -258,6 +269,7 @@ mod tests {
             ReasoningEffort::High,
             true,
             true,
+            true,
         );
         let obj = body.as_object().expect("object body");
         assert!(!obj.contains_key("temperature"));
@@ -277,6 +289,7 @@ mod tests {
             ReasoningEffort::High,
             true,
             true,
+            true,
         );
         let obj = body.as_object().expect("object body");
         assert_eq!(obj.get("thinking"), Some(&json!({ "type": "enabled" })));
@@ -290,6 +303,7 @@ mod tests {
             "deepseek-chat",
             true,
             ReasoningEffort::Disabled,
+            true,
             true,
             true,
         );
@@ -306,6 +320,7 @@ mod tests {
             "deepseek-reasoner",
             true,
             ReasoningEffort::High,
+            true,
             true,
             true,
         );
@@ -389,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_continuation_disables_thinking() {
+    fn tool_continuation_keeps_thinking() {
         use crate::core::runtime::ToolCallPayload;
 
         let assistant = ChatMessage {
@@ -433,6 +448,61 @@ mod tests {
             true,
             ReasoningEffort::High,
             true,
+            true,
+            true,
+        );
+        let obj = body.as_object().expect("object body");
+        assert_eq!(obj.get("thinking"), Some(&json!({ "type": "enabled" })));
+        let messages = body["messages"].as_array().expect("messages");
+        assert_eq!(messages[0]["reasoning_content"], "plan once");
+    }
+
+    #[test]
+    fn tool_continuation_can_skip_thinking_when_setting_off() {
+        use crate::core::runtime::ToolCallPayload;
+
+        let assistant = ChatMessage {
+            id: "a1".into(),
+            session_id: "default".into(),
+            role: Role::Assistant,
+            content: String::new(),
+            reasoning: Some("plan once".into()),
+            work_timeline: None,
+            tool_activities: None,
+            tool_calls: Some(vec![ToolCallPayload {
+                id: "call-1".into(),
+                name: "read_file".into(),
+                arguments: r#"{"path":"a.rs"}"#.into(),
+                thought_signature: None,
+            }]),
+            tool_call_id: None,
+            name: None,
+            status: MessageStatus::Done,
+            timestamp: 1,
+            estimated_tokens: None,
+        };
+        let tool = ChatMessage {
+            id: "t1".into(),
+            session_id: "default".into(),
+            role: Role::Tool,
+            content: "ok".into(),
+            reasoning: None,
+            work_timeline: None,
+            tool_activities: None,
+            tool_calls: None,
+            tool_call_id: Some("call-1".into()),
+            name: Some("read_file".into()),
+            status: MessageStatus::Done,
+            timestamp: 2,
+            estimated_tokens: None,
+        };
+        let body = build_api_body(
+            &sample_request(vec![assistant, tool]),
+            "deepseek-reasoner",
+            true,
+            ReasoningEffort::High,
+            true,
+            false,
             true,
         );
         let obj = body.as_object().expect("object body");
@@ -486,6 +556,7 @@ mod tests {
             "deepseek-chat",
             true,
             ReasoningEffort::Disabled,
+            true,
             true,
             true,
         );
@@ -547,6 +618,7 @@ mod tests {
                 base_url: "https://api.openai.com/v1/chat/completions".into(),
                 api_key: "sk-test".into(),
                 models: "gpt-4o, gpt-4o-mini".into(),
+                preset_id: None,
             });
         let endpoint = resolve_multimodal_endpoint(&settings, "gpt-4o", "openai").unwrap();
         assert_eq!(endpoint.api_key, "sk-test");
@@ -561,6 +633,7 @@ mod tests {
             base_url: format!("https://{id}.example/v1"),
             api_key: key.into(),
             models: "shared-vision-model".into(),
+            preset_id: None,
         };
         let settings = crate::models::settings::AppSettings {
             custom_providers: vec![provider("first", "key-1"), provider("second", "key-2")],

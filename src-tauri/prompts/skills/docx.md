@@ -5,7 +5,7 @@ description: Create, read, edit Word .docx/.dotx with docx-js, OOXML unzip/edit,
 
 # DOCX creation, editing, and analysis
 
-Playbook adapted from an open-source docx skill package. Helper scripts are materialized to `.aaai/docx/scripts/` at skill run time.
+Playbook adapted from an open-source docx skill package. Helper scripts are materialized to `.anya/docx/scripts/` at skill run time.
 
 ## When to use this skill
 
@@ -31,7 +31,7 @@ Reasoning: adding a comment to an existing .docx is exactly OOXML-level editing.
 Correct: use `docx` (the comment scripts below), not `generate_word`, which only creates new documents from scratch.
 </example>
 
-> All `scripts/…` paths below mean `{SCRIPTS}` from the runtime preamble (`.aaai/docx/scripts`).
+> All `scripts/…` paths below mean `{SCRIPTS}` from the runtime preamble (`.anya/docx/scripts`).
 
 A `.docx` is a ZIP archive of XML files. Choose your approach by task:
 

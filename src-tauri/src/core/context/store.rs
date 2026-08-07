@@ -281,7 +281,7 @@ mod capture_timing_tests {
         );
 
         *snapshot.lock().expect("snapshot lock") = Some(RequestContext {
-            active_window: Some("Code.exe - AAAi".to_string()),
+            active_window: Some("Code.exe - Anya".to_string()),
             ..RequestContext::default()
         });
         gate.finish();
@@ -290,6 +290,6 @@ mod capture_timing_tests {
             .join()
             .expect("context waiter")
             .expect("non-empty snapshot");
-        assert_eq!(resolved.active_window.as_deref(), Some("Code.exe - AAAi"));
+        assert_eq!(resolved.active_window.as_deref(), Some("Code.exe - Anya"));
     }
 }

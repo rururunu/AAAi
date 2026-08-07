@@ -198,7 +198,6 @@ impl ToolExecutor {
         let finished = build_activity_view(&started.tool_name, &started.args, Some(&result));
         let detail = finished.detail.or(started.preview_detail);
         let display_sid = tool_ctx.root_session_id().to_string();
-        let activity_id = started.activity_id.clone();
         tool_ctx.conversation.upsert_tool_activity(
             &display_sid,
             &tool_ctx.assistant_message_id,
@@ -236,7 +235,6 @@ impl ToolExecutor {
             });
         ToolOutcome {
             call_id: started.call_id,
-            activity_id,
             tool_name: started.tool_name,
             arguments: serde_json::to_string(&started.args).unwrap_or_default(),
             result,

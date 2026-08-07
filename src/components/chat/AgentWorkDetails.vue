@@ -4,76 +4,89 @@
     class="agent-work"
     :class="{ 'has-running-subagent': hasRunningSubagent }"
   >
-    <template v-for="segment in segments" :key="segment.id">
-      <ReasoningBlock
-        v-if="segment.type === 'reasoning'"
-        :reasoning="segment.content"
-        :streaming="streaming && segment.id === lastSegmentId"
+    <!-- Live turn: keep chronological interleaving for follow-along. -->
+    <template v-if="streaming">
+      <AgentWorkSegment
+        v-for="(segment, segmentIndex) in segments"
+        :key="segment.id"
+        :segment="segment"
+        :streaming="streaming"
+        :follow="streaming && segment.id === lastSegmentId"
         :language="language"
-        embedded
-      />
-
-      <Markdown
-        v-else-if="segment.type === 'content'"
-        :content="segment.content"
-        class="agent-work-content"
+        :show-reasoning-summary="isFirstReasoningSegment(segmentIndex)"
+        :show-narration-summary="true"
+        :all-activities="visibleActivities"
+        :collapsible="segment.type === 'process' && processSegmentCollapsible(segment)"
+        :process-open="segment.type === 'process' && isProcessOpen(segment.id)"
+        :headline="segment.type === 'process' ? processHeadline(segment) : ''"
+        :cards-collapsed="displayMode === 'compact'"
+        @inspect-subagent="emit('inspectSubagent', $event)"
         @preview-image="emit('previewImage', $event)"
+        @toggle-process="toggleProcess"
       />
+    </template>
 
-      <ToolActivityList
-        v-else-if="segment.type === 'inline'"
-        :activities="segment.activities"
-        :all-activities="visibleActivities"
-        :operations="segment.operations"
-        :cards-collapsed="false"
-        @inspect-subagent="emit('inspectSubagent', $event)"
-      />
-
-      <!-- Process details: collapsible summary for multi-step work. -->
-      <ToolActivityList
-        v-else-if="segment.type === 'process' && !processSegmentCollapsible(segment)"
-        :activities="segment.activities"
-        :all-activities="visibleActivities"
-        :operations="segment.operations"
-        flat
-        @inspect-subagent="emit('inspectSubagent', $event)"
-      />
-
-      <section v-else-if="segment.type === 'process'" class="agent-work-details">
-        <button
-          type="button"
-          class="agent-work-toggle"
-          :aria-expanded="isProcessOpen(segment.id)"
-          @click="toggleProcess(segment.id)"
-        >
-          <ChevronRight
-            class="agent-work-chevron"
-            :class="{ open: isProcessOpen(segment.id) }"
-            :size="12"
-          />
-          <span class="agent-work-label">{{ processHeadline(segment) }}</span>
-        </button>
-        <div v-if="isProcessOpen(segment.id)" class="agent-work-body">
-          <ToolActivityList
-            :activities="segment.activities"
+    <!-- Completed: fold thinking + tools into one collapsed block; keep final reply open. -->
+    <template v-else>
+      <details
+        v-if="preambleSegments.length"
+        class="agent-work-fold"
+        :open="foldOpen"
+        @toggle="handleFoldToggle"
+      >
+        <summary class="agent-work-fold-summary">
+          <ChevronRight class="agent-work-fold-chevron" :class="{ open: foldOpen }" :size="12" />
+          <span>{{ foldLabel }}</span>
+          <span v-if="!foldOpen && foldMeta" class="agent-work-fold-meta">{{ foldMeta }}</span>
+        </summary>
+        <div class="agent-work-fold-body">
+          <AgentWorkSegment
+            v-for="segment in preambleSegments"
+            :key="segment.id"
+            :segment="segment"
+            :streaming="false"
+            :follow="false"
+            :language="language"
+            :show-reasoning-summary="false"
+            :show-narration-summary="false"
             :all-activities="visibleActivities"
-            :operations="segment.operations"
+            :collapsible="segment.type === 'process' && processSegmentCollapsible(segment)"
+            :process-open="segment.type === 'process' && isProcessOpen(segment.id)"
+            :headline="segment.type === 'process' ? processHeadline(segment) : ''"
             :cards-collapsed="displayMode === 'compact'"
-            flat
             @inspect-subagent="emit('inspectSubagent', $event)"
+            @preview-image="emit('previewImage', $event)"
+            @toggle-process="toggleProcess"
           />
         </div>
-      </section>
+      </details>
+
+      <AgentWorkSegment
+        v-for="segment in replySegments"
+        :key="segment.id"
+        :segment="segment"
+        :streaming="false"
+        :follow="false"
+        :language="language"
+        :show-reasoning-summary="true"
+        :show-narration-summary="true"
+        :all-activities="visibleActivities"
+        :collapsible="false"
+        :process-open="false"
+        headline=""
+        :cards-collapsed="displayMode === 'compact'"
+        @inspect-subagent="emit('inspectSubagent', $event)"
+        @preview-image="emit('previewImage', $event)"
+        @toggle-process="toggleProcess"
+      />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ChevronRight } from "@lucide/vue";
-import { computed, reactive, watch } from "vue";
-import Markdown from "@/components/chat/Markdown.vue";
-import ReasoningBlock from "@/components/chat/ReasoningBlock.vue";
-import ToolActivityList from "@/components/chat/ToolActivityList.vue";
+import { computed, reactive, ref, watch } from "vue";
+import AgentWorkSegment from "@/components/chat/AgentWorkSegment.vue";
 import type { ChatMessage, ToolActivity } from "@/types/chat";
 import type { AgentWorkDisplay, AppLanguage } from "@/types/setting";
 import { SUBAGENT_TOOLS } from "@/services/chat/subagentTools";
@@ -81,6 +94,7 @@ import {
   isProcessSegmentCollapsible,
   summarizeProcessActivities,
 } from "@/services/chat/toolActivityDisplay";
+import { tr } from "@/services/i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -104,6 +118,7 @@ const emit = defineEmits<{
 
 type TimelineSegment =
   | { type: "reasoning"; id: string; content: string }
+  | { type: "narration"; id: string; content: string }
   | { type: "content"; id: string; content: string }
   | { type: "inline"; id: string; activities: ToolActivity[]; operations: boolean }
   | { type: "process"; id: string; activities: ToolActivity[]; operations: boolean };
@@ -113,6 +128,9 @@ const TASK_LIST_TOOLS = new Set(["update_tasks", "todo_write"]);
 
 const processOpen = reactive(new Map<string, boolean>());
 const userToggledProcess = reactive(new Set<string>());
+
+const foldOpen = ref(false);
+const foldPinned = ref(false);
 
 const streaming = computed(
   () => props.message.status === "pending" || props.message.status === "streaming",
@@ -186,9 +204,7 @@ function isTextSegment(segment: TimelineSegment): segment is TextSegment {
 /**
  * Append any part of `finalText` that isn't already covered by the matching
  * segments in `out`. Keeps the reply visible even when the timeline is
- * missing, partial, or stale (persisted history predating this feature, a
- * reply delivered in one lump instead of incremental deltas, etc.) without
- * mutating the reactive timeline items that were copied in.
+ * missing, partial, or stale without mutating reactive timeline items.
  */
 function reconcileTrailingText(
   out: TimelineSegment[],
@@ -201,24 +217,38 @@ function reconcileTrailingText(
   for (const segment of out) {
     if (isTextSegment(segment) && segment.type === kind) accumulated += segment.content;
   }
-  if (finalValue.length <= accumulated.length) return;
-  const missing = finalValue.slice(accumulated.length);
-  const last = out[out.length - 1];
-  if (last && isTextSegment(last) && last.type === kind) {
-    last.content += missing;
-  } else {
-    out.push({
-      type: kind,
-      id: `${kind}-final-${out.length}`,
-      content: missing,
-    } as TimelineSegment);
+  if (finalValue === accumulated) return;
+
+  if (!accumulated || finalValue.startsWith(accumulated)) {
+    const missing = finalValue.slice(accumulated.length);
+    if (!missing) return;
+    const last = out[out.length - 1];
+    if (last && isTextSegment(last) && last.type === kind) {
+      last.content += missing;
+    } else {
+      out.push({
+        type: kind,
+        id: `${kind}-final-${out.length}`,
+        content: missing,
+      } as TimelineSegment);
+    }
+    return;
   }
+
+  if (accumulated.includes(finalValue)) return;
+  const notice = finalValue.trim();
+  if (!notice) return;
+  if (accumulated.includes(notice)) return;
+  out.push({
+    type: kind,
+    id: `${kind}-final-${out.length}`,
+    content: notice.startsWith("已停止") || notice.startsWith("Stopped") ? `\n\n${notice}` : notice,
+  } as TimelineSegment);
 }
 
 /**
  * Once the turn is finished, fold every interleaved reasoning chunk into a
- * single collapsed "思考过程" entry so the finished message stays short.
- * Live turns keep chronological interleaving for follow-along.
+ * single entry so the completed fold stays short.
  */
 function coalesceCompletedReasoning(out: TimelineSegment[]): TimelineSegment[] {
   if (streaming.value) return out;
@@ -229,7 +259,7 @@ function coalesceCompletedReasoning(out: TimelineSegment[]): TimelineSegment[] {
     })
     .map((segment) => segment.content)
     .join("");
-  const combined = fromMessage || fromSegments;
+  const combined = pickFullText(fromMessage, fromSegments);
   const withoutReasoning = out.filter((segment) => segment.type !== "reasoning");
   if (!combined || props.showReasoning === false) return withoutReasoning;
 
@@ -246,6 +276,77 @@ function coalesceCompletedReasoning(out: TimelineSegment[]): TimelineSegment[] {
   return [...before, block, ...after];
 }
 
+function pickFullText(fromMessage: string, fromSegments: string): string {
+  if (!fromMessage) return fromSegments;
+  if (!fromSegments) return fromMessage;
+  if (fromMessage === fromSegments) return fromMessage;
+  if (fromMessage.startsWith(fromSegments)) return fromMessage;
+  if (fromSegments.startsWith(fromMessage)) return fromSegments;
+  return fromSegments.length >= fromMessage.length ? fromSegments : fromMessage;
+}
+
+/**
+ * After tools finish, fold mid-turn narration (content before the last tool)
+ * into a collapsed narration block. Only the final reply after the last tool
+ * stays outside the completed fold.
+ */
+function coalesceCompletedNarration(out: TimelineSegment[]): TimelineSegment[] {
+  if (streaming.value) return out;
+  const hasTools = out.some((segment) => segment.type === "process" || segment.type === "inline");
+  if (!hasTools) return out;
+
+  let lastToolIdx = -1;
+  for (let i = 0; i < out.length; i++) {
+    if (out[i].type === "process" || out[i].type === "inline") lastToolIdx = i;
+  }
+  if (lastToolIdx < 0) return out;
+
+  const intermediate: string[] = [];
+  const kept: TimelineSegment[] = [];
+  let insertAt = 0;
+
+  for (let i = 0; i < out.length; i++) {
+    const segment = out[i];
+    if (segment.type === "content" && i < lastToolIdx) {
+      if (segment.content.trim()) intermediate.push(segment.content.trim());
+      if (intermediate.length === 1) insertAt = kept.length;
+      continue;
+    }
+    kept.push(segment);
+  }
+
+  const joined = intermediate.join("\n\n").trim();
+  const hasVisibleReply = kept.some((segment) => segment.type === "content");
+
+  let visibleTail = "";
+  let folded = joined;
+  if (!hasVisibleReply && intermediate.length > 0) {
+    visibleTail = intermediate[intermediate.length - 1] ?? "";
+    folded = intermediate.slice(0, -1).join("\n\n").trim();
+  }
+
+  if (folded) {
+    if (kept[0]?.type === "reasoning") {
+      insertAt = Math.max(insertAt, 1);
+    }
+    kept.splice(insertAt, 0, {
+      type: "narration",
+      id: `${props.message.id}-narration-completed`,
+      content: folded,
+    });
+  }
+
+  if (visibleTail) {
+    kept.push({
+      type: "content",
+      id: `${props.message.id}-narration-tail`,
+      content: visibleTail,
+    });
+  }
+
+  return kept;
+}
+
 /** Single chronological stream with process-detail chunks interleaved. */
 const segments = computed<TimelineSegment[]>(() => {
   let out: TimelineSegment[] = [];
@@ -256,8 +357,6 @@ const segments = computed<TimelineSegment[]>(() => {
     if (item.type === "content" && props.suppressContent) continue;
     if (item.type === "reasoning" || item.type === "content") {
       if (item.content.trim()) {
-        // Copy rather than reuse the store's item so reconciliation below
-        // never mutates reactive state held elsewhere.
         out.push({ ...item });
       }
       continue;
@@ -281,10 +380,57 @@ const segments = computed<TimelineSegment[]>(() => {
     if (seen.has(activity.id)) continue;
     pushActivity(out, activity);
   }
-  return coalesceCompletedReasoning(out);
+  return coalesceCompletedNarration(coalesceCompletedReasoning(out));
+});
+
+const preambleSegments = computed(() =>
+  segments.value.filter((segment) => segment.type !== "content"),
+);
+const replySegments = computed(() =>
+  segments.value.filter((segment) => segment.type === "content"),
+);
+
+const foldReasoningText = computed(() => {
+  const fromSegments = preambleSegments.value
+    .filter((segment): segment is Extract<TimelineSegment, { type: "reasoning" }> => {
+      return segment.type === "reasoning";
+    })
+    .map((segment) => segment.content)
+    .join("");
+  return pickFullText(props.message.reasoning?.trim() ?? "", fromSegments);
+});
+
+const foldLabel = computed(() => {
+  const language = props.language ?? "zh-CN";
+  return tr(language, "worked");
+});
+
+const foldMeta = computed(() => {
+  const language = props.language ?? "zh-CN";
+  const chars = foldReasoningText.value.length;
+  if (chars > 0) {
+    return tr(language, "chars", { count: chars.toLocaleString() });
+  }
+  const toolCount = preambleSegments.value.reduce((count, segment) => {
+    if (segment.type === "process" || segment.type === "inline") {
+      return count + segment.activities.length;
+    }
+    return count;
+  }, 0);
+  if (toolCount > 0) {
+    return tr(language, "toolCount", { count: String(toolCount) });
+  }
+  return "";
 });
 
 const lastSegmentId = computed(() => segments.value[segments.value.length - 1]?.id);
+
+function isFirstReasoningSegment(index: number) {
+  for (let i = 0; i < index; i++) {
+    if (segments.value[i]?.type === "reasoning") return false;
+  }
+  return true;
+}
 
 function processSegmentCollapsible(segment: Extract<TimelineSegment, { type: "process" }>) {
   return isProcessSegmentCollapsible(segment.activities, visibleActivities.value);
@@ -304,6 +450,13 @@ function toggleProcess(id: string) {
   processOpen.set(id, !isProcessOpen(id));
 }
 
+function handleFoldToggle(event: Event) {
+  const target = event.currentTarget as HTMLDetailsElement | null;
+  if (!target) return;
+  foldOpen.value = target.open;
+  foldPinned.value = target.open;
+}
+
 /** Collapsed by default; only expand while showcase work is actively running. */
 function shouldAutoExpandProcess(segment: Extract<TimelineSegment, { type: "process" }>) {
   if (waitingForAskUser.value) return true;
@@ -311,6 +464,22 @@ function shouldAutoExpandProcess(segment: Extract<TimelineSegment, { type: "proc
     (activity) => activity.status === "running" && SHOWCASE_KINDS.has(activity.kind),
   );
 }
+
+watch(
+  () => streaming.value,
+  (live) => {
+    if (live) {
+      foldPinned.value = false;
+      foldOpen.value = false;
+      return;
+    }
+    // Always collapse the completed fold unless the user expands it afterward.
+    if (!foldPinned.value) {
+      foldOpen.value = false;
+    }
+  },
+  { immediate: true },
+);
 
 watch(
   () =>
@@ -354,81 +523,56 @@ watch(
   margin-right: 0;
 }
 
-.agent-work-content :deep(> *:first-child) {
-  margin-top: 0;
-}
-
-.agent-work-content :deep(> *:last-child) {
-  margin-bottom: 0;
-}
-
-.agent-work-details {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.agent-work-fold {
   width: 100%;
+  margin: 0;
+  border: 0;
+  background: transparent;
 }
 
-.agent-work-toggle {
+.agent-work-fold-summary {
   display: flex;
   align-items: center;
-  gap: 5px;
-  width: 100%;
+  gap: 6px;
+  cursor: pointer;
   padding: 3px 2px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--peek-muted);
+  font-family: var(--peek-font-sans);
   font-size: 11px;
   font-weight: 550;
-  line-height: 1.35;
-  cursor: pointer;
-  text-align: left;
-  transition:
-    color 140ms ease,
-    background 140ms ease;
+  color: var(--peek-muted);
+  list-style: none;
+  user-select: none;
 }
 
-.agent-work-toggle:hover {
-  color: var(--peek-text);
-  background: color-mix(in srgb, var(--peek-text) 4%, transparent);
+.agent-work-fold-summary::-webkit-details-marker {
+  display: none;
 }
 
-.agent-work.has-running-subagent .agent-work-toggle {
-  color: var(--peek-text);
-}
-
-.agent-work-chevron {
+.agent-work-fold-chevron {
   flex: none;
   color: var(--peek-faint);
   transition: transform 160ms ease;
 }
 
-.agent-work-chevron.open {
+.agent-work-fold-chevron.open {
   transform: rotate(90deg);
 }
 
-.agent-work-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.agent-work-fold-meta {
+  margin-left: auto;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--peek-faint);
 }
 
-.agent-work-body {
+.agent-work-fold-body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 2px 0 2px 2px;
-  border-left: 1.5px solid color-mix(in srgb, var(--peek-border) 70%, transparent);
-  margin-left: 5px;
-  padding-left: 10px;
+  padding: 2px 0 4px;
 }
 
-.agent-work-body :deep(.tool-activity-list),
-.agent-work :deep(.tool-activity-list),
-.agent-work :deep(.reasoning-block) {
-  margin-bottom: 0;
+.agent-work.has-running-subagent .agent-work-fold-summary {
+  color: var(--peek-text);
 }
 </style>

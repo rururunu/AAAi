@@ -43,10 +43,9 @@
         >
           <span class="model-name">{{ getModelDisplayLabel(entry.model) }}</span>
 
-          <span
-            v-if="getModelDisplaySubtitle(entry.model)"
-            class="model-meta"
-          >{{ getModelDisplaySubtitle(entry.model) }}</span>
+          <span v-if="getModelDisplaySubtitle(entry.model)" class="model-meta">
+            {{ getModelDisplaySubtitle(entry.model) }}
+          </span>
 
           <Check
             v-if="isModelEntrySelected(entry.model, selectedModelId, selectedProvider)"
@@ -67,11 +66,7 @@
       @mouseenter="$emit('hover', refreshIndex)"
       @mousedown.prevent="!refreshing && $emit('refresh')"
     >
-      <RefreshCw
-        :size="12"
-        class="refresh-icon"
-        :class="{ spinning: refreshing }"
-      />
+      <RefreshCw :size="12" class="refresh-icon" :class="{ spinning: refreshing }" />
       <span class="refresh-label">{{ refreshText }}</span>
     </li>
   </ul>
@@ -86,8 +81,10 @@ import {
   getModelDisplaySubtitle,
   getProviderIcon,
   groupModelsByProvider,
+  resolveCustomPresetId,
 } from "@/lib/providerIcons";
 import { isModelEntrySelected } from "@/lib/modelThinking";
+import { useSettingStore } from "@/stores/setting";
 
 const props = defineProps<{
   models: ChatModelInfo[];
@@ -109,12 +106,16 @@ defineEmits<{
   refresh: [];
 }>();
 
-const providerIcon = getProviderIcon;
+const settingStore = useSettingStore();
+
+function providerIcon(provider: string) {
+  return getProviderIcon(provider, resolveCustomPresetId(provider, settingStore.customProviders));
+}
 
 /** Flat model index for keyboard nav; headers are skipped. */
 const groups = computed(() => {
   let index = 0;
-  return groupModelsByProvider(props.models).map((group) => ({
+  return groupModelsByProvider(props.models, settingStore.customProviders).map((group) => ({
     provider: group.provider,
     label: group.label,
     entries: group.models.map((model) => {
@@ -143,8 +144,7 @@ const refreshIndex = computed(() => props.models.length);
   flex: none;
   max-height: min(
     calc(
-      var(--command-row-height) * var(--command-list-visible-rows) +
-        var(--command-list-padding) +
+      var(--command-row-height) * var(--command-list-visible-rows) + var(--command-list-padding) +
         34px
     ),
     calc(100vh - 140px)

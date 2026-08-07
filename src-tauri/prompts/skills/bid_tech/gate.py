@@ -10,7 +10,7 @@
 6. 质量门禁：反灌水、日程模板抄袭、空泛地点、投保日保费信号
 
 用法::
-    python .aaai/bid_tech/cli.py gate path/to.docx --plan .aaai/bid_plan.json
+    python .anya/bid_tech/cli.py gate path/to.docx --plan .anya/bid_plan.json
 或在生成脚本末尾调用 ``assert_gate_passed``。
 """
 

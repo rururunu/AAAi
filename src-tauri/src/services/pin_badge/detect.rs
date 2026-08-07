@@ -225,7 +225,7 @@ fn is_snipaste_pin(
 }
 
 fn button_class_name() -> &'static str {
-    "AAAiPinAiButton"
+    "AnyaPinAiButton"
 }
 
 unsafe fn read_process_name(pid: u32) -> Option<String> {

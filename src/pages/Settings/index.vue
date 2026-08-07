@@ -461,6 +461,11 @@ function onToggle(id: string) {
       passToolReasoning: !settingStore.passToolReasoning,
     });
   }
+  if (id === "continueThinkingAfterTools") {
+    void settingStore.update({
+      continueThinkingAfterTools: !settingStore.continueThinkingAfterTools,
+    });
+  }
   if (id === "showReasoning") {
     void settingStore.update({ showReasoning: !settingStore.showReasoning });
   }

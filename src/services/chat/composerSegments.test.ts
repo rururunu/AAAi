@@ -4,7 +4,9 @@ import {
   flushLiveMessageToSegments,
   formatMentionPath,
   joinInlineParts,
+  mentionDisplayLabel,
   pasteLineCount,
+  parseComposerTextToSegments,
   serializeComposerSegments,
   type ComposerSegment,
 } from "./composerSegments";
@@ -18,6 +20,17 @@ describe("composerSegments", () => {
   it("quotes mention paths that contain spaces", () => {
     expect(formatMentionPath("src/a.ts")).toBe("@src/a.ts");
     expect(formatMentionPath("my file.ts")).toBe('@"my file.ts"');
+  });
+
+  it("serializes directory mentions with a trailing slash", () => {
+    expect(formatMentionPath("src/main", true)).toBe("@src/main/");
+    expect(formatMentionPath("src/main/")).toBe("@src/main/");
+  });
+
+  it("shows full path for folders and disambiguates duplicate file names", () => {
+    expect(mentionDisplayLabel("src/main/", { isDir: true })).toBe("src/main");
+    expect(mentionDisplayLabel("src/a.ts", { catalog: ["src/a.ts"] })).toBe("a.ts");
+    expect(mentionDisplayLabel("src/a.ts", { catalog: ["src/a.ts", "lib/a.ts"] })).toBe("src/a.ts");
   });
 
   it("serializes segments ahead of live text without forced blank lines", () => {
@@ -53,5 +66,26 @@ describe("composerSegments", () => {
   it("joins inline parts with a single separating space when needed", () => {
     expect(joinInlineParts(["a", "b"])).toBe("a b");
     expect(joinInlineParts(["a ", "b"])).toBe("a b");
+  });
+
+  it("serializes directory segment with trailing slash", () => {
+    const segments: ComposerSegment[] = [{ kind: "mention", path: "src/main", isDir: true }];
+    expect(serializeComposerSegments(segments, "")).toBe("@src/main/");
+  });
+
+  it("restores chips from serialized rewind text", () => {
+    const parsed = parseComposerTextToSegments('#skill:docx @src/a.ts @"my file.ts" please review');
+    expect(parsed.segments).toEqual([
+      { kind: "skill", id: "docx" },
+      { kind: "mention", path: "src/a.ts" },
+      { kind: "mention", path: "my file.ts" },
+    ]);
+    expect(parsed.liveMessage).toBe("please review");
+  });
+
+  it("keeps plain text when there are no chips", () => {
+    const parsed = parseComposerTextToSegments("just a draft");
+    expect(parsed.segments).toEqual([]);
+    expect(parsed.liveMessage).toBe("just a draft");
   });
 });

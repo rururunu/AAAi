@@ -7,37 +7,45 @@
   >
     <li v-if="loading" class="picker-meta question">{{ loadingText }}</li>
     <li v-else-if="items.length === 0" class="picker-meta question">{{ emptyText }}</li>
-    <li
-      v-for="(item, index) in items"
-      v-else
-      :key="`${item.kind}:${item.id}`"
-      class="command-item hash-suggestion-item"
-      :class="{ active: index === selectedIndex }"
-      role="option"
-      :aria-selected="index === selectedIndex"
-      :title="rowTitle(item)"
-      @mouseenter="$emit('hover', index)"
-      @mousedown.prevent="$emit('select', item)"
-    >
-      <span class="hash-icon" aria-hidden="true">
-        <img
-          v-if="item.iconUrl && !brokenIcons[itemKey(item)]"
-          :src="item.iconUrl"
-          alt=""
-          referrerpolicy="no-referrer"
-          @error="markBroken(item)"
-        />
-        <span v-else class="hash-icon-fallback">{{ fallbackLetter(item) }}</span>
-      </span>
-      <span class="hash-title">{{ item.title || item.id }}</span>
-      <span v-if="item.vendor" class="hash-vendor">{{ item.vendor }}</span>
-      <span class="hash-kind-pill" :data-kind="item.kind">{{ kindLabel(item.kind) }}</span>
-    </li>
+    <template v-else>
+      <template v-for="section in sections" :key="section.kind">
+        <li v-if="showSectionHeaders" class="hash-section-head" role="presentation">
+          {{ section.kind === "skill" ? skillLabel : mcpLabel }}
+        </li>
+        <li
+          v-for="row in section.rows"
+          :key="`${row.item.kind}:${row.item.id}`"
+          class="command-item hash-suggestion-item"
+          :class="{ active: row.index === selectedIndex }"
+          role="option"
+          :aria-selected="row.index === selectedIndex"
+          :title="rowTitle(row.item)"
+          @mouseenter="$emit('hover', row.index)"
+          @mousedown.prevent="$emit('select', row.item)"
+        >
+          <span class="hash-icon" aria-hidden="true">
+            <img
+              v-if="row.item.iconUrl && !brokenIcons[itemKey(row.item)]"
+              :src="row.item.iconUrl"
+              alt=""
+              referrerpolicy="no-referrer"
+              @error="markBroken(row.item)"
+            />
+            <span v-else class="hash-icon-fallback">{{ fallbackLetter(row.item) }}</span>
+          </span>
+          <span class="hash-title">{{ row.item.title || row.item.id }}</span>
+          <span v-if="row.item.vendor" class="hash-vendor">{{ row.item.vendor }}</span>
+          <span class="hash-kind-pill" :data-kind="row.item.kind">
+            {{ kindLabel(row.item.kind) }}
+          </span>
+        </li>
+      </template>
+    </template>
   </ul>
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from "vue";
+import { computed, reactive, watch } from "vue";
 import type { HashMentionItem, HashResourceKind } from "@/services/chat/hashMentions";
 
 const props = defineProps<{
@@ -57,6 +65,25 @@ defineEmits<{
 }>();
 
 const brokenIcons = reactive<Record<string, boolean>>({});
+
+const showSectionHeaders = computed(() => {
+  const kinds = new Set(props.items.map((item) => item.kind));
+  return kinds.has("skill") && kinds.has("mcp");
+});
+
+const sections = computed(() => {
+  const skillRows: Array<{ item: HashMentionItem; index: number }> = [];
+  const mcpRows: Array<{ item: HashMentionItem; index: number }> = [];
+  props.items.forEach((item, index) => {
+    const row = { item, index };
+    if (item.kind === "mcp") mcpRows.push(row);
+    else skillRows.push(row);
+  });
+  const out: Array<{ kind: HashResourceKind; rows: typeof skillRows }> = [];
+  if (skillRows.length) out.push({ kind: "skill", rows: skillRows });
+  if (mcpRows.length) out.push({ kind: "mcp", rows: mcpRows });
+  return out;
+});
 
 watch(
   () => props.items.map((item) => `${item.kind}:${item.id}:${item.iconUrl ?? ""}`).join("|"),
@@ -127,6 +154,15 @@ function rowTitle(item: HashMentionItem): string {
 .command-item.active {
   background: color-mix(in srgb, var(--peek-accent) 14%, var(--peek-list-bg));
   color: var(--peek-accent);
+}
+
+.hash-section-head {
+  padding: 8px 10px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--peek-muted);
 }
 
 .hash-icon {

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """技术标（综合评分技术部分）表驱动生成与自检工具包。
 
-本包随 ``generate_bid_tech`` skill 物化到工作区 ``.aaai/bid_tech/``。
+本包随 ``generate_bid_tech`` skill 物化到工作区 ``.anya/bid_tech/``。
 设计目标：
 - 表格一等公民（禁止用段落冒充表格）
 - 章节骨架先于正文

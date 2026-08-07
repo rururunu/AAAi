@@ -153,6 +153,9 @@ pub struct CustomProviderConfig {
     pub api_key: String,
     /// Comma-separated or newline-separated model IDs (stored as raw text).
     pub models: String,
+    /// Optional preset template id used for icons / known defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -260,10 +263,15 @@ pub struct AppSettings {
     pub reasoning_effort: ReasoningEffort,
     #[serde(default)]
     pub reasoning_language: ReasoningLanguage,
-    /// When true, assistant turns that contain `tool_calls` include `reasoning_content`
-    /// in subsequent API history (required by DeepSeek thinking + tools).
+    /// When true, assistant turns that contain `tool_calls` include prior
+    /// reasoning text in later API history (required by thinking + tools).
     #[serde(default = "default_true")]
     pub pass_tool_reasoning: bool,
+    /// When true (default), keep the session thinking effort on every
+    /// agent-loop round after tools. When false, later rounds skip thinking
+    /// to save tokens; history may still carry earlier reasoning blocks.
+    #[serde(default = "default_true")]
+    pub continue_thinking_after_tools: bool,
     /// Controls whether reasoning supplied by the model is rendered in chat.
     #[serde(default = "default_true")]
     pub show_reasoning: bool,
@@ -396,6 +404,7 @@ pub struct AppSettingsPatch {
     pub reasoning_effort: Option<ReasoningEffort>,
     pub reasoning_language: Option<ReasoningLanguage>,
     pub pass_tool_reasoning: Option<bool>,
+    pub continue_thinking_after_tools: Option<bool>,
     pub show_reasoning: Option<bool>,
     pub agent_work_display: Option<AgentWorkDisplay>,
     pub multi_model_collaboration: Option<bool>,
@@ -421,7 +430,7 @@ pub struct AppSettingsPatch {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            color_scheme: ColorScheme::Dark,
+            color_scheme: ColorScheme::Light,
             language: AppLanguage::ZhCn,
             deepseek_api_key: String::new(),
             gemini_oauth: GeminiOAuthSettings::default(),
@@ -448,6 +457,7 @@ impl Default for AppSettings {
             reasoning_effort: ReasoningEffort::default(),
             reasoning_language: ReasoningLanguage::default(),
             pass_tool_reasoning: true,
+            continue_thinking_after_tools: true,
             show_reasoning: true,
             agent_work_display: AgentWorkDisplay::default(),
             multi_model_collaboration: false,
@@ -558,6 +568,9 @@ impl AppSettings {
             pass_tool_reasoning: patch
                 .pass_tool_reasoning
                 .unwrap_or(self.pass_tool_reasoning),
+            continue_thinking_after_tools: patch
+                .continue_thinking_after_tools
+                .unwrap_or(self.continue_thinking_after_tools),
             show_reasoning: patch.show_reasoning.unwrap_or(self.show_reasoning),
             agent_work_display: patch.agent_work_display.unwrap_or(self.agent_work_display),
             multi_model_collaboration: patch
@@ -620,6 +633,11 @@ mod tests {
     use super::{AppSettings, AppSettingsPatch, ColorScheme};
 
     #[test]
+    fn app_default_color_scheme_is_light() {
+        assert_eq!(AppSettings::default().color_scheme, ColorScheme::Light);
+    }
+
+    #[test]
     fn legacy_settings_default_to_showing_reasoning() {
         let settings: AppSettings = serde_json::from_value(serde_json::json!({
             "colorScheme": "blue-black",
@@ -629,6 +647,7 @@ mod tests {
 
         assert_eq!(settings.color_scheme, ColorScheme::Dark);
         assert!(settings.show_reasoning);
+        assert!(settings.continue_thinking_after_tools);
         assert!(!settings.multi_model_collaboration);
         assert!(settings.collaboration_models.is_empty());
         assert!(!settings.minimal_coding);

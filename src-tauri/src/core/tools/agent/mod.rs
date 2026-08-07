@@ -274,7 +274,7 @@ fn format_subagent_return(
         return body;
     }
 
-    let dir = workspace.join(".aaai").join("subagent");
+    let dir = workspace.join(".anya").join("subagent");
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join(format!("{session_id}-{subagent_id}.md"));
     let _ = std::fs::write(&path, &body);

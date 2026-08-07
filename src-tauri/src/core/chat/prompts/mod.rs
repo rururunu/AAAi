@@ -12,7 +12,7 @@ pub const SYSTEM_PROMPT: &str = concat!(
 );
 
 /// LLM 历史压缩用的 system prompt（Reasonix `summarySystemPrompt`）。
-/// 当前 AAAi 使用机械折叠；接入 LLM 摘要压缩时直接使用此常量。
+/// 当前 Anya 使用机械折叠；接入 LLM 摘要压缩时直接使用此常量。
 #[allow(dead_code)]
 pub const COMPACT_SUMMARY_SYSTEM_PROMPT: &str =
     include_str!("../../../../prompts/compact-summary.md");
@@ -29,8 +29,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn system_prompt_includes_aaai_identity_and_tools() {
-        assert!(SYSTEM_PROMPT.contains("You are AAAi"));
+    fn system_prompt_includes_anya_identity_and_tools() {
+        assert!(SYSTEM_PROMPT.contains("You are Anya"));
         assert!(SYSTEM_PROMPT.contains("## Request modes"));
         assert!(SYSTEM_PROMPT.contains("[IDE Context]"));
         assert!(SYSTEM_PROMPT.contains("[Selection]"));

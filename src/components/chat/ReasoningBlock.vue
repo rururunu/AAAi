@@ -1,5 +1,11 @@
 <template>
-  <details class="reasoning-block" :class="{ embedded }" :open="isOpen" @toggle="handleToggle">
+  <details
+    v-if="showSummary"
+    class="reasoning-block"
+    :class="{ embedded }"
+    :open="isOpen"
+    @toggle="handleToggle"
+  >
     <summary class="reasoning-summary">
       <ChevronRight class="reasoning-chevron" :class="{ open: isOpen }" :size="12" />
       <span>{{ summaryLabel }}</span>
@@ -7,6 +13,9 @@
     </summary>
     <div v-if="isOpen" ref="bodyRef" class="reasoning-body peek-scrollbar">{{ displayText }}</div>
   </details>
+  <div v-else ref="bodyRef" class="reasoning-block reasoning-continuation" :class="{ embedded }">
+    <div class="reasoning-body peek-scrollbar">{{ displayText }}</div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -18,17 +27,30 @@ import { tr } from "@/services/i18n";
 
 const props = defineProps<{
   reasoning: string;
+  /**
+   * True while the parent assistant turn is still live.
+   * Keeps this block open for follow-along; only collapses after the turn ends
+   * (unless the user pinned it open).
+   */
   streaming?: boolean;
+  /** Auto-scroll the body as new tokens arrive (usually the latest segment). */
+  follow?: boolean;
   language?: AppLanguage;
   /** Nested under the agent work stream: lighter chrome, same collapse rules. */
   embedded?: boolean;
+  /** Override summary label (default: thinking process). */
+  summaryKey?: "thinkingProcess" | "executionDetails";
+  /** When false, render as a continuation chunk without a second header. */
+  showSummary?: boolean;
 }>();
 
 const isOpen = ref(false);
 /** After the turn finishes, honor manual expand/collapse until streaming resumes. */
 const userPinned = ref(false);
 
-const summaryLabel = computed(() => tr(props.language, "thinkingProcess"));
+const showSummary = computed(() => props.showSummary !== false);
+
+const summaryLabel = computed(() => tr(props.language, props.summaryKey ?? "thinkingProcess"));
 
 const collapsedHint = computed(() => {
   const chars = props.reasoning.length;
@@ -37,21 +59,21 @@ const collapsedHint = computed(() => {
 
 const displayText = computed(() =>
   displayReasoningText(props.reasoning, {
-    streaming: props.streaming ?? false,
+    // Only truncate the actively followed segment so older chunks stay intact.
+    streaming: Boolean(props.streaming && props.follow),
   }),
 );
 
 watch(
   () => props.streaming,
-  (streaming) => {
-    if (streaming) {
+  (live) => {
+    if (live) {
       userPinned.value = false;
       isOpen.value = true;
       return;
     }
-    // Always collapse when the segment is no longer actively streaming.
-    // (Previously only collapsed on a true→false transition, so remounts /
-    // missed transitions could leave the full thinking body open after done.)
+    // Collapse only when the whole turn finishes — never mid-turn just because
+    // another tool/content segment became the "latest".
     if (!userPinned.value) {
       isOpen.value = false;
     }
@@ -75,7 +97,7 @@ const bodyRef = ref<HTMLElement | null>(null);
 watch(
   () => props.reasoning,
   () => {
-    if (props.streaming) {
+    if (props.follow && (isOpen.value || !showSummary.value)) {
       nextTick(() => {
         const el = bodyRef.value;
         if (el) {
@@ -171,5 +193,9 @@ watch(
   font-size: 12px;
   line-height: 1.55;
   color: var(--peek-muted);
+}
+
+.reasoning-continuation.embedded .reasoning-body {
+  max-height: none;
 }
 </style>

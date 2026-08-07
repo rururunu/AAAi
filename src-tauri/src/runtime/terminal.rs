@@ -3,7 +3,7 @@
 use std::process::Command;
 
 /// Prevent Windows from allocating a visible console for console-subsystem children
-/// (PowerShell, cmd, git, etc.) when AAAi itself is a GUI app.
+/// (PowerShell, cmd, git, etc.) when Anya itself is a GUI app.
 pub fn prepare_command(cmd: &mut Command) {
     #[cfg(windows)]
     {

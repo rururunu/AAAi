@@ -2,7 +2,7 @@
 //!
 //! Routes:
 //! - POST /api/context/ide   — IDE context push (VS Code / JetBrains)
-//! - POST /api/ask/image     — open AAAi overlay with an attached image
+//! - POST /api/ask/image     — open Anya overlay with an attached image
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};

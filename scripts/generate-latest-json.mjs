@@ -10,14 +10,14 @@ import { fileURLToPath } from "node:url";
  *   node scripts/generate-latest-json.mjs --tag v0.2.1 --notes "Release notes"
  *
  * Requires a signed release build:
- *   src-tauri/target/release/bundle/msi/AAAi_<version>_x64.msi
- *   src-tauri/target/release/bundle/msi/AAAi_<version>_x64.msi.sig
+ *   src-tauri/target/release/bundle/msi/{productName}_<version>_x64.msi
+ *   src-tauri/target/release/bundle/msi/{productName}_<version>_x64.msi.sig
  */
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const msiDir = join(root, "src-tauri", "target", "release", "bundle", "msi");
 const outDir = join(root, "release");
 const outFile = join(outDir, "latest.json");
-const defaultRepo = "rururunu/AAAi";
+const defaultRepo = "rururunu/Anya";
 
 function parseArgs(argv) {
   const options = {
@@ -43,9 +43,9 @@ async function readJson(path) {
   return JSON.parse(raw);
 }
 
-async function findMsiPair(version) {
+async function findMsiPair(version, productName) {
   const files = await readdir(msiDir);
-  const msiName = `AAAi_${version}_x64.msi`;
+  const msiName = `${productName}_${version}_x64.msi`;
   const sigName = `${msiName}.sig`;
 
   if (!files.includes(msiName)) {
@@ -83,7 +83,8 @@ if (config.version !== version) {
   );
 }
 
-const { msiName, sigName } = await findMsiPair(version);
+const productName = typeof config.productName === "string" ? config.productName : "Anya";
+const { msiName, sigName } = await findMsiPair(version, productName);
 const signature = (await readFile(join(msiDir, sigName), "utf8")).trim();
 const downloadUrl = `https://github.com/${options.repo}/releases/download/${tag}/${msiName}`;
 

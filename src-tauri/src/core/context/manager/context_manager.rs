@@ -36,7 +36,7 @@ impl ContextManager {
             "context foreground detected"
         );
 
-        if window.process_name.eq_ignore_ascii_case("AAAi.exe") {
+        if window.process_name.eq_ignore_ascii_case("Anya.exe") {
             tracing::debug!(
                 process = %window.process_name,
                 strategy = "ignored_self",

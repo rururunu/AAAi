@@ -50,7 +50,7 @@ impl ComWorker {
     fn spawn() -> Self {
         let (sender, receiver) = mpsc::channel::<WorkerJob>();
         let handle = thread::Builder::new()
-            .name("aaai-com-worker".into())
+            .name("anya-com-worker".into())
             .spawn(move || {
                 let session = match ComSession::new() {
                     Ok(session) => session,
@@ -133,6 +133,6 @@ mod tests {
         // Run job path (spawn, dispatch, reply) via a ProgID that never
         // resolves, confirming the thread is alive and replies instead of
         // hanging.
-        assert!(!app_available("AAAi.NonExistent.Test"));
+        assert!(!app_available("Anya.NonExistent.Test"));
     }
 }

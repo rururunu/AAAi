@@ -10,6 +10,7 @@
       'picker-open': interactivePickerOpen && !chipPickerOpen,
       'file-suggestion-open': showFileSuggestions,
       'hash-suggestion-open': showHashSuggestions,
+      'attach-panel-open': attachPanelOpen,
       'chip-picker-open': chipPickerOpen,
       'interaction-request-open': interactionRequestOpen,
     }"
@@ -29,6 +30,41 @@
         :no-previous-workspaces-label="tr(language, 'chatInput.noPreviousWorkspaces')"
         @add-new="addWorkspaceFromFolder"
         @select="chooseWorkspace"
+      />
+
+      <AttachResourcePanel
+        v-else-if="attachPanelOpen"
+        key="attach-resource-panel"
+        :tab="attachPanelTab"
+        :loading="hashCatalogLoading"
+        :picking-files="attachPickingFiles"
+        :skills="attachSkillItems"
+        :mcp-servers="attachMcpItems"
+        :selected-index="selectedIndex"
+        :workspace-files="workspaceFiles"
+        :files-loading="workspaceFilesLoading"
+        :has-workspace="Boolean(currentWorkspace)"
+        :ariaLabel="tr(language, 'chatInput.attachPanelTitle')"
+        :skills-label="tr(language, 'chatInput.attachSkills')"
+        :mcp-label="tr(language, 'chatInput.attachMcp')"
+        :files-label="tr(language, 'chatInput.attachFiles')"
+        :pick-files-label="tr(language, 'chatInput.attachPickFiles')"
+        :files-loading-text="tr(language, 'chatInput.attachFilesLoading')"
+        :no-workspace-text="tr(language, 'chatInput.attachNoWorkspace')"
+        :empty-files-text="tr(language, 'chatInput.attachEmptyFiles')"
+        :insert-file-title="tr(language, 'chatInput.attachInsertFile')"
+        :insert-folder-title="tr(language, 'chatInput.attachInsertFolder')"
+        :loading-text="tr(language, 'chatInput.attachLoading')"
+        :empty-skills-text="tr(language, 'chatInput.attachEmptySkills')"
+        :empty-mcp-text="tr(language, 'chatInput.attachEmptyMcp')"
+        :expand-more-label="tr(language, 'chatInput.attachExpandMore')"
+        :collapse-label="tr(language, 'chatInput.attachCollapse')"
+        @tab-change="onAttachPanelTabChange"
+        @pick-files="pickAttachFiles"
+        @select-file="selectAttachWorkspaceFile"
+        @hover="onAttachPanelHover"
+        @select="selectAttachResource"
+        @visible-count="onAttachVisibleCount"
       />
 
       <AskUserPicker
@@ -249,87 +285,130 @@
       </div>
 
       <div class="input-content peek-scrollbar">
-        <template v-for="(seg, segIdx) in composerSegments" :key="`seg-${segIdx}-${seg.kind}`">
-          <span
-            v-if="seg.kind === 'text'"
-            class="input-prefix"
-            data-tauri-drag-region="false"
-            @click="focusInput"
-          >
-            {{ seg.text }}
-          </span>
-          <span
-            v-else-if="seg.kind === 'selection'"
-            class="selection-tag"
-            data-tauri-drag-region="false"
-            :title="`Selected ${seg.lines} lines`"
-          >
-            <span>select-{{ seg.lines }}</span>
-          </span>
-          <span
-            v-else-if="seg.kind === 'paste' && pasteLineCount(seg.text) > 5"
-            class="selection-tag text-tag"
-            data-tauri-drag-region="false"
-            :title="`Pasted ${pasteLineCount(seg.text)} lines`"
-          >
-            <span>text-{{ pasteLineCount(seg.text) }}</span>
-          </span>
-          <span
-            v-else-if="seg.kind === 'paste'"
-            class="input-prefix"
-            data-tauri-drag-region="false"
-            @click="focusInput"
-          >
-            {{ seg.text }}
-          </span>
-          <span
-            v-else-if="seg.kind === 'mention'"
-            class="file-mention-tag"
-            data-tauri-drag-region="false"
-            :title="seg.path"
-          >
-            <img
-              v-if="fileIconForPath(seg.path)"
-              class="file-chip-icon-img"
-              :src="fileIconForPath(seg.path) || ''"
-              alt=""
-            />
-            <File v-else :size="12" />
-            <span class="file-mention-name">{{ fileName(seg.path) }}</span>
-          </span>
-          <span
-            v-else-if="seg.kind === 'skill'"
-            class="file-mention-tag hash-mention-tag hash-skill-tag"
-            data-tauri-drag-region="false"
-            :title="hashChipTitle('skill', seg.id)"
-          >
-            <img
-              v-if="hashIconFor('skill', seg.id)"
-              class="file-chip-icon-img"
-              :src="hashIconFor('skill', seg.id) || ''"
-              alt=""
-              referrerpolicy="no-referrer"
-            />
-            <Zap v-else :size="12" />
-            <span class="file-mention-name">{{ hashLabelFor("skill", seg.id) }}</span>
-          </span>
-          <span
-            v-else-if="seg.kind === 'mcp'"
-            class="file-mention-tag hash-mention-tag hash-mcp-tag"
-            data-tauri-drag-region="false"
-            :title="hashChipTitle('mcp', seg.id)"
-          >
-            <img
-              v-if="hashIconFor('mcp', seg.id)"
-              class="file-chip-icon-img"
-              :src="hashIconFor('mcp', seg.id) || ''"
-              alt=""
-              referrerpolicy="no-referrer"
-            />
-            <Bot v-else :size="12" />
-            <span class="file-mention-name">{{ hashLabelFor("mcp", seg.id) }}</span>
-          </span>
-        </template>
+        <TooltipProvider :delay-duration="280">
+          <template v-for="(seg, segIdx) in composerSegments" :key="`seg-${segIdx}-${seg.kind}`">
+            <span
+              v-if="seg.kind === 'text'"
+              class="input-prefix"
+              data-tauri-drag-region="false"
+              @click="focusInput"
+            >
+              {{ seg.text }}
+            </span>
+            <span
+              v-else-if="seg.kind === 'selection'"
+              class="selection-tag"
+              data-tauri-drag-region="false"
+              :title="`Selected ${seg.lines} lines`"
+            >
+              <span>select-{{ seg.lines }}</span>
+            </span>
+            <span
+              v-else-if="seg.kind === 'paste' && pasteLineCount(seg.text) > 5"
+              class="selection-tag text-tag"
+              data-tauri-drag-region="false"
+              :title="`Pasted ${pasteLineCount(seg.text)} lines`"
+            >
+              <span>text-{{ pasteLineCount(seg.text) }}</span>
+            </span>
+            <span
+              v-else-if="seg.kind === 'paste'"
+              class="input-prefix"
+              data-tauri-drag-region="false"
+              @click="focusInput"
+            >
+              {{ seg.text }}
+            </span>
+            <Tooltip v-else-if="seg.kind === 'mention'">
+              <TooltipTrigger as-child>
+                <span
+                  class="file-mention-tag removable-mention-tag"
+                  :class="{ 'dir-mention-tag': isMentionDir(seg) }"
+                  data-tauri-drag-region="false"
+                >
+                  <Folder v-if="isMentionDir(seg)" :size="12" />
+                  <img
+                    v-else-if="fileIconForPath(seg.path)"
+                    class="file-chip-icon-img"
+                    :src="fileIconForPath(seg.path) || ''"
+                    alt=""
+                  />
+                  <File v-else :size="12" />
+                  <span class="file-mention-name">{{ mentionLabel(seg) }}</span>
+                  <button
+                    type="button"
+                    class="mention-chip-remove"
+                    :aria-label="tr(language, 'close')"
+                    @click.stop="removeComposerSegment(segIdx)"
+                  >
+                    <X :size="11" :stroke-width="2" />
+                  </button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" :side-offset="6" class="composer-chip-tooltip">
+                {{ normalizeMentionPath(seg.path) }}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip v-else-if="seg.kind === 'skill'">
+              <TooltipTrigger as-child>
+                <span
+                  class="file-mention-tag hash-mention-tag hash-skill-tag removable-mention-tag"
+                  data-tauri-drag-region="false"
+                >
+                  <img
+                    v-if="hashIconFor('skill', seg.id)"
+                    class="file-chip-icon-img"
+                    :src="hashIconFor('skill', seg.id) || ''"
+                    alt=""
+                    referrerpolicy="no-referrer"
+                  />
+                  <Zap v-else :size="12" />
+                  <span class="file-mention-name">{{ hashLabelFor("skill", seg.id) }}</span>
+                  <button
+                    type="button"
+                    class="mention-chip-remove"
+                    :aria-label="tr(language, 'close')"
+                    @click.stop="removeComposerSegment(segIdx)"
+                  >
+                    <X :size="11" :stroke-width="2" />
+                  </button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" :side-offset="6" class="composer-chip-tooltip">
+                {{ hashChipTitle("skill", seg.id) }}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip v-else-if="seg.kind === 'mcp'">
+              <TooltipTrigger as-child>
+                <span
+                  class="file-mention-tag hash-mention-tag hash-mcp-tag removable-mention-tag"
+                  data-tauri-drag-region="false"
+                >
+                  <img
+                    v-if="hashIconFor('mcp', seg.id)"
+                    class="file-chip-icon-img"
+                    :src="hashIconFor('mcp', seg.id) || ''"
+                    alt=""
+                    referrerpolicy="no-referrer"
+                  />
+                  <Bot v-else :size="12" />
+                  <span class="file-mention-name">{{ hashLabelFor("mcp", seg.id) }}</span>
+                  <button
+                    type="button"
+                    class="mention-chip-remove"
+                    :aria-label="tr(language, 'close')"
+                    @click.stop="removeComposerSegment(segIdx)"
+                  >
+                    <X :size="11" :stroke-width="2" />
+                  </button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" :side-offset="6" class="composer-chip-tooltip">
+                {{ hashChipTitle("mcp", seg.id) }}
+              </TooltipContent>
+            </Tooltip>
+          </template>
+        </TooltipProvider>
         <textarea
           v-if="props.appearance === 'workbench'"
           ref="inputRef"
@@ -377,6 +456,23 @@
 
       <div class="input-footer">
         <div class="input-footer-primary">
+          <button
+            ref="attachButtonRef"
+            type="button"
+            class="attach-trigger-btn"
+            data-picker-trigger
+            data-tauri-drag-region="false"
+            :class="{ open: attachPanelOpen }"
+            :title="tr(language, 'chatInput.attachResources')"
+            :aria-label="tr(language, 'chatInput.attachResources')"
+            :aria-expanded="attachPanelOpen"
+            aria-haspopup="dialog"
+            @mousedown.stop
+            @click.stop="toggleAttachPanel"
+          >
+            <Plus :size="15" :stroke-width="2.25" />
+          </button>
+
           <div
             v-if="props.showWorkspaceButton"
             class="workspace-control"
@@ -605,10 +701,12 @@ import {
   ShieldQuestion,
   Shield,
   Unlock,
+  Plus,
 } from "@lucide/vue";
 import HistoryPicker from "./input/HistoryPicker.vue";
 import ModelPicker from "./input/ModelPicker.vue";
 import OptionPicker from "./input/OptionPicker.vue";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import AskUserPicker from "./input/AskUserPicker.vue";
 import PathPermissionPicker from "./input/PathPermissionPicker.vue";
 import ToolApprovalPicker from "./input/ToolApprovalPicker.vue";
@@ -616,10 +714,13 @@ import FileMentionPicker from "./input/FileMentionPicker.vue";
 import HashMentionPicker from "./input/HashMentionPicker.vue";
 import CommandSuggestions from "./input/CommandSuggestions.vue";
 import WorkspacePickerPanel from "./input/WorkspacePickerPanel.vue";
+import AttachResourcePanel from "./input/AttachResourcePanel.vue";
 import ContextUsageRing from "./ContextUsageRing.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { executeSlashCommand, fetchEnvironmentContext, slashCommands } from "@/commands/slash";
 import { listSkills } from "@/commands/skills";
+import { peekInstallIcon, warmInstallIcons } from "@/services/iconCache";
 import { getContextUsage, setOverlayPopupOpen } from "@/services/ipc";
 import { createLogger } from "@/services/logger";
 import { tr } from "@/services/i18n";
@@ -633,7 +734,11 @@ import { codeLanguageForPath } from "@/services/chat/codeLanguage";
 import {
   appendComposerSegment,
   flushLiveMessageToSegments,
+  isDirMention,
+  mentionDisplayLabel,
+  normalizeMentionPath,
   pasteLineCount,
+  parseComposerTextToSegments,
   serializeComposerSegments as serializeSegments,
   type ComposerSegment,
 } from "@/services/chat/composerSegments";
@@ -641,6 +746,7 @@ import {
   activeFilePathMention,
   activeHashMention,
   filterHashMentionItems,
+  parseHashMentions,
   type HashMentionItem,
 } from "@/services/chat/hashMentions";
 import {
@@ -650,6 +756,11 @@ import {
   skillMentionIconUrl,
   skillMentionLabel,
 } from "@/services/chat/hashMentionDisplay";
+import {
+  recordResourceUsage,
+  recordResourceUsages,
+  sortByResourceUsage,
+} from "@/services/usage/resourceUsage";
 import { estimateMessageTokens, formatTokenCount } from "@/services/chat/tokenEstimate";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useChatModelStore } from "@/stores/chatModel";
@@ -659,6 +770,7 @@ import {
   getModelDisplayLabel,
   getModelDisplaySubtitle,
   groupModelsByProvider,
+  resolveCustomPresetId,
 } from "@/lib/providerIcons";
 import {
   findModelEntry,
@@ -804,36 +916,53 @@ function pushComposerSegment(segment: ComposerSegment) {
   appendComposerSegment(composerSegments.value, segment);
 }
 
+function removeComposerSegment(index: number) {
+  if (index < 0 || index >= composerSegments.value.length) return;
+  composerSegments.value.splice(index, 1);
+  void nextTick(() => {
+    resizeWorkbenchInput();
+    focusInput();
+    syncComposerCaret();
+    emitLayoutChange();
+  });
+}
+
 function clearComposerSegments() {
   composerSegments.value = [];
 }
 
 /** Draft persistence is per-conversation: switching chats never loses input
  * and one conversation's draft is not shared with others. */
-function persistDraft(sessionId = props.sessionId, draft = message.value) {
-  if (sessionId) {
-    chatStore.setComposeDraft(sessionId, draft);
-  }
+function persistDraft(sessionId = props.sessionId, draft = serializeComposerSegments()) {
+  if (!sessionId) return;
+  chatStore.setComposeDraft(sessionId, draft);
 }
 
 function loadDraft() {
   if (!props.sessionId) {
+    clearComposerSegments();
+    message.value = "";
     return;
   }
   const compose = chatStore.ensureCompose(props.sessionId);
-  if (compose.draft !== message.value) {
-    message.value = compose.draft || "";
-  }
+  const parsed = parseComposerTextToSegments(compose.draft || "");
+  composerSegments.value = parsed.segments;
+  message.value = parsed.liveMessage;
 }
 
-const persistDraftDebounced = useDebounceFn(
-  (sessionId: string, draft: string) => persistDraft(sessionId, draft),
-  400,
-);
+const persistDraftDebounced = useDebounceFn((sessionId: string) => {
+  if (!sessionId || sessionId !== props.sessionId) return;
+  persistDraft(sessionId);
+}, 400);
 
-watch(message, (draft) => {
-  persistDraftDebounced(props.sessionId, draft);
-});
+watch(
+  [message, composerSegments],
+  () => {
+    if (!props.sessionId) return;
+    persistDraftDebounced(props.sessionId);
+  },
+  { deep: true },
+);
 
 function previewImage(url: string) {
   emit("previewImage", url);
@@ -899,6 +1028,7 @@ async function applyCapturedImages(images?: string[]) {
 
 const inputRef = ref<HTMLInputElement | HTMLTextAreaElement | null>(null);
 const chatInputShellRef = ref<HTMLElement | null>(null);
+const attachButtonRef = ref<HTMLButtonElement | null>(null);
 const chatModeButtonRef = ref<HTMLButtonElement | null>(null);
 const modelButtonRef = ref<HTMLButtonElement | null>(null);
 const thinkingTierButtonRef = ref<HTMLButtonElement | null>(null);
@@ -1122,11 +1252,12 @@ watch(
   () => props.sessionId,
   (next, prev) => {
     if (prev && prev !== next) {
-      persistDraft(prev, message.value);
+      persistDraft(prev, serializeComposerSegments());
     }
     syncComposeToModel();
     loadDraft();
   },
+  { immediate: true },
 );
 
 const modelStatusText = computed(() => ({
@@ -1253,7 +1384,8 @@ const thinkingTierBadgeTitle = computed(() =>
 );
 
 const currentModelProviderIcon = computed(() => {
-  return getProviderIcon(currentModelEntry.value?.provider);
+  const provider = currentModelEntry.value?.provider;
+  return getProviderIcon(provider, resolveCustomPresetId(provider, settingStore.customProviders));
 });
 
 const currentModelDisplayName = computed(() => {
@@ -1383,7 +1515,10 @@ const modelPickerRowCount = computed(() => {
     return 0;
   }
   const models = Math.max(modelPickerModels.value.length, 1);
-  const groups = Math.max(groupModelsByProvider(modelPickerModels.value).length, 1);
+  const groups = Math.max(
+    groupModelsByProvider(modelPickerModels.value, settingStore.customProviders).length,
+    1,
+  );
   // group headers + model rows + refresh
   return groups + models + 1;
 });
@@ -1519,7 +1654,8 @@ const interactivePickerOpen = computed(
     showChatModePicker.value ||
     showApprovalPicker.value ||
     showThinkingTierList.value ||
-    workspacePickerOpen.value,
+    workspacePickerOpen.value ||
+    attachPanelOpen.value,
 );
 
 /** Ask / path / tool-approval requests — these need reserved vertical room. */
@@ -1537,7 +1673,8 @@ const inputLockedForTyping = computed(
     showChatModePicker.value ||
     showApprovalPicker.value ||
     showThinkingTierList.value ||
-    workspacePickerOpen.value,
+    workspacePickerOpen.value ||
+    attachPanelOpen.value,
 );
 
 const askPickerRowCount = computed(() => {
@@ -1659,7 +1796,10 @@ function estimateActivePickerHeight(pickerRows: number): number {
   }
   if (showModelPicker.value) {
     const models = Math.max(modelPickerModels.value.length, 1);
-    const groups = Math.max(groupModelsByProvider(modelPickerModels.value).length, 1);
+    const groups = Math.max(
+      groupModelsByProvider(modelPickerModels.value, settingStore.customProviders).length,
+      1,
+    );
     return 6 + groups * 24 + models * 32 + 34;
   }
   if (showHistoryPicker.value) {
@@ -1864,11 +2004,15 @@ function closeThinkingTierMenu(_immediate = false) {
 function dismissFloatingPickers() {
   const hadChip = chipPickerOpen.value;
   const hadWorkspace = workspacePickerOpen.value;
-  if (!hadChip && !hadWorkspace) return;
+  const hadAttach = attachPanelOpen.value;
+  if (!hadChip && !hadWorkspace && !hadAttach) return;
   closeChipPickers();
   if (hadWorkspace) {
     workspacePickerOpen.value = false;
     workspaceQuickSelectOnly.value = false;
+  }
+  if (hadAttach) {
+    attachPanelOpen.value = false;
   }
   void syncPopupState(false);
   emitLayoutChange();
@@ -1876,7 +2020,7 @@ function dismissFloatingPickers() {
 
 function handleDocumentPointerDown(event: PointerEvent) {
   if (event.button !== 0) return;
-  if (!chipPickerOpen.value && !workspacePickerOpen.value) return;
+  if (!chipPickerOpen.value && !workspacePickerOpen.value && !attachPanelOpen.value) return;
   if (interactionRequestOpen.value) return;
   const target = event.target;
   if (!(target instanceof Element)) return;
@@ -1891,6 +2035,7 @@ async function prepareChipPicker() {
   }
   workspacePickerOpen.value = false;
   workspaceQuickSelectOnly.value = false;
+  attachPanelOpen.value = false;
   closeChipPickers();
 }
 
@@ -2297,7 +2442,12 @@ const hashCatalogLoading = ref(false);
 const hashCatalogReady = ref(false);
 
 const activeHashQuery = computed(() => {
-  if (interactivePickerOpen.value || showFileSuggestions.value || isCommandMode.value) {
+  if (
+    interactivePickerOpen.value ||
+    showFileSuggestions.value ||
+    isCommandMode.value ||
+    attachPanelOpen.value
+  ) {
     return null;
   }
   return activeHashMention(message.value, composerCaret.value);
@@ -2311,6 +2461,22 @@ const hashSuggestions = computed(() => {
 
 const showHashSuggestions = computed(() => activeHashQuery.value !== null);
 
+const attachSkillItems = computed(() =>
+  sortByResourceUsage(
+    hashCatalog.value.filter((item) => item.kind === "skill"),
+    "skill",
+    (item) => item.id,
+  ),
+);
+
+const attachMcpItems = computed(() =>
+  sortByResourceUsage(
+    hashCatalog.value.filter((item) => item.kind === "mcp"),
+    "mcp",
+    (item) => item.id,
+  ),
+);
+
 const showSuggestions = computed(
   () => showFileSuggestions.value || showHashSuggestions.value || showCommandSuggestions.value,
 );
@@ -2320,8 +2486,8 @@ const suggestionCount = computed(() => {
   return filteredCommands.value.length;
 });
 
-async function ensureHashCatalog() {
-  if (hashCatalogReady.value || hashCatalogLoading.value) return;
+async function ensureHashCatalog(force = false) {
+  if (!force && (hashCatalogReady.value || hashCatalogLoading.value)) return;
   hashCatalogLoading.value = true;
   try {
     const skills = await listSkills();
@@ -2351,6 +2517,18 @@ async function ensureHashCatalog() {
       }));
     hashCatalog.value = [...skillItems, ...mcpItems];
     hashCatalogReady.value = true;
+    void warmInstallIcons(
+      hashCatalog.value.map((item) => ({
+        kind: item.kind,
+        cacheKey: item.id,
+        url: item.iconUrl,
+      })),
+    ).then(() => {
+      hashCatalog.value = hashCatalog.value.map((item) => {
+        const local = peekInstallIcon(item.kind, item.id);
+        return local ? { ...item, iconUrl: local } : item;
+      });
+    });
   } catch (error) {
     console.error("load hash mention catalog failed:", error);
     hashCatalog.value = [];
@@ -2371,6 +2549,8 @@ function hashLabelFor(kind: "skill" | "mcp", id: string): string {
 }
 
 function hashIconFor(kind: "skill" | "mcp", id: string): string | null {
+  const local = peekInstallIcon(kind, id);
+  if (local) return local;
   const fromCatalog = hashCatalogItem(kind, id)?.iconUrl?.trim();
   if (fromCatalog) return fromCatalog;
   if (kind === "mcp") return mcpMentionIconUrl(id, settingStore.mcpServers ?? []);
@@ -2406,9 +2586,14 @@ function selectHashMention(item: HashMentionItem) {
   });
 }
 
-async function ensureWorkspaceFiles() {
+async function ensureWorkspaceFiles(force = false) {
   const root = currentWorkspace.value?.root ?? "";
-  if (!root || workspaceFilesRoot.value === root) return;
+  if (!root) {
+    workspaceFiles.value = [];
+    workspaceFilesRoot.value = "";
+    return;
+  }
+  if (!force && workspaceFilesRoot.value === root) return;
   workspaceFilesLoading.value = true;
   try {
     workspaceFiles.value = await listWorkspaceFiles();
@@ -2428,7 +2613,7 @@ function selectWorkspaceFile(path: string) {
   const suffix = message.value.slice(mention.end);
   message.value = message.value.slice(0, mention.start);
   flushMessageToSegments();
-  pushComposerSegment({ kind: "mention", path });
+  pushComposerSegment({ kind: "mention", path: toWorkspaceRelativePath(path) });
   message.value = suffix.replace(/^\s+/, "");
   selectedIndex.value = 0;
   void nextTick(() => {
@@ -2438,12 +2623,39 @@ function selectWorkspaceFile(path: string) {
   });
 }
 
-function fileName(path: string) {
-  return path.split("/").pop() || path;
+function isMentionDir(seg: { path: string; isDir?: boolean }) {
+  return isDirMention(seg.path, seg.isDir);
+}
+
+function mentionCatalog(): string[] {
+  const fromSegments = composerSegments.value
+    .filter((seg): seg is Extract<ComposerSegment, { kind: "mention" }> => seg.kind === "mention")
+    .map((seg) => seg.path);
+  return [...workspaceFiles.value, ...fromSegments];
+}
+
+function mentionLabel(seg: { path: string; isDir?: boolean }) {
+  return mentionDisplayLabel(seg.path, {
+    isDir: seg.isDir,
+    catalog: mentionCatalog(),
+  });
+}
+
+function toWorkspaceRelativePath(path: string): string {
+  const normalized = normalizeMentionPath(path);
+  const root = currentWorkspace.value?.root;
+  if (!root) return normalized;
+  const normRoot = normalizeMentionPath(root).toLowerCase();
+  const lower = normalized.toLowerCase();
+  if (lower === normRoot) return "";
+  if (lower.startsWith(`${normRoot}/`)) {
+    return normalized.slice(normRoot.length + 1);
+  }
+  return normalized;
 }
 
 function fileIconForPath(path: string) {
-  return codeLanguageForPath(path).icon;
+  return codeLanguageForPath(normalizeMentionPath(path)).icon;
 }
 
 async function focusInput() {
@@ -2529,6 +2741,10 @@ async function executeCommand(command: string) {
 const workspaces = ref<Workspace[]>([]);
 const currentWorkspace = ref<Workspace | null>(null);
 const workspacePickerOpen = ref(false);
+const attachPanelOpen = ref(false);
+const attachPickingFiles = ref(false);
+const attachPanelTab = ref<"skills" | "mcp" | "files">("skills");
+const attachVisibleCount = ref(0);
 const workspaceQuickSelectOnly = ref(false);
 const workspaceSaving = ref(false);
 const workspaceError = ref("");
@@ -2602,6 +2818,7 @@ async function toggleWorkspacePicker() {
   workspaceError.value = "";
   workspaceQuickSelectOnly.value = false;
   selectedIndex.value = 0;
+  attachPanelOpen.value = false;
   closeModelPicker();
   closeApprovalMenu();
   closeChatModeMenu();
@@ -2616,10 +2833,105 @@ async function toggleWorkspacePicker() {
   emitLayoutChange();
 }
 
+async function toggleAttachPanel() {
+  if (attachPanelOpen.value) {
+    attachPanelOpen.value = false;
+    await syncPopupState(false);
+    emitLayoutChange();
+    return;
+  }
+  if (showHistoryPicker.value) {
+    emit("historyClose");
+  }
+  workspacePickerOpen.value = false;
+  workspaceQuickSelectOnly.value = false;
+  closeChipPickers();
+  selectedIndex.value = 0;
+  attachPanelTab.value = "skills";
+  attachPanelOpen.value = true;
+  await syncPopupState(true);
+  emitLayoutChange();
+  void ensureHashCatalog(true);
+  void ensureWorkspaceFiles();
+  void focusInput();
+}
+
+function onAttachPanelTabChange(tab: "skills" | "mcp" | "files") {
+  attachPanelTab.value = tab;
+  selectedIndex.value = 0;
+  if (tab === "files") {
+    void ensureWorkspaceFiles();
+  }
+}
+
+function onAttachPanelHover(payload: { kind: "skill" | "mcp"; index: number }) {
+  attachPanelTab.value = payload.kind === "mcp" ? "mcp" : "skills";
+  selectedIndex.value = payload.index;
+}
+
+function onAttachVisibleCount(count: number) {
+  attachVisibleCount.value = count;
+  if (selectedIndex.value >= count) {
+    selectedIndex.value = Math.max(0, count - 1);
+  }
+}
+
+function selectAttachWorkspaceFile(path: string, isDir = false) {
+  insertFileMention(path, { isDir });
+  emitLayoutChange();
+}
+
+function selectAttachResource(item: HashMentionItem) {
+  flushMessageToSegments();
+  pushComposerSegment(
+    item.kind === "skill" ? { kind: "skill", id: item.id } : { kind: "mcp", id: item.id },
+  );
+  recordResourceUsage(item.kind, item.id);
+  void nextTick(() => {
+    resizeWorkbenchInput();
+    focusInput();
+    syncComposerCaret();
+    emitLayoutChange();
+  });
+}
+
+async function pickAttachFiles() {
+  if (attachPickingFiles.value) return;
+  attachPickingFiles.value = true;
+  try {
+    const selected = await openFileDialog({
+      multiple: true,
+      directory: false,
+      title: tr(language.value, "chatInput.attachPickFiles"),
+    });
+    const paths = (Array.isArray(selected) ? selected : selected ? [selected] : [])
+      .map((entry) => String(entry ?? "").trim())
+      .filter(Boolean);
+    if (paths.length === 0) return;
+    flushMessageToSegments();
+    for (const path of paths) {
+      pushComposerSegment({ kind: "mention", path: toWorkspaceRelativePath(path) });
+    }
+    attachPanelOpen.value = false;
+    await syncPopupState(false);
+    void nextTick(() => {
+      resizeWorkbenchInput();
+      focusInput();
+      syncComposerCaret();
+      emitLayoutChange();
+    });
+  } catch (error) {
+    console.error("pick attach files failed:", error);
+  } finally {
+    attachPickingFiles.value = false;
+  }
+}
+
 async function openWorkspaceQuickPicker() {
   workspaceError.value = "";
   workspaceQuickSelectOnly.value = true;
   selectedIndex.value = 0;
+  attachPanelOpen.value = false;
   closeModelPicker();
   closeApprovalMenu();
   closeChatModeMenu();
@@ -2722,7 +3034,7 @@ function resolveSendWorkspaceOptions(): { workspaceId?: string; quickAsk?: boole
 }
 
 async function submit() {
-  if (workspacePickerOpen.value) {
+  if (workspacePickerOpen.value || attachPanelOpen.value) {
     return;
   }
   if (props.sending && !canSend.value && !interactivePickerOpen.value) {
@@ -2835,10 +3147,11 @@ async function submit() {
   const submittedText = [text, attachedFileBlocks, imageTags]
     .filter((part) => part.length > 0)
     .join("\n\n");
+  recordResourceUsages(parseHashMentions(submittedText));
   emit("submit", submittedText);
+  clearComposerSegments();
   message.value = "";
   persistDraft();
-  clearComposerSegments();
   attachedFiles.value = [];
   attachedImages.value = [];
   emitLayoutChange();
@@ -2945,6 +3258,38 @@ function handleKeydown(event: KeyboardEvent) {
         const workspace = workspaces.value[workspaceIndex];
         if (workspace) void chooseWorkspace(workspace);
       }
+      return;
+    }
+  }
+
+  if (attachPanelOpen.value) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      attachPanelOpen.value = false;
+      void syncPopupState(false);
+      emitLayoutChange();
+      return;
+    }
+    if (attachPanelTab.value === "files") {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void pickAttachFiles();
+      }
+      return;
+    }
+    const list = attachPanelTab.value === "mcp" ? attachMcpItems.value : attachSkillItems.value;
+    const total = Math.min(list.length, Math.max(attachVisibleCount.value, 0));
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (total === 0) return;
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      selectedIndex.value = (selectedIndex.value + delta + total) % total;
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const item = list[selectedIndex.value];
+      if (item) selectAttachResource(item);
       return;
     }
   }
@@ -3293,6 +3638,7 @@ function reset() {
   closeThinkingTierMenu();
   workspacePickerOpen.value = false;
   workspaceQuickSelectOnly.value = false;
+  attachPanelOpen.value = false;
   if (props.appearance === "overlay") {
     overlayWorkspaceOverride.value = null;
     syncOverlayWorkspaceFromContext();
@@ -3305,7 +3651,9 @@ function setMessage(text: string) {
   clearComposerSegments();
   attachedFiles.value = [];
   attachedImages.value = [];
-  message.value = text;
+  const parsed = parseComposerTextToSegments(text);
+  composerSegments.value = parsed.segments;
+  message.value = parsed.liveMessage;
   emitLayoutChange();
   void nextTick(resizeWorkbenchInput);
   void focusInput();
@@ -3626,9 +3974,15 @@ watch(
     emitLayoutChange();
   },
 );
-function insertFileMention(path: string) {
+function insertFileMention(path: string, options?: { isDir?: boolean }) {
+  const relative = toWorkspaceRelativePath(path);
+  if (!relative && !options?.isDir) return;
   flushMessageToSegments();
-  pushComposerSegment({ kind: "mention", path });
+  pushComposerSegment({
+    kind: "mention",
+    path: relative || normalizeMentionPath(path),
+    isDir: options?.isDir,
+  });
   void nextTick(() => focusInput());
 }
 
@@ -3672,6 +4026,11 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   max-height: min(320px, 42vh);
   border-bottom: 1px solid var(--peek-border);
   border-radius: 8px;
+}
+
+.chat-input-shell.overlay-pickers :deep(.attach-resource-panel) {
+  bottom: 100%;
+  max-height: min(420px, 52vh);
 }
 
 /* Ask / permission / approval: in-flow so the question header cannot be clipped
@@ -4149,6 +4508,7 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   align-self: center;
   gap: 6px;
   max-width: min(220px, 100%);
+  min-height: 26px;
   height: 26px;
   margin: 0;
   padding: 0 8px;
@@ -4156,11 +4516,31 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   border-radius: 7px;
   font-size: 12px;
   font-weight: 500;
-  line-height: 1;
+  line-height: 18px;
   color: var(--peek-text);
   background: color-mix(in srgb, var(--peek-input-bg) 72%, var(--peek-surface));
   white-space: nowrap;
   vertical-align: middle;
+  overflow: visible;
+  transition:
+    max-width 160ms ease,
+    padding 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.file-mention-tag.dir-mention-tag {
+  max-width: min(320px, 100%);
+}
+
+.file-mention-tag.removable-mention-tag {
+  padding-right: 4px;
+}
+
+.file-mention-tag.removable-mention-tag:hover {
+  max-width: min(380px, 100%);
+  border-color: color-mix(in srgb, var(--peek-accent) 28%, var(--peek-border));
+  background: color-mix(in srgb, var(--peek-accent) 8%, var(--peek-input-bg));
 }
 
 .file-mention-name {
@@ -4168,13 +4548,52 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1;
+  line-height: 18px;
+  padding: 1px 0;
+}
+
+.mention-chip-remove {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 0;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--peek-muted);
+  cursor: pointer;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    width 140ms ease,
+    opacity 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.removable-mention-tag:hover .mention-chip-remove,
+.removable-mention-tag:focus-within .mention-chip-remove {
+  width: 18px;
+  opacity: 0.9;
+  pointer-events: auto;
+}
+
+.mention-chip-remove:hover {
+  opacity: 1;
+  color: var(--peek-text);
+  background: color-mix(in srgb, var(--peek-muted) 16%, transparent);
 }
 
 /* Same visual language as attached-file chips in the composer. */
 .hash-mention-tag {
   gap: 6px;
   max-width: min(220px, 100%);
+  min-height: 26px;
   height: 26px;
   margin: 0;
   padding: 0 8px;
@@ -4182,9 +4601,13 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   border-radius: 7px;
   font-size: 12px;
   font-weight: 500;
-  line-height: 1;
+  line-height: 18px;
   color: var(--peek-text);
   background: color-mix(in srgb, var(--peek-input-bg) 72%, var(--peek-surface));
+}
+
+.hash-mention-tag.removable-mention-tag {
+  padding-right: 4px;
 }
 
 .hash-mention-tag :is(svg) {
@@ -4228,7 +4651,7 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   background: color-mix(in srgb, var(--peek-input-bg) 72%, var(--peek-surface));
   color: var(--peek-text);
   font-size: 12px;
-  line-height: 1;
+  line-height: 18px;
   transition:
     border-color 120ms ease,
     background 120ms ease,
@@ -4264,6 +4687,8 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   white-space: nowrap;
   font-weight: 500;
   letter-spacing: 0.01em;
+  line-height: 18px;
+  padding: 1px 0;
 }
 
 .file-chip-remove {
@@ -4502,6 +4927,64 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
     transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.attach-trigger-btn {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--peek-send-bg);
+  color: var(--peek-send-fg);
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateZ(0);
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.attach-trigger-btn:hover {
+  transform: scale(1.03);
+}
+
+.attach-trigger-btn:active {
+  transform: scale(0.97);
+}
+
+.attach-trigger-btn.open {
+  background: color-mix(in srgb, var(--peek-accent) 18%, var(--peek-send-bg));
+  color: var(--peek-accent);
+  transform: rotate(45deg);
+}
+
+.attach-trigger-btn.open:hover {
+  transform: rotate(45deg) scale(1.03);
+}
+
+.attach-trigger-btn.open:active {
+  transform: rotate(45deg) scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attach-trigger-btn,
+  .attach-trigger-btn:hover,
+  .attach-trigger-btn:active,
+  .attach-trigger-btn.open,
+  .attach-trigger-btn.open:hover,
+  .attach-trigger-btn.open:active {
+    transition: none;
+    transform: none;
+  }
+
+  .attach-trigger-btn.open {
+    transform: none;
+  }
+}
+
 .send-btn svg {
   width: 18px;
   height: 18px;
@@ -4608,5 +5091,23 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
 
 .image-remove-btn:hover {
   background: rgba(239, 68, 68, 0.9) !important; /* soft red on hover */
+}
+</style>
+
+<style>
+/* Teleported chip tooltips — keep long paths inside the bubble. */
+.composer-chip-tooltip[data-slot="tooltip-content"],
+.composer-chip-tooltip {
+  display: block !important;
+  box-sizing: border-box;
+  width: max-content !important;
+  max-width: min(280px, 72vw) !important;
+  padding: 8px 10px !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  text-align: left !important;
+  line-height: 1.45 !important;
+  align-items: stretch !important;
 }
 </style>

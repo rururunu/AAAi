@@ -1,8 +1,8 @@
 # Releases and remote updates
 
-AAAi uses the [Tauri Updater](https://v2.tauri.app/plugin/updater/) plugin. The client reads:
+Anya uses the [Tauri Updater](https://v2.tauri.app/plugin/updater/) plugin. The client reads:
 
-`https://github.com/rururunu/AAAi/releases/latest/download/latest.json`
+`https://github.com/rururunu/Anya/releases/latest/download/latest.json`
 
 ## Where is `latest.json`?
 
@@ -15,8 +15,8 @@ AAAi uses the [Tauri Updater](https://v2.tauri.app/plugin/updater/) plugin. The 
 
 Signed build artifacts:
 
-- `src-tauri/target/release/bundle/msi/AAAi_<version>_x64.msi`
-- `src-tauri/target/release/bundle/msi/AAAi_<version>_x64.msi.sig`
+- `src-tauri/target/release/bundle/msi/Anya_<version>_x64.msi`
+- `src-tauri/target/release/bundle/msi/Anya_<version>_x64.msi.sig`
 
 The `.sig` file **contents** go into `platforms.windows-x86_64.signature` (not a URL).
 
@@ -25,13 +25,13 @@ The `.sig` file **contents** go into `platforms.windows-x86_64.signature` (not a
 ## Keys (one-time setup)
 
 ```powershell
-pnpm tauri signer generate -w "$env:USERPROFILE\.tauri\aaai.key" --ci
+pnpm tauri signer generate -w "$env:USERPROFILE\.tauri\anya.key" --ci
 ```
 
-- **Private key**: `%USERPROFILE%\.tauri\aaai.key` (never commit)
+- **Private key**: `%USERPROFILE%\.tauri\anya.key` (never commit)
 - **Public key**: `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`
 
-GitHub Actions secrets: `TAURI_SIGNING_PRIVATE_KEY`, optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, optional `AAAI_UPDATER_PUBKEY`.
+GitHub Actions secrets: `TAURI_SIGNING_PRIVATE_KEY`, optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, optional `ANYA_UPDATER_PUBKEY`.
 
 ---
 
@@ -41,22 +41,22 @@ GitHub Actions secrets: `TAURI_SIGNING_PRIVATE_KEY`, optional `TAURI_SIGNING_PRI
 2. Build with signing:
 
 ```powershell
-$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content "$env:USERPROFILE\.tauri\aaai.key" -Raw
+$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content "$env:USERPROFILE\.tauri\anya.key" -Raw
 pnpm tauri:build
 ```
 
 3. Generate **`release/latest.json`**:
 
 ```powershell
-pnpm release:json -- --tag v0.2.1 --notes "Optional release notes"
+pnpm release:json -- --tag v0.2.2 --notes "Optional release notes"
 ```
 
-4. On GitHub → [Releases](https://github.com/rururunu/AAAi/releases), create tag `v0.2.1` and upload:
-   - `AAAi_0.2.1_x64.msi`
-   - `AAAi_0.2.1_x64.msi.sig`
+4. On GitHub → [Releases](https://github.com/rururunu/Anya/releases), create tag `v0.2.2` and upload:
+   - `Anya_0.2.2_x64.msi`
+   - `Anya_0.2.2_x64.msi.sig`
    - `latest.json` (from `release/latest.json`)
 
-5. Verify `https://github.com/rururunu/AAAi/releases/latest/download/latest.json` and check for updates in the app.
+5. Verify `https://github.com/rururunu/Anya/releases/latest/download/latest.json` and check for updates in the app.
 
 ---
 

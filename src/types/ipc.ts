@@ -23,6 +23,7 @@ export const IPC_COMMANDS = {
   chatHistory: "chat_history",
   listChatSessions: "list_chat_sessions",
   listChatModels: "list_chat_models",
+  listCustomProviderModels: "list_custom_provider_models",
   getContextUsage: "get_context_usage",
   getTokenUsageReport: "get_token_usage_report",
   getEnvironmentContext: "get_environment_context",

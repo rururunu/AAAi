@@ -19,7 +19,7 @@ impl JinaReaderProvider {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(3))
             .timeout(Duration::from_secs(12))
-            .user_agent("AAAi-Runtime/3")
+            .user_agent("Anya-Runtime/3")
             .build()
             .map_err(|error| ToolError::new(error.to_string()))?;
         Ok(Self {

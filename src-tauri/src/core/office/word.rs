@@ -8,8 +8,8 @@ use super::worker;
 pub const WORD_PROG_ID: &str = "Word.Application";
 const WD_STATISTIC_PAGES: i32 = 2;
 const NO_ACTIVE_DOCUMENT_MSG: &str = "Word has no active document";
-const EMPTY_SELECTION_WITH_RANGE_HINT: &str = "Word selection is empty (often cleared when AAAi steals focus). Reselect text in Word, or pass start/end from the earlier Office context.";
-const EMPTY_SELECTION_NO_RANGE_HINT: &str = "Word selection is empty (often cleared when AAAi steals focus). Reselect the text in Word, then retry.";
+const EMPTY_SELECTION_WITH_RANGE_HINT: &str = "Word selection is empty (often cleared when Anya steals focus). Reselect text in Word, or pass start/end from the earlier Office context.";
+const EMPTY_SELECTION_NO_RANGE_HINT: &str = "Word selection is empty (often cleared when Anya steals focus). Reselect the text in Word, then retry.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WordError {

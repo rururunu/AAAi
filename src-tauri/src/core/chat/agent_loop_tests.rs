@@ -1045,6 +1045,12 @@ async fn stops_after_repeated_identical_tool_error() {
                 content: String::new(),
                 tool_calls: vec![tool_call("2", "flaky")],
             },
+            // After the identical-error challenge, the model retries once more
+            // with the same args — that is when the breaker hard-stops.
+            ProviderTurn {
+                content: String::new(),
+                tool_calls: vec![tool_call("3", "flaky")],
+            },
             ProviderTurn {
                 content: "unreachable".into(),
                 tool_calls: vec![],
@@ -1073,6 +1079,7 @@ async fn stops_after_repeated_identical_tool_error() {
         } => {
             assert_eq!(finish_reason.as_deref(), Some("tool_failure_breaker"));
             assert!(content.contains("相同参数"), "{content}");
+            assert!(content.contains("已停止"), "{content}");
         }
         _ => panic!("unexpected"),
     }

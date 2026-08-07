@@ -65,6 +65,39 @@ impl CheckpointStore {
         self.session_dir(session_id).join("index.json")
     }
 
+    fn checkpoint_from_turn(turn: &ActiveTurn) -> Checkpoint {
+        Checkpoint {
+            turn: turn.turn,
+            time: now_secs(),
+            prompt: turn.prompt.clone(),
+            files: turn.snapped.values().cloned().collect(),
+            user_message_id: turn.user_message_id.clone(),
+            workspace_root: turn.workspace_root.clone(),
+        }
+    }
+
+    /// Persist (or replace) one turn's checkpoint on disk immediately.
+    fn write_checkpoint(&self, session_id: &str, checkpoint: &Checkpoint) -> Result<(), ToolError> {
+        if checkpoint.files.is_empty() && checkpoint.user_message_id.is_none() {
+            return Ok(());
+        }
+        let dir = self.session_dir(session_id);
+        fs::create_dir_all(&dir)?;
+        let mut index = self.load_index(session_id)?;
+        index.checkpoints.retain(|c| c.turn != checkpoint.turn);
+        index.checkpoints.push(checkpoint.clone());
+        index.checkpoints.sort_by_key(|c| c.turn);
+        fs::write(
+            self.index_path(session_id),
+            serde_json::to_string_pretty(&index)?,
+        )?;
+        Ok(())
+    }
+
+    fn persist_active_turn(&self, session_id: &str, turn: &ActiveTurn) -> Result<(), ToolError> {
+        self.write_checkpoint(session_id, &Self::checkpoint_from_turn(turn))
+    }
+
     pub fn begin_turn(
         &self,
         session_id: &str,
@@ -73,18 +106,63 @@ impl CheckpointStore {
         user_message_id: Option<String>,
         workspace_root: Option<&Path>,
     ) {
+        let active_turn = ActiveTurn {
+            turn,
+            prompt: prompt.to_string(),
+            user_message_id,
+            workspace_root: workspace_root.map(|path| path.to_string_lossy().into_owned()),
+            snapped: HashMap::new(),
+        };
+        // Persist before tools run so conversation rewind survives crashes mid-turn.
+        let _ = self.persist_active_turn(session_id, &active_turn);
         if let Ok(mut active) = self.active.lock() {
-            active.insert(
-                session_id.to_string(),
-                ActiveTurn {
-                    turn,
-                    prompt: prompt.to_string(),
-                    user_message_id,
-                    workspace_root: workspace_root.map(|path| path.to_string_lossy().into_owned()),
-                    snapped: HashMap::new(),
-                },
-            );
+            active.insert(session_id.to_string(), active_turn);
         }
+    }
+
+    /// Ensure a conversation-only checkpoint exists (crash recovery / backfill).
+    pub fn ensure_conversation_checkpoint(
+        &self,
+        session_id: &str,
+        turn: usize,
+        prompt: &str,
+        user_message_id: &str,
+        workspace_root: Option<&Path>,
+    ) -> Result<(), ToolError> {
+        let mut index = self.load_index(session_id)?;
+        if index
+            .checkpoints
+            .iter()
+            .any(|c| c.user_message_id.as_deref() == Some(user_message_id))
+        {
+            return Ok(());
+        }
+        if let Some(existing) = index.checkpoints.iter_mut().find(|c| c.turn == turn) {
+            if existing.user_message_id.is_none() {
+                existing.user_message_id = Some(user_message_id.to_string());
+                if existing.prompt.trim().is_empty() {
+                    existing.prompt = prompt.to_string();
+                }
+                let dir = self.session_dir(session_id);
+                fs::create_dir_all(&dir)?;
+                fs::write(
+                    self.index_path(session_id),
+                    serde_json::to_string_pretty(&index)?,
+                )?;
+            }
+            return Ok(());
+        }
+        self.write_checkpoint(
+            session_id,
+            &Checkpoint {
+                turn,
+                time: now_secs(),
+                prompt: prompt.to_string(),
+                files: Vec::new(),
+                user_message_id: Some(user_message_id.to_string()),
+                workspace_root: workspace_root.map(|path| path.to_string_lossy().into_owned()),
+            },
+        )
     }
 
     pub fn snapshot_preview(
@@ -123,6 +201,8 @@ impl CheckpointStore {
                 },
             );
         }
+        // Keep disk in sync so file restore still works after a mid-turn crash.
+        let _ = self.persist_active_turn(session_id, turn);
         Ok(())
     }
 
@@ -139,28 +219,7 @@ impl CheckpointStore {
         };
         // Always persist a checkpoint when we have a user message id so conversation
         // rewind stays available even for turns that did not mutate files.
-        if turn.snapped.is_empty() && turn.user_message_id.is_none() {
-            return Ok(());
-        }
-        let dir = self.session_dir(session_id);
-        fs::create_dir_all(&dir)?;
-        let mut index = self.load_index(session_id)?;
-        let checkpoint = Checkpoint {
-            turn: turn.turn,
-            time: now_secs(),
-            prompt: turn.prompt,
-            files: turn.snapped.into_values().collect(),
-            user_message_id: turn.user_message_id,
-            workspace_root: turn.workspace_root,
-        };
-        index.checkpoints.retain(|c| c.turn != checkpoint.turn);
-        index.checkpoints.push(checkpoint);
-        index.checkpoints.sort_by_key(|c| c.turn);
-        fs::write(
-            self.index_path(session_id),
-            serde_json::to_string_pretty(&index)?,
-        )?;
-        Ok(())
+        self.persist_active_turn(session_id, &turn)
     }
 
     pub fn list(&self, session_id: &str) -> Result<Vec<Checkpoint>, ToolError> {
@@ -250,6 +309,18 @@ pub fn shared_checkpoint_store() -> &'static CheckpointStore {
 mod tests {
     use super::*;
     use crate::core::tools::preview::ChangeKind;
+
+    #[test]
+    fn begin_turn_persists_conversation_checkpoint_immediately() {
+        let base = std::env::temp_dir().join(format!("peek-checkpoint-begin-{}", uuid::Uuid::new_v4()));
+        let store = CheckpointStore::new(base.join("checkpoints"));
+        store.begin_turn("session", 1, "hello", Some("user-1".into()), None);
+        let listed = store.list("session").unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].user_message_id.as_deref(), Some("user-1"));
+        assert!(listed[0].files.is_empty());
+        let _ = fs::remove_dir_all(base);
+    }
 
     #[test]
     fn snapshots_and_restores_every_affected_path() {

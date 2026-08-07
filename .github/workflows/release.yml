@@ -38,10 +38,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          ANYA_UPDATER_PUBKEY: ${{ secrets.ANYA_UPDATER_PUBKEY }}
           AAAI_UPDATER_PUBKEY: ${{ secrets.AAAI_UPDATER_PUBKEY }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: AAAi ${{ github.ref_name }}
+          releaseName: Anya ${{ github.ref_name }}
           releaseBody: See the assets attached to this release.
           releaseDraft: false
           prerelease: false

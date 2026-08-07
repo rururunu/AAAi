@@ -311,7 +311,7 @@ async fn run_one_task(task: &EvalTask, options: &EvalOptions, seed: u32) -> Task
     }
 
     let workspace = std::env::temp_dir().join(format!(
-        "aaai-eval-{}-{}-{}",
+        "anya-eval-{}-{}-{}",
         task.id,
         seed,
         uuid::Uuid::new_v4()
@@ -551,7 +551,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_completion_is_rejected_when_challenges_on() {
-        let dir = std::env::temp_dir().join(format!("aaai-eval-tasks-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("anya-eval-tasks-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join("empty_claim.json"),

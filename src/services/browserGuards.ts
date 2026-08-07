@@ -40,7 +40,7 @@ const browserModifierKeys = new Set([
   "pageup",
 ]);
 
-const guardMarker = "__AAAI_BROWSER_GUARDS_INSTALLED__";
+const guardMarker = "__ANYA_BROWSER_GUARDS_INSTALLED__";
 
 type GuardedWindow = Window & Record<typeof guardMarker, boolean | undefined>;
 
@@ -55,9 +55,10 @@ export function isBrowserShortcut(event: KeyboardEvent): boolean {
 
   const hasCommandModifier = event.ctrlKey || event.metaKey;
   const key = event.key.toLowerCase();
-  const opensDeveloperTools = hasCommandModifier
-    && ((event.shiftKey && ["c", "i", "j"].includes(key))
-      || (event.altKey && ["c", "i", "j"].includes(key)));
+  const opensDeveloperTools =
+    hasCommandModifier &&
+    ((event.shiftKey && ["c", "i", "j"].includes(key)) ||
+      (event.altKey && ["c", "i", "j"].includes(key)));
   if (opensDeveloperTools) {
     return true;
   }

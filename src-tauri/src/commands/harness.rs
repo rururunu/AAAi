@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn conversation_only_checkpoint_does_not_require_workspace() {
-        let root = std::env::temp_dir().join(format!("aaai-rewind-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("anya-rewind-{}", uuid::Uuid::new_v4()));
         let store = CheckpointStore::new(root);
         assert_eq!(
             restore_checkpoint_code(&store, "session", &checkpoint(vec![]), None),
@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn file_checkpoint_still_requires_workspace() {
-        let root = std::env::temp_dir().join(format!("aaai-rewind-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("anya-rewind-{}", uuid::Uuid::new_v4()));
         let store = CheckpointStore::new(root);
         let error = restore_checkpoint_code(
             &store,

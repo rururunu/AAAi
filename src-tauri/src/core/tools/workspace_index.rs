@@ -1,5 +1,5 @@
 //! Lightweight workspace index for coding-agent retrieval (symbols + paths + docs).
-//! Persisted under `<workspace>/.aaai/index/index.sqlite`.
+//! Persisted under `<workspace>/.anya/index/index.sqlite`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,7 +15,7 @@ const SKIP_DIRS: &[&str] = &[
     "target",
     "dist",
     "build",
-    ".aaai",
+    ".anya",
     ".cursor",
     "vendor",
 ];
@@ -37,7 +37,7 @@ pub struct WorkspaceIndex {
 
 impl WorkspaceIndex {
     pub fn open(workspace: &Path) -> Result<Self, String> {
-        let dir = workspace.join(".aaai").join("index");
+        let dir = workspace.join(".anya").join("index");
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let db_path = dir.join("index.jsonl");
         Ok(Self {
@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn indexes_and_finds_symbols() {
-        let root = std::env::temp_dir().join(format!("aaai-index-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("anya-index-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(
             root.join("src/lib.rs"),

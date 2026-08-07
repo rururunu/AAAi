@@ -1,6 +1,6 @@
 /**
  * Smithery Skills Registry client (https://registry.smithery.ai).
- * Browse/search prompt skills and install them into the local AAAi skills dir.
+ * Browse/search prompt skills and install them into the local Anya skills dir.
  */
 
 const REGISTRY_BASE = "https://registry.smithery.ai";

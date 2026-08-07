@@ -1,6 +1,6 @@
 {
   "id": "json_config",
-  "prompt": "Set package.json name to aaai-eval.",
+  "prompt": "Set package.json name to anya-eval.",
   "setupFiles": [
     {
       "path": "package.json",
@@ -15,7 +15,7 @@
           "name": "write_file",
           "arguments": {
             "path": "package.json",
-            "content": "{\"name\":\"aaai-eval\"}"
+            "content": "{\"name\":\"anya-eval\"}"
           }
         }
       ]
@@ -40,7 +40,7 @@
     {
       "type": "fileContains",
       "path": "package.json",
-      "text": "aaai-eval"
+      "text": "anya-eval"
     }
   ]
 }

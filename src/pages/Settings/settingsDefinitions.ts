@@ -244,6 +244,16 @@ export function buildSettingDefinitions(
       keywords: [...m.passToolReasoning.keywords],
     },
     {
+      id: "continueThinkingAfterTools",
+      category: "ai",
+      group: groups.ai,
+      path: m.continueThinkingAfterTools.path,
+      title: m.continueThinkingAfterTools.title,
+      description: m.continueThinkingAfterTools.description,
+      type: "toggle",
+      keywords: [...m.continueThinkingAfterTools.keywords],
+    },
+    {
       id: "memoryEnabled",
       category: "memory",
       group: groups.memory,

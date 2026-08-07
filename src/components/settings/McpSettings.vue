@@ -213,7 +213,8 @@ import {
   withSmitheryConnectProxyArgs,
   type SmitheryMcpServerSummary,
 } from "@/services/mcp/smithery";
-import { cacheInstallIcon, clearInstallIcon } from "@/services/iconCache";
+import { cacheInstallIcon, clearInstallIcon, warmInstallIcons } from "@/services/iconCache";
+import { sortByResourceUsage } from "@/services/usage/resourceUsage";
 import { tr } from "@/services/i18n";
 import type { McpI18nKey } from "@/services/locales/mcp";
 import { useSettingStore } from "@/stores/setting";
@@ -679,20 +680,22 @@ async function saveSmitheryApiKey() {
 
 const filtered = computed(() => {
   const query = props.query?.trim().toLowerCase() ?? "";
-  if (!query) return servers.value;
-  return servers.value.filter((server) => {
-    const haystack = [
-      server.id,
-      server.title ?? "",
-      server.description ?? "",
-      server.command,
-      ...(server.args ?? []),
-      ...(server.env ?? []).flatMap(([k, v]) => [k, v]),
-    ]
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(query);
-  });
+  const list = !query
+    ? servers.value
+    : servers.value.filter((server) => {
+        const haystack = [
+          server.id,
+          server.title ?? "",
+          server.description ?? "",
+          server.command,
+          ...(server.args ?? []),
+          ...(server.env ?? []).flatMap(([k, v]) => [k, v]),
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      });
+  return sortByResourceUsage(list, "mcp", (server) => server.id);
 });
 
 function parseArgs(text: string) {
@@ -879,7 +882,7 @@ function toPlainInstall(entry: CatalogEntry): McpServerConfig {
     command: String(entry.install.command ?? "").trim(),
     args: withPinnedMcpRemote([...(entry.install.args ?? [])].map(String)),
     env: (entry.install.env ?? []).map(([k, v]) => [String(k), String(v)] as [string, string]),
-    enabled: entry.install.enabled !== false,
+    enabled: entry.source === "curated" ? false : entry.install.enabled !== false,
   };
 }
 
@@ -904,7 +907,7 @@ async function addFromCatalog(entry: CatalogEntry) {
       command: install.command,
       argsText: (install.args ?? []).join(" "),
       envText: envLines.join("\n"),
-      enabled: true,
+      enabled: install.enabled !== false,
     };
     error.value = copy.value.needsEnv(requiredEnv.map((item) => item.name).join(", "));
     return;
@@ -1103,6 +1106,13 @@ onMounted(() => {
   }
   void refreshRuntimeSupport();
   startStatusPolling();
+  void warmInstallIcons(
+    (settingStore.mcpServers ?? []).map((server) => ({
+      kind: "mcp" as const,
+      cacheKey: server.id,
+      url: server.iconUrl,
+    })),
+  );
 });
 
 onUnmounted(() => {

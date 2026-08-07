@@ -12,7 +12,7 @@ use crate::core::tools::error::ToolError;
 /// Relative destination under the workspace root.
 /// Relative destination under the workspace root (documented for callers / tests).
 #[allow(dead_code)]
-pub const BID_TECH_REL_DIR: &str = ".aaai/bid_tech";
+pub const BID_TECH_REL_DIR: &str = ".anya/bid_tech";
 
 /// `(relative path under bid_tech/, file contents)`.
 const BID_TECH_FILES: &[(&str, &str)] = &[
@@ -62,11 +62,11 @@ const BID_TECH_FILES: &[(&str, &str)] = &[
     ),
 ];
 
-/// Write all bid_tech helpers into `{workspace}/.aaai/bid_tech/`.
+/// Write all bid_tech helpers into `{workspace}/.anya/bid_tech/`.
 ///
 /// Existing files are overwritten so skill updates ship on the next run.
 pub fn materialize_bid_tech_lib(workspace_root: &Path) -> Result<PathBuf, ToolError> {
-    let dest = workspace_root.join(".aaai").join("bid_tech");
+    let dest = workspace_root.join(".anya").join("bid_tech");
     fs::create_dir_all(&dest).map_err(|error| {
         ToolError::new(format!(
             "cannot create bid_tech dir {}: {error}",
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn materialize_writes_expected_modules() {
-        let tmp = std::env::temp_dir().join(format!("aaai-bid-tech-{}", uuid::Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("anya-bid-tech-{}", uuid::Uuid::new_v4()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).expect("tmpdir");
         let dest = materialize_bid_tech_lib(&tmp).expect("materialize");

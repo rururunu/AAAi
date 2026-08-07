@@ -1,6 +1,6 @@
 //! Overlay an AI badge on PixPin / Snipaste pin windows.
 //!
-//! AAAi does not install plugins into those apps. It only detects their pin
+//! Anya does not install plugins into those apps. It only detects their pin
 //! windows and draws a small "AI" badge at the bottom-right corner. The badge
 //! hides while the pin is selected or moved, then reappears after the pin is
 //! idle again.
@@ -66,7 +66,7 @@ pub fn start(app: AppHandle) {
     }
 
     std::thread::Builder::new()
-        .name("aaai-pin-badge".into())
+        .name("anya-pin-badge".into())
         .spawn(|| {
             if let Err(error) = button::register_class() {
                 tracing::warn!(feature = "pin_badge", error = %error, "failed to register badge class");

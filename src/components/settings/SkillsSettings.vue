@@ -266,7 +266,8 @@ import {
   type SmitherySkillCategory,
   type SmitherySkillSummary,
 } from "@/services/skills/smithery";
-import { cacheInstallIcon, clearInstallIcon } from "@/services/iconCache";
+import { cacheInstallIcon, clearInstallIcon, warmInstallIcons } from "@/services/iconCache";
+import { sortByResourceUsage } from "@/services/usage/resourceUsage";
 
 const props = defineProps<{ query?: string }>();
 const settingStore = useSettingStore();
@@ -350,13 +351,15 @@ const builtinSkills = computed(() => skills.value.filter((s) => s.source === "bu
 const visibleLocal = computed(() => {
   const list = tab.value === "builtin" ? builtinSkills.value : installedSkills.value;
   const query = props.query?.trim().toLowerCase() ?? "";
-  if (!query) return list;
-  return list.filter((skill) => {
-    const haystack = [skill.name, skill.title, skill.description, skill.source]
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(query);
-  });
+  const filtered = !query
+    ? list
+    : list.filter((skill) => {
+        const haystack = [skill.name, skill.title, skill.description, skill.source]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      });
+  return sortByResourceUsage(filtered, "skill", (skill) => skill.name);
 });
 
 const smitheryHasMore = computed(
@@ -421,6 +424,15 @@ async function refresh() {
   error.value = "";
   try {
     skills.value = await listSkills();
+    void warmInstallIcons(
+      skills.value
+        .filter((skill) => skill.source === "user")
+        .map((skill) => ({
+          kind: "skill" as const,
+          cacheKey: skill.name,
+          url: skill.iconUrl,
+        })),
+    );
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
     skills.value = [];

@@ -1,8 +1,8 @@
 {
-  "name": "AAAi",
+  "name": "Anya",
   "private": true,
-  "version": "0.2.1",
-  "description": "AAAi — Windows overlay AI assistant",
+  "version": "0.2.2",
+  "description": "Hand your work & questions to Anya anytime.",
   "type": "module",
   "scripts": {
     "dev": "vite",

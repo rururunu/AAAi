@@ -204,7 +204,7 @@ impl Tool for WordReplaceSelectionTool {
         "word_replace_selection"
     }
     fn description(&self) -> &str {
-        "Replace the current Microsoft Word selection with new text. If AAAi stole focus and the selection collapsed, pass start/end from the earlier Office Context (selectionStart/selectionEnd)."
+        "Replace the current Microsoft Word selection with new text. If Anya stole focus and the selection collapsed, pass start/end from the earlier Office Context (selectionStart/selectionEnd)."
     }
     fn parameters_schema(&self) -> Value {
         json!({
@@ -724,7 +724,7 @@ mod tests {
             assistant_message_id: "assistant-test".to_string(),
             conversation: Arc::new(ConversationManager::new(
                 std::env::temp_dir()
-                    .join(format!("aaai-office-tool-test-{}.db", uuid::Uuid::new_v4())),
+                    .join(format!("anya-office-tool-test-{}.db", uuid::Uuid::new_v4())),
             )),
             event_bus: bus,
             tasks: Arc::new(Mutex::new(Vec::new())),

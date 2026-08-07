@@ -1,7 +1,13 @@
 import type { Component } from "vue";
 import DeepSeekIcon from "@/components/icons/DeepSeekIcon.vue";
 import GeminiIcon from "@/components/icons/GeminiIcon.vue";
+import KimiIcon from "@/components/icons/KimiIcon.vue";
+import MiMoIcon from "@/components/icons/MiMoIcon.vue";
+import MiniMaxIcon from "@/components/icons/MiniMaxIcon.vue";
+import VolcengineIcon from "@/components/icons/VolcengineIcon.vue";
+import ZhipuIcon from "@/components/icons/ZhipuIcon.vue";
 import type { ChatModelInfo } from "@/types/chat";
+import type { CustomProviderConfig } from "@/types/setting";
 
 export const DEEPSEEK_PROVIDER = "deepseek";
 export const GEMINI_PROVIDER = "gemini";
@@ -9,11 +15,32 @@ export const GEMINI_PROVIDER = "gemini";
 const providerIcons: Record<string, Component> = {
   [DEEPSEEK_PROVIDER]: DeepSeekIcon,
   [GEMINI_PROVIDER]: GeminiIcon,
+  mimo: MiMoIcon,
+  zhipu: ZhipuIcon,
+  volcengine: VolcengineIcon,
+  minimax: MiniMaxIcon,
+  kimi: KimiIcon,
 };
 
-export function getProviderIcon(provider?: string | null): Component | null {
-  if (!provider) return null;
-  return providerIcons[provider] ?? null;
+export function getProviderIcon(
+  provider?: string | null,
+  presetId?: string | null,
+): Component | null {
+  const preset = presetId?.trim();
+  if (preset && providerIcons[preset]) {
+    return providerIcons[preset];
+  }
+  const key = provider?.trim();
+  if (!key) return null;
+  return providerIcons[key] ?? null;
+}
+
+export function resolveCustomPresetId(
+  providerId: string | null | undefined,
+  customProviders: CustomProviderConfig[],
+): string | undefined {
+  if (!providerId) return undefined;
+  return customProviders.find((item) => item.id === providerId)?.presetId;
 }
 
 export function isDeepSeekProvider(provider?: string | null): boolean {
@@ -25,11 +52,22 @@ export function isGeminiProvider(provider?: string | null): boolean {
 }
 
 /** Human-readable vendor label for model picker section headers. */
-export function getProviderDisplayName(provider?: string | null): string {
-  const key = provider?.trim().toLowerCase() ?? "";
+export function getProviderDisplayName(
+  provider?: string | null,
+  customProviders: CustomProviderConfig[] = [],
+): string {
+  const key = provider?.trim() ?? "";
   if (!key) return "Other";
   if (key === DEEPSEEK_PROVIDER) return "DeepSeek";
   if (key === GEMINI_PROVIDER) return "Gemini";
+  const custom = customProviders.find((item) => item.id === key);
+  if (custom?.name?.trim()) return custom.name.trim();
+  const preset = custom?.presetId?.trim();
+  if (preset === "mimo") return "小米 MiMo";
+  if (preset === "zhipu") return "智谱 GLM";
+  if (preset === "volcengine") return "火山方舟";
+  if (preset === "minimax") return "MiniMax";
+  if (preset === "kimi") return "Kimi";
   return key
     .split(/[-_\s]+/)
     .filter(Boolean)
@@ -48,6 +86,7 @@ const PROVIDER_SORT_ORDER = [DEEPSEEK_PROVIDER, GEMINI_PROVIDER];
 /** Group models by provider; known vendors first, then A–Z. */
 export function groupModelsByProvider(
   models: ChatModelInfo[],
+  customProviders: CustomProviderConfig[] = [],
 ): ModelProviderGroup[] {
   const map = new Map<string, ChatModelInfo[]>();
   for (const model of models) {
@@ -69,15 +108,15 @@ export function groupModelsByProvider(
         if (bi === -1) return -1;
         return ai - bi;
       }
-      return getProviderDisplayName(a).localeCompare(
-        getProviderDisplayName(b),
+      return getProviderDisplayName(a, customProviders).localeCompare(
+        getProviderDisplayName(b, customProviders),
         undefined,
         { sensitivity: "base" },
       );
     })
     .map(([provider, grouped]) => ({
       provider,
-      label: getProviderDisplayName(provider === "other" ? "" : provider),
+      label: getProviderDisplayName(provider === "other" ? "" : provider, customProviders),
       models: grouped,
     }));
 }
@@ -124,10 +163,7 @@ export function formatGeminiDisplayName(modelId: string): string {
  * Short display label for a model. DeepSeek models drop the `deepseek-` prefix
  * (e.g. `deepseek-v4-pro` → `v4-pro`) since the brand icon already conveys the vendor.
  */
-export function formatModelDisplayName(
-  modelId: string,
-  provider?: string | null,
-): string {
+export function formatModelDisplayName(modelId: string, provider?: string | null): string {
   const id = modelId.trim();
   if (!id) return id;
   if (isDeepSeekProvider(provider) && /^deepseek[-_]/i.test(id)) {

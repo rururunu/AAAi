@@ -1,92 +1,98 @@
 <template>
   <section class="about-page">
-    <div class="product-overview">
-      <div class="brand-visual" aria-hidden="true">
-        <div class="brand-mark">
-          <img :src="appIconUrl" alt="" />
+    <header class="about-hero">
+      <div class="about-logo" aria-hidden="true">
+        <img :src="appIconUrl" alt="" draggable="false" />
+      </div>
+      <h1>{{ name }}</h1>
+      <p class="about-tagline">{{ copy.description }}</p>
+      <p class="about-version">{{ copy.versionLabel }}</p>
+    </header>
+
+    <section class="about-update" :class="updateTone" aria-labelledby="about-updates-title">
+      <div class="about-update-row">
+        <div class="about-update-main">
+          <div class="about-update-icon" aria-hidden="true">
+            <RefreshCw v-if="updaterStore.isBusy" :size="18" class="spin" />
+            <ArrowUpCircle v-else-if="updaterStore.updateAvailable" :size="18" />
+            <CheckCircle2 v-else :size="18" />
+          </div>
+          <div class="about-update-copy">
+            <h2 id="about-updates-title">{{ copy.updates }}</h2>
+            <p>{{ updateDetail }}</p>
+          </div>
+        </div>
+
+        <div class="about-actions">
+          <button
+            type="button"
+            class="about-btn"
+            :disabled="updaterStore.isBusy"
+            @click="handleCheckUpdate"
+          >
+            {{ copy.check }}
+          </button>
+          <button
+            v-if="updaterStore.updateAvailable"
+            type="button"
+            class="about-btn about-btn-accent"
+            :disabled="updaterStore.isBusy"
+            @click="handleInstallUpdate"
+          >
+            {{ copy.updateNow }}
+          </button>
         </div>
       </div>
 
-      <div class="product-details">
-        <header class="product-header">
-          <p class="product-kicker">{{ copy.title }}</p>
-          <div class="product-title-row">
-            <h1>{{ name }}</h1>
-            <span class="version-badge">{{ copy.versionLabel }}</span>
-            <span v-if="updaterStore.updateAvailable" class="update-badge">
-              {{ copy.updateAvailable }}
-            </span>
-          </div>
-          <p class="product-description">{{ copy.description }}</p>
-        </header>
-
-        <section class="application-section">
-          <h2>{{ copy.application }}</h2>
-          <dl class="product-meta">
-            <div>
-              <dt>{{ copy.appName }}</dt>
-              <dd>{{ name }}</dd>
-            </div>
-            <div>
-              <dt>{{ copy.version }}</dt>
-              <dd class="mono">{{ version }}</dd>
-            </div>
-            <div>
-              <dt>{{ copy.identifier }}</dt>
-              <dd class="mono">{{ identifier }}</dd>
-            </div>
-            <div>
-              <dt>{{ copy.runtime }}</dt>
-              <dd>{{ copy.runtimeValue }}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section class="update-section">
-          <div class="update-copy">
-            <h2>{{ copy.updates }}</h2>
-            <p v-if="updaterStore.updateAvailable">
-              {{ copy.updateAvailableDetail }}
-            </p>
-            <p v-else-if="updaterStore.status === 'up-to-date'">
-              {{ copy.upToDateDetail }}
-            </p>
-            <p v-else-if="updaterStore.status === 'checking' || updaterStore.isBusy">
-              {{ statusCopy }}
-            </p>
-            <p v-else-if="updaterStore.errorMessage">
-              {{ copy.error }}: {{ updaterStore.errorMessage }}
-            </p>
-            <p v-else>{{ copy.upToDateDetail }}</p>
-          </div>
-
-          <div class="update-actions">
-            <button
-              type="button"
-              class="update-button"
-              :disabled="updaterStore.isBusy"
-              @click="handleCheckUpdate"
-            >
-              {{ copy.check }}
-            </button>
-            <button
-              v-if="updaterStore.updateAvailable"
-              type="button"
-              class="update-button primary"
-              :disabled="updaterStore.isBusy"
-              @click="handleInstallUpdate"
-            >
-              {{ copy.updateNow }}
-            </button>
-          </div>
-        </section>
+      <div
+        v-if="showProgress"
+        class="about-progress"
+        role="progressbar"
+        :aria-valuemin="0"
+        :aria-valuemax="100"
+        :aria-valuenow="progressPercent"
+      >
+        <div class="about-progress-track">
+          <div class="about-progress-fill" :style="{ width: `${progressPercent}%` }" />
+        </div>
       </div>
-    </div>
+    </section>
 
-    <section class="privacy-section">
-      <span class="privacy-icon"><ShieldCheck :size="17" /></span>
+    <section class="about-block" aria-labelledby="about-specs-title">
+      <h2 id="about-specs-title">{{ copy.application }}</h2>
+      <dl class="about-meta">
+        <div>
+          <dt>{{ copy.appName }}</dt>
+          <dd>{{ name }}</dd>
+        </div>
+        <div>
+          <dt>{{ copy.version }}</dt>
+          <dd class="mono">{{ version || "—" }}</dd>
+        </div>
+        <div>
+          <dt>{{ copy.identifier }}</dt>
+          <dd>
+            <button
+              type="button"
+              class="about-copy mono"
+              :title="copied ? copy.copied : copy.copyId"
+              @click="copyIdentifier"
+            >
+              {{ identifier }}
+            </button>
+          </dd>
+        </div>
+        <div>
+          <dt>{{ copy.runtime }}</dt>
+          <dd>{{ copy.runtimeValue }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="about-privacy" aria-labelledby="about-privacy-title">
+      <ShieldCheck :size="15" class="about-privacy-icon" aria-hidden="true" />
       <div>
-        <h2>{{ copy.privacy }}</h2>
+        <h2 id="about-privacy-title">{{ copy.privacy }}</h2>
         <p>{{ copy.privacyDescription }}</p>
       </div>
     </section>
@@ -94,22 +100,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
-import { ShieldCheck } from "@lucide/vue";
+import { computed, ref } from "vue";
+import { ArrowUpCircle, CheckCircle2, RefreshCw, ShieldCheck } from "@lucide/vue";
 import { tr } from "@/services/i18n";
 import { useSettingStore } from "@/stores/setting";
 import { useUpdaterStore } from "@/stores/updater";
-import appIconAsset from "../../../src-tauri/icons/AAAi-transparent.svg";
+import appIconAsset from "../../../src-tauri/icons/Anya-transparent.svg";
 
 const settingStore = useSettingStore();
 const updaterStore = useUpdaterStore();
 const props = defineProps<{ name: string; version: string; identifier: string }>();
 const versionForCopy = computed(() => props.version || "-");
 const appIconUrl = appIconAsset;
+const copied = ref(false);
+let copiedTimer: number | undefined;
+
 const copy = computed(() => {
   const language = settingStore.language;
   return {
-    title: tr(language, "about.title"),
     description: tr(language, "about.description"),
     versionLabel: tr(language, "about.versionLabel", { version: versionForCopy.value }),
     application: tr(language, "about.application"),
@@ -120,12 +128,12 @@ const copy = computed(() => {
     runtimeValue: tr(language, "about.runtimeValue"),
     privacy: tr(language, "about.privacy"),
     privacyDescription: tr(language, "about.privacyDescription"),
+    copyId: tr(language, "about.copyIdentifier"),
+    copied: tr(language, "about.copied"),
     updates: tr(language, "updater.sectionTitle"),
-    updateAvailable: tr(language, "updater.updateAvailable"),
     updateAvailableDetail: tr(language, "updater.updateAvailableDetail", {
       version: updaterStore.latestVersion || "?",
     }),
-    upToDate: tr(language, "updater.upToDate"),
     upToDateDetail: tr(language, "updater.upToDateDetail"),
     check: tr(language, "updater.check"),
     updateNow: tr(language, "updater.updateNow"),
@@ -144,6 +152,35 @@ const statusCopy = computed(() => {
   return tr(language, "updater.checking");
 });
 
+const updateDetail = computed(() => {
+  if (updaterStore.updateAvailable) return copy.value.updateAvailableDetail;
+  if (updaterStore.status === "up-to-date") return copy.value.upToDateDetail;
+  if (updaterStore.status === "checking" || updaterStore.isBusy) return statusCopy.value;
+  if (updaterStore.errorMessage) return `${copy.value.error}: ${updaterStore.errorMessage}`;
+  return copy.value.upToDateDetail;
+});
+
+const updateTone = computed(() => {
+  if (updaterStore.errorMessage && !updaterStore.isBusy) return "is-error";
+  if (updaterStore.updateAvailable) return "is-available";
+  if (updaterStore.isBusy) return "is-busy";
+  return "is-ready";
+});
+
+const showProgress = computed(
+  () =>
+    updaterStore.status === "downloading" ||
+    updaterStore.progress.phase === "downloading" ||
+    updaterStore.progress.phase === "installing",
+);
+
+const progressPercent = computed(() => {
+  const { downloadedBytes, totalBytes, phase } = updaterStore.progress;
+  if (phase === "installing") return 100;
+  if (!totalBytes || totalBytes <= 0) return updaterStore.isBusy ? 10 : 0;
+  return Math.max(4, Math.min(100, Math.round((downloadedBytes / totalBytes) * 100)));
+});
+
 async function handleCheckUpdate() {
   updaterStore.resetTransientError();
   await updaterStore.check();
@@ -152,262 +189,365 @@ async function handleCheckUpdate() {
 async function handleInstallUpdate() {
   await updaterStore.install();
 }
+
+async function copyIdentifier() {
+  const value = props.identifier?.trim();
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    copied.value = true;
+    if (copiedTimer) window.clearTimeout(copiedTimer);
+    copiedTimer = window.setTimeout(() => {
+      copied.value = false;
+    }, 1400);
+  } catch (error) {
+    console.error("copy identifier failed:", error);
+  }
+}
 </script>
 
 <style scoped>
 .about-page {
   box-sizing: border-box;
-  width: min(100%, 920px);
+  width: min(100%, 520px);
   margin: 0 auto;
-  padding: 44px 38px 48px;
+  padding: 36px 24px 48px;
   color: var(--peek-text);
 }
 
-.product-overview {
-  display: grid;
-  grid-template-columns: minmax(180px, 0.72fr) minmax(360px, 1.45fr);
+.about-hero {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: clamp(36px, 6vw, 72px);
-  padding: 18px 8px 38px;
+  text-align: center;
+  padding: 4px 0 32px;
 }
 
-.brand-visual {
-  min-width: 0;
-  display: grid;
-  place-items: center;
+.about-logo {
+  width: 156px;
+  height: 156px;
+  margin-bottom: 20px;
 }
 
-.brand-mark {
-  width: min(100%, 230px);
-  aspect-ratio: 1;
-  display: grid;
-  place-items: center;
-}
-
-.brand-mark img {
+.about-logo img {
+  display: block;
   width: 100%;
   height: 100%;
-  display: block;
   object-fit: contain;
-  opacity: 0.92;
+  opacity: 0.96;
 }
 
-:global([data-theme="dark"]) .brand-mark img {
+:global(.workbench[data-theme="dark"]) .about-logo img,
+:global([data-theme="dark"]) .about-logo img {
   filter: invert(1);
 }
 
-.product-details {
-  min-width: 0;
-}
-.product-header {
-  padding-bottom: 27px;
-}
-.product-kicker {
-  margin: 0 0 8px;
-  color: var(--peek-faint);
-  font-size: 10px;
-  font-weight: 650;
-  text-transform: uppercase;
-}
-
-.product-title-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.product-title-row h1 {
-  min-width: 0;
+.about-hero h1 {
   margin: 0;
   font-size: 30px;
   font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: 0;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
 }
 
-.version-badge {
-  flex: none;
-  padding: 4px 7px;
-  border: 1px solid var(--peek-border);
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--peek-text) 3%, transparent);
+.about-tagline {
+  max-width: 22em;
+  margin: 12px 0 0;
   color: var(--peek-muted);
-  font-size: 10px;
-  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1.55;
+  text-wrap: balance;
 }
 
-.update-badge {
+.about-version {
+  margin: 12px 0 0;
+  color: var(--peek-faint);
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+}
+
+.about-update {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 4px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--peek-border) 90%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--peek-text) 2.5%, transparent);
+}
+
+.about-update.is-available {
+  border-color: color-mix(in srgb, var(--peek-accent) 32%, var(--peek-border));
+  background: color-mix(in srgb, var(--peek-accent) 6%, transparent);
+}
+
+.about-update.is-error {
+  border-color: color-mix(in srgb, var(--peek-danger, #ef4444) 30%, var(--peek-border));
+}
+
+.about-update-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.about-update-main {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+}
+
+.about-update-icon {
   flex: none;
-  padding: 4px 7px;
-  border: 1px solid color-mix(in srgb, var(--peek-accent) 35%, var(--peek-border));
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--peek-text) 5%, transparent);
+  color: var(--peek-muted);
+}
+
+.about-update.is-available .about-update-icon {
+  background: color-mix(in srgb, var(--peek-accent) 14%, transparent);
   color: var(--peek-accent);
-  font-size: 10px;
-  white-space: nowrap;
 }
 
-.update-section {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid var(--peek-border);
+.about-update.is-ready .about-update-icon {
+  color: color-mix(in srgb, var(--peek-accent) 65%, var(--peek-muted));
 }
 
-.update-section h2 {
-  margin: 0 0 6px;
+.about-update-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.about-update-copy h2 {
+  margin: 0;
+  color: var(--peek-text);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+
+.about-update-copy p {
+  margin: 4px 0 0;
+  color: var(--peek-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.about-update.is-available .about-update-copy p {
+  color: var(--peek-accent);
+}
+
+.about-block {
+  padding: 18px 0;
+  border-top: 1px solid color-mix(in srgb, var(--peek-border) 85%, transparent);
+}
+
+.about-block h2,
+.about-privacy h2 {
+  margin: 0;
   font-size: 11px;
   font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--peek-faint);
 }
 
-.update-copy p {
+.about-progress {
   margin: 0;
-  max-width: 460px;
-  color: var(--peek-muted);
-  font-size: 12px;
-  line-height: 18px;
 }
 
-.update-actions {
+.about-progress-track {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--peek-text) 8%, transparent);
+}
+
+.about-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--peek-accent);
+  transition: width 200ms ease;
+}
+
+.about-actions {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-  margin-top: 12px;
 }
 
-.update-button {
-  padding: 7px 12px;
+.about-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 14px;
   border: 1px solid var(--peek-border);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--peek-text) 3%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--peek-surface, transparent) 88%, var(--peek-text));
   color: var(--peek-text);
-  font-size: 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
   cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
 }
 
-.update-button:hover:not(:disabled) {
+.about-btn:hover:not(:disabled) {
   background: var(--peek-hover-bg);
 }
 
-.update-button.primary {
-  border-color: color-mix(in srgb, var(--peek-accent) 35%, var(--peek-border));
-  background: color-mix(in srgb, var(--peek-accent) 12%, transparent);
-  color: var(--peek-accent);
+.about-btn-accent {
+  border-color: transparent;
+  background: var(--peek-accent);
+  color: var(--peek-accent-fg, #fff);
 }
 
-.update-button:disabled {
-  opacity: 0.65;
+.about-btn-accent:hover:not(:disabled) {
+  filter: brightness(1.05);
+  background: var(--peek-accent);
+}
+
+.about-btn:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
-.product-description {
-  max-width: 460px;
-  margin: 10px 0 0;
-  color: var(--peek-muted);
-  font-size: 12px;
-  line-height: 19px;
-}
-
-.application-section h2,
-.privacy-section h2 {
-  margin: 0;
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.application-section > h2 {
-  margin-bottom: 7px;
-  color: var(--peek-faint);
-}
-
-.product-meta {
+.about-meta {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0;
-  border-top: 1px solid var(--peek-border);
+  gap: 0;
+  margin: 10px 0 0;
 }
 
-.product-meta > div {
-  min-width: 0;
-  padding: 13px 12px 13px 0;
-  border-bottom: 1px solid var(--peek-border);
+.about-meta > div {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 10px 0;
+  border-top: 1px solid color-mix(in srgb, var(--peek-border) 70%, transparent);
 }
 
-.product-meta > div:nth-child(even) {
-  padding-left: 18px;
+.about-meta > div:first-child {
+  border-top: 0;
+  padding-top: 2px;
 }
+
 dt {
+  margin: 0;
   color: var(--peek-faint);
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 550;
 }
+
 dd {
   min-width: 0;
-  margin: 5px 0 0;
+  margin: 0;
   overflow-wrap: anywhere;
   color: var(--peek-text);
-  font-size: 12px;
-  line-height: 17px;
-}
-.mono {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12.5px;
+  line-height: 1.4;
 }
 
-.privacy-section {
-  display: flex;
-  gap: 11px;
-  margin: 0 8px;
-  padding: 18px 0 0;
-  border-top: 1px solid var(--peek-border);
+.mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11.5px;
 }
-.privacy-icon {
-  flex: none;
+
+.about-copy {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.about-copy:hover {
   color: var(--peek-accent);
 }
-.privacy-section p {
-  max-width: 680px;
-  margin: 4px 0 0;
-  color: var(--peek-muted);
-  font-size: 11px;
-  line-height: 17px;
+
+.about-privacy {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 18px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--peek-border) 85%, transparent);
 }
 
-@media (max-width: 720px) {
-  .about-page {
-    padding: 28px 20px 40px;
-  }
-  .product-overview {
-    grid-template-columns: 1fr;
-    gap: 24px;
-    padding-top: 2px;
-  }
-  .brand-mark {
-    width: 150px;
-  }
-  .product-header {
-    text-align: center;
-  }
-  .product-title-row {
-    justify-content: center;
-  }
-  .product-description {
-    margin-inline: auto;
+.about-privacy-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--peek-muted);
+}
+
+.about-privacy h2 {
+  color: var(--peek-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+
+.about-privacy p {
+  margin: 4px 0 0;
+  color: var(--peek-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.spin {
+  animation: about-spin 0.9s linear infinite;
+}
+
+@keyframes about-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
 @media (max-width: 480px) {
-  .product-meta {
-    grid-template-columns: 1fr;
+  .about-page {
+    padding: 24px 16px 36px;
   }
-  .product-meta > div:nth-child(even) {
-    padding-left: 0;
-  }
-  .product-title-row {
+
+  .about-update-row {
+    flex-wrap: wrap;
     align-items: flex-start;
-    flex-direction: column;
   }
-  .version-badge {
-    align-self: center;
+
+  .about-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .about-meta > div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none !important;
   }
 }
 </style>

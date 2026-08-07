@@ -30,7 +30,7 @@ fn temporary_path(path: &Path, parent: &Path) -> PathBuf {
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("file");
-    parent.join(format!(".{name}.aaai-{}.tmp", uuid::Uuid::new_v4()))
+    parent.join(format!(".{name}.anya-{}.tmp", uuid::Uuid::new_v4()))
 }
 
 #[cfg(windows)]

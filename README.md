@@ -1,10 +1,10 @@
-# AAAi
+# Anya
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" alt="AAAi" width="112" height="112" />
+  <img src="src-tauri/icons/icon.png" alt="Anya" width="112" height="112" />
 </p>
 
-<h2 align="center">An AI chat and coding assistant, available anywhere on Windows</h2>
+<h2 align="center">Hand your work & questions to Anya anytime.</h2>
 
 <p align="center">
   Double-tap <kbd>Alt</kbd> for a floating overlay anywhere on your desktop.
@@ -18,7 +18,7 @@
 
 <p align="center">
   <img alt="platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" />
-  <img alt="release" src="https://img.shields.io/badge/version-v0.2.1-4D6BFE?style=flat-square" />
+  <img alt="release" src="https://img.shields.io/badge/version-v0.2.2-4D6BFE?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-Unlicense-3DA639?style=flat-square" />
   <img alt="stack" src="https://img.shields.io/badge/Tauri%202%20%2B%20Vue%203%20%2B%20Rust-black?style=flat-square" />
 </p>
@@ -43,18 +43,18 @@ question, follow up in place, and keep Agent / model / approval controls under
 the composer.
 
 <p align="center">
-  <img src="./docs/image/Alt%2BAlt.png" alt="AAAi floating overlay conversation" width="560" />
+  <img src="./docs/image/Alt%2BAlt.png" alt="Anya floating overlay conversation" width="560" />
 </p>
 
-AAAi tries to pick up the current text selection or Explorer selection. You can
+Anya tries to pick up the current text selection or Explorer selection. You can
 also paste or drag images and files into the input.
 
 <p align="center">
-  <img src="./docs/image/select_text_recognition.webp" alt="AAAi recognizing selected text context" width="800" />
+  <img src="./docs/image/select_text_recognition.webp" alt="Anya recognizing selected text context" width="800" />
 </p>
 
 <p align="center">
-  <img src="./docs/image/select_image_recognition.webp" alt="AAAi attaching an image from selection" width="800" />
+  <img src="./docs/image/select_image_recognition.webp" alt="Anya attaching an image from selection" width="800" />
 </p>
 
 Summoning outside an IDE starts a **temporary Quick Ask** session — it is not
@@ -69,11 +69,11 @@ in one click — progress, tools, and history continue there.
 ### IDE context plugins
 
 Install the companion plugin so VS Code or IntelliJ can push active file,
-workspace, language, and selection to the local AAAi app (best-effort; the
-editor keeps working if AAAi is not running).
+workspace, language, and selection to the local Anya app (best-effort; the
+editor keeps working if Anya is not running).
 
-- [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=AAAi.aaai-ide-context)
-- [IntelliJ Platform](https://plugins.jetbrains.com/plugin/33163-aaai-ide-context)
+- [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=Anya.anya-ide-context)
+- [IntelliJ Platform](https://plugins.jetbrains.com/plugin/33163-anya-ide-context)
 
 ---
 
@@ -84,7 +84,7 @@ overlay appear here alongside pinned threads and project workspaces, so you can
 talk, switch, and organize them in one place.
 
 <p align="center">
-  <img src="./docs/image/workspace.png" alt="AAAi workbench with pinned chats, workspaces, and quick ask" width="900" />
+  <img src="./docs/image/workspace.png" alt="Anya workbench with pinned chats, workspaces, and quick ask" width="900" />
 </p>
 
 - **Pinned** — keep important threads at the top.
@@ -95,16 +95,16 @@ talk, switch, and organize them in one place.
 
 ### Review changes
 
-When Agent edits files, AAAi shows a per-file summary and a focused Diff view so
+When Agent edits files, Anya shows a per-file summary and a focused Diff view so
 you can inspect every addition and deletion before you move on.
 
 <p align="center">
-  <img src="./docs/image/workspace-diff.png" alt="AAAi reviewing Agent file changes in the Diff panel" width="900" />
+  <img src="./docs/image/workspace-diff.png" alt="Anya reviewing Agent file changes in the Diff panel" width="900" />
 </p>
 
 - Task list and verification stay on the conversation timeline.
 - Open **Review** to browse side-by-side or unified diffs.
-- Undo is available for changes AAAi applied in the current session (checkpoints).
+- Undo is available for changes Anya applied in the current session (checkpoints).
 
 ### Settings
 
@@ -112,7 +112,7 @@ Configure models, providers, agent behavior, and extensions from the embedded
 settings page — theme, memory, search, MCP, Skills, and more.
 
 <p align="center">
-  <img src="./docs/image/workspace-settings.png" alt="AAAi model settings for DeepSeek and multimodal options" width="900" />
+  <img src="./docs/image/workspace-settings.png" alt="Anya model settings for DeepSeek and multimodal options" width="900" />
 </p>
 
 Highlights:
@@ -147,7 +147,7 @@ longer hides the commands and edits that happened mid-thought.
 
 ### Integrations
 
-- **Microsoft Office** — when Word, Excel, or PowerPoint is running, AAAi can collect document context and use `word_*` / `excel_*` / `ppt_*` tools (COM).
+- **Microsoft Office** — when Word, Excel, or PowerPoint is running, Anya can collect document context and use `word_*` / `excel_*` / `ppt_*` tools (COM).
 - **Skills** — built-in and vendor skills (docx, pandoc, research, review, bid tech, …) loaded as playbooks; can run as sub-agents.
 - **MCP** — connect stdio / remote MCP servers (including Smithery-oriented helpers).
 - **LSP** — language server diagnostics when configured.
@@ -173,7 +173,7 @@ and thinking level while tools run.
 ## Install and get started
 
 1. Download and install the MSI from [Releases](../../releases).
-2. Open **Settings** from the AAAi tray icon and configure a model provider.
+2. Open **Settings** from the Anya tray icon and configure a model provider.
 3. Double-tap <kbd>Alt</kbd>, type a question, press <kbd>Enter</kbd> — or open the session in the workbench when you need the full UI.
 
 | Shortcut                                            | Action                                          |
@@ -202,7 +202,7 @@ settled on next launch instead of leaving the UI stuck “executing”.
 
 ## Technical architecture (summary)
 
-AAAi is a single-process **Tauri 2** application: WebView2 surfaces (Vue 3 + Pinia)
+Anya is a single-process **Tauri 2** application: WebView2 surfaces (Vue 3 + Pinia)
 for presentation, and a Rust host for OS integration, chat domain logic, model I/O,
 and tool execution.
 
@@ -215,7 +215,7 @@ flowchart TB
     PV[Image preview]
   end
 
-  subgraph Host["AAAi.exe — Rust host"]
+  subgraph Host["Anya.exe — Rust host"]
     CMD[commands / EventBus]
     CHAT[ChatService · StreamManager · AgentRunner]
     TOOLS[ToolRegistry · Skills · MCP · Office]
@@ -277,7 +277,7 @@ pnpm tauri:build
 ```
 
 The installer is written to `src-tauri/target/release/bundle/msi/` as
-`AAAi_0.2.1_x64.msi` (no `_en-US` suffix).
+`Anya_0.2.2_x64.msi` (no `_en-US` suffix).
 
 For releases and in-app updates (`latest.json`, signing, GitHub Releases), see
 [Releases and remote updates](./docs/release.md) · [简体中文](./docs/release.zh-CN.md).

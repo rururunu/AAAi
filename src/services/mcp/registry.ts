@@ -79,7 +79,7 @@ function curatedNpm(
       command: "npx",
       args: ["-y", npmPackage, ...extraArgs],
       env: [],
-      enabled: true,
+      enabled: false,
     },
     requiredEnv,
     source: "curated",
@@ -111,7 +111,7 @@ function curatedPypi(
       command: "uvx",
       args: [pypiPackage, ...extraArgs],
       env: [],
-      enabled: true,
+      enabled: false,
     },
     requiredEnv,
     source: "curated",
@@ -240,12 +240,7 @@ export const CURATED_MCP_CATALOG: CatalogEntry[] = [
     [],
     [{ name: "REDIS_URL", description: "Redis connection URL", secret: true }],
   ),
-  curatedPypi(
-    "git",
-    "Git",
-    "官方 Git 仓库操作 MCP（PyPI / uvx）。",
-    "mcp-server-git",
-  ),
+  curatedPypi("git", "Git", "官方 Git 仓库操作 MCP（PyPI / uvx）。", "mcp-server-git"),
 ];
 
 function shortIdFromName(name: string) {
@@ -261,7 +256,7 @@ function shortIdFromName(name: string) {
 
 function pickStdioPackage(server: RegistryServer): RegistryPackage | null {
   const packages = server.packages ?? [];
-  // AAAi only supports local stdio over npm / PyPI (npx / uvx). Skip remote,
+  // Anya only supports local stdio over npm / PyPI (npx / uvx). Skip remote,
   // OCI, and other transports so they never appear as "installable".
   const installable = packages.filter((pkg) => {
     if (!pkg.identifier) return false;
@@ -270,9 +265,9 @@ function pickStdioPackage(server: RegistryServer): RegistryPackage | null {
     return transport === "stdio";
   });
   return (
-    installable.find((pkg) => pkg.registryType === "npm")
-    ?? installable.find((pkg) => pkg.registryType === "pypi")
-    ?? null
+    installable.find((pkg) => pkg.registryType === "npm") ??
+    installable.find((pkg) => pkg.registryType === "pypi") ??
+    null
   );
 }
 
@@ -347,7 +342,10 @@ export function packageToInstall(
   };
 }
 
-export function toCatalogEntry(server: RegistryServer, source: "registry" | "curated" = "registry"): CatalogEntry | null {
+export function toCatalogEntry(
+  server: RegistryServer,
+  source: "registry" | "curated" = "registry",
+): CatalogEntry | null {
   const pkg = pickStdioPackage(server);
   if (!pkg) return null;
   const { install, requiredEnv } = packageToInstall(server, pkg);
@@ -438,7 +436,8 @@ export function filterCurated(query: string): CatalogEntry[] {
   const q = query.trim().toLowerCase();
   if (!q) return CURATED_MCP_CATALOG;
   return CURATED_MCP_CATALOG.filter((entry) => {
-    const hay = `${entry.title} ${entry.name} ${entry.description} ${entry.install.id}`.toLowerCase();
+    const hay =
+      `${entry.title} ${entry.name} ${entry.description} ${entry.install.id}`.toLowerCase();
     return hay.includes(q);
   });
 }

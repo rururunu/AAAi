@@ -22,65 +22,74 @@
         <span>{{ activeTitle }}</span>
       </div>
 
-      <nav class="view-actions" :aria-label="labels.views" data-tauri-drag-region="false">
-        <button
-          v-if="updaterStore.updateAvailable"
-          type="button"
-          class="icon-button update-button"
-          :class="{ busy: updaterStore.isBusy }"
-          :title="updaterCopy.titlebarAction"
-          :aria-label="updaterCopy.titlebarAction"
-          :disabled="updaterStore.isBusy"
-          @click="promptInstallUpdate"
-        >
-          <ArrowUpCircle :size="15" />
-          <span class="status-dot update-dot" />
-        </button>
-        <button
-          type="button"
-          class="icon-button"
-          :class="{ active: reviewOpen }"
-          :title="labels.views"
-          :aria-label="labels.views"
-          @click="toggleReviewSidebar"
-        >
-          <PanelRight :size="15" />
-          <span v-if="runningSubagentCount" class="status-dot" />
-        </button>
-        <button
-          type="button"
-          class="icon-button"
-          :class="{ active: settingsOpen }"
-          :title="labels.settings"
-          :aria-label="labels.settings"
-          @click="toggleSettings"
-        >
-          <Settings :size="15" />
-        </button>
-      </nav>
+      <div class="titlebar-trailing" data-tauri-drag-region="false">
+        <nav class="view-actions" :aria-label="labels.views">
+          <button
+            v-if="updaterStore.updateAvailable"
+            type="button"
+            class="icon-button update-button"
+            :class="{ busy: updaterStore.isBusy }"
+            :title="updaterCopy.titlebarAction"
+            :aria-label="updaterCopy.titlebarAction"
+            :disabled="updaterStore.isBusy"
+            @click="promptInstallUpdate"
+          >
+            <ArrowUpCircle :size="15" />
+            <span class="status-dot update-dot" />
+          </button>
+          <button
+            type="button"
+            class="icon-button"
+            :class="{ active: reviewOpen }"
+            :title="labels.views"
+            :aria-label="labels.views"
+            @click="toggleReviewSidebar"
+          >
+            <PanelRight :size="15" />
+            <span v-if="runningSubagentCount" class="status-dot" />
+          </button>
+          <button
+            type="button"
+            class="icon-button"
+            :class="{ active: settingsOpen }"
+            :title="labels.settings"
+            :aria-label="labels.settings"
+            @click="toggleSettings"
+          >
+            <Settings :size="15" />
+          </button>
+        </nav>
 
-      <div class="window-actions" data-tauri-drag-region="false">
-        <button
-          type="button"
-          class="window-button"
-          :title="labels.minimize"
-          @click="minimizeWindow"
-        >
-          <Minus :size="14" />
-        </button>
-        <button
-          type="button"
-          class="window-button"
-          :title="tr(settingStore.language, isMaximized ? 'restoreWindow' : 'maximizeWindow')"
-          :aria-label="tr(settingStore.language, isMaximized ? 'restoreWindow' : 'maximizeWindow')"
-          @click="toggleMaximizeWindow"
-        >
-          <span v-if="isMaximized" class="windows-caption-icon" aria-hidden="true">&#xE923;</span>
-          <span v-else class="windows-caption-icon" aria-hidden="true">&#xE922;</span>
-        </button>
-        <button type="button" class="window-button close" :title="labels.close" @click="hideWindow">
-          <X :size="14" />
-        </button>
+        <div class="window-actions">
+          <button
+            type="button"
+            class="window-button"
+            :title="labels.minimize"
+            @click="minimizeWindow"
+          >
+            <Minus :size="14" />
+          </button>
+          <button
+            type="button"
+            class="window-button"
+            :title="tr(settingStore.language, isMaximized ? 'restoreWindow' : 'maximizeWindow')"
+            :aria-label="
+              tr(settingStore.language, isMaximized ? 'restoreWindow' : 'maximizeWindow')
+            "
+            @click="toggleMaximizeWindow"
+          >
+            <span v-if="isMaximized" class="windows-caption-icon" aria-hidden="true">&#xE923;</span>
+            <span v-else class="windows-caption-icon" aria-hidden="true">&#xE922;</span>
+          </button>
+          <button
+            type="button"
+            class="window-button close"
+            :title="labels.close"
+            @click="hideWindow"
+          >
+            <X :size="14" />
+          </button>
+        </div>
       </div>
     </header>
 
@@ -253,6 +262,7 @@
                   :running-session-ids="runningSessionIds"
                   :attention-session-ids="attentionSessionIds"
                   :unread-session-ids="unreadSessionIdList"
+                  :draft-session-ids="draftSessionIds"
                   variant="workspace"
                   @select="handleSelectConversation"
                   @delete="removeConversation"
@@ -294,6 +304,7 @@
               :running-session-ids="runningSessionIds"
               :attention-session-ids="attentionSessionIds"
               :unread-session-ids="unreadSessionIdList"
+              :draft-session-ids="draftSessionIds"
               variant="quick"
               @select="handleSelectConversation"
               @delete="removeConversation"
@@ -579,7 +590,7 @@ import WorkbenchSearchPalette from "@/components/workbench/WorkbenchSearchPalett
 import WorkbenchLoading from "@/components/workbench/WorkbenchLoading.vue";
 import WelcomeOnboarding from "@/components/onboarding/WelcomeOnboarding.vue";
 import { AppConfirmDialog } from "@/components/ui/confirm-dialog";
-import appIconAsset from "../../src-tauri/icons/AAAi-transparent.svg";
+import appIconAsset from "../../src-tauri/icons/Anya-transparent.svg";
 import {
   REVIEW_RESIZE_HANDLE_WIDTH,
   REVIEW_SIDEBAR_MIN_WIDTH,
@@ -613,7 +624,7 @@ const extensionView = ref<ExtensionView | null>(null);
 const chatStore = useChatStore();
 const settingStore = useSettingStore();
 const updaterStore = useUpdaterStore();
-const appDisplayName = "AAAi";
+const appDisplayName = "Anya";
 const isDevBuild = import.meta.env.DEV;
 const appWindow = getCurrentWebviewWindow();
 const inputRef = ref<InstanceType<typeof ChatInputBar> | null>(null);
@@ -754,6 +765,7 @@ const {
 const {
   checkpoints,
   sessionsWithLiveTokens,
+  draftSessionIds,
   quickAskSessions,
   hasConversationMessages,
   sending,
@@ -973,7 +985,7 @@ watch(settingsOpen, (open) => {
   flex: none;
   height: 42px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   background: var(--workbench-chrome-bg);
   user-select: none;
@@ -993,6 +1005,7 @@ button {
 .titlebar-leading {
   display: flex;
   align-items: center;
+  justify-self: start;
   padding: 0 8px 0 10px;
 }
 .nav-toggle {
@@ -1000,7 +1013,9 @@ button {
   height: 30px;
 }
 .titlebar-context {
+  justify-self: center;
   min-width: 0;
+  max-width: min(420px, 46vw);
   overflow: hidden;
   padding: 0 12px;
   color: var(--peek-muted);
@@ -1013,6 +1028,12 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.titlebar-trailing {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  min-width: 0;
 }
 .view-actions,
 .window-actions {
@@ -1733,6 +1754,15 @@ button {
   transform: translate(-50%, -50%);
   max-height: calc(100% - 16px);
 }
+
+/* Resource attach panel (+ Skills/MCP/Files): shift the composer down and grow
+   so the tall panel can sit fully on screen without clipping the hero. */
+.conversation-pane.empty-conversation .composer-wrap:has(:deep(.attach-panel-open)) {
+  top: 54%;
+  transform: translate(-50%, -40%);
+  max-height: calc(100% - 28px);
+}
+
 .conversation-pane.empty-conversation .composer-wrap :deep(.input-bar) {
   min-height: 128px;
   padding: 16px 16px 12px;
@@ -1740,6 +1770,26 @@ button {
   border: 1px solid color-mix(in srgb, var(--peek-text) 16%, transparent);
   background: color-mix(in srgb, var(--peek-text) 7%, var(--peek-surface));
   box-shadow: 0 18px 48px color-mix(in srgb, #000 18%, transparent);
+}
+
+.conversation-pane.empty-conversation
+  .composer-wrap:has(:deep(.attach-panel-open))
+  :deep(.chat-input-shell.attach-panel-open.overlay-pickers .attach-resource-panel) {
+  position: relative;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  max-height: min(360px, 46vh);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  box-shadow: none;
+}
+
+.conversation-pane.empty-conversation
+  .composer-wrap:has(:deep(.attach-panel-open))
+  :deep(.input-bar) {
+  border-top-color: color-mix(in srgb, var(--peek-border) 70%, transparent);
+  border-radius: 0 0 18px 18px;
 }
 .workbench[data-theme="dark"]
   .conversation-pane.empty-conversation
@@ -1776,6 +1826,12 @@ button {
 .conversation-pane.empty-conversation .composer-wrap :deep(.file-suggestion-list),
 .conversation-pane.empty-conversation .composer-wrap :deep(.hash-suggestion-list) {
   max-height: max(96px, min(240px, calc(50vh - 200px)));
+}
+
+.conversation-pane.empty-conversation
+  .composer-wrap:has(:deep(.attach-panel-open))
+  :deep(.attach-tree-scroll) {
+  max-height: min(220px, 36vh);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1925,7 +1981,7 @@ button {
 
 @media (max-width: 1120px) {
   .titlebar {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   }
   .navigation-pane {
     width: 210px;
@@ -1949,7 +2005,7 @@ button {
 /* Prefer container queries so compact layout tracks zoom-compensated design size. */
 @container workbench (max-width: 900px) {
   .titlebar {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   }
   .navigation-pane {
     width: 210px;

@@ -19,7 +19,7 @@
       "
     >
       <div class="space-y-1">
-        <p class="text-muted-foreground text-[11px]">AAAi › {{ item.path }}</p>
+        <p class="text-muted-foreground text-[11px]">Anya › {{ item.path }}</p>
         <h3 class="text-sm font-medium">{{ item.title }}</h3>
         <p class="text-muted-foreground text-xs leading-relaxed">{{ item.description }}</p>
       </div>
@@ -420,6 +420,7 @@ import {
   getModelDisplayLabel,
   isDeepSeekProvider,
   isGeminiProvider,
+  resolveCustomPresetId,
 } from "@/lib/providerIcons";
 import {
   findModelEntry,
@@ -586,7 +587,10 @@ const availableModelOptions = computed(() => {
     return {
       value: encodeModelSelection(model),
       label: showOwner ? `${name} · ${model.ownedBy}` : name,
-      icon: getProviderIcon(model.provider),
+      icon: getProviderIcon(
+        model.provider,
+        resolveCustomPresetId(model.provider, settingStore.customProviders),
+      ),
       model,
     };
   });
@@ -688,6 +692,7 @@ function toggleActive(id: string) {
   if (id === "webSearchEnabled") return settingStore.webSearchEnabled;
   if (id === "lspEnabled") return settingStore.lspEnabled;
   if (id === "passToolReasoning") return settingStore.passToolReasoning;
+  if (id === "continueThinkingAfterTools") return settingStore.continueThinkingAfterTools;
   if (id === "showReasoning") return settingStore.showReasoning;
   if (id === "multimodalSplitAnalysis") return settingStore.multimodalSplitAnalysis;
   if (id === "largeContextEnabled") return settingStore.largeContextEnabled;

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Sync external document skills into src-tauri/prompts/skills/vendor/
- * for runtime materialization (.aaai/docx, built-in pandoc playbook).
+ * for runtime materialization (.anya/docx, built-in pandoc playbook).
  *
  * Override sources with env:
  *   DOCX_SKILL_SRC  — anthropics docx skill directory

@@ -192,6 +192,11 @@ impl StreamManager {
             let mut reasoning = String::new();
             let mut streaming_started = false;
             let mut finish_reason = None;
+            // Text committed by completed provider rounds (after tools:N).
+            // stream_retry must not wipe these — only the failed attempt.
+            let mut stable_content_len = 0usize;
+            let mut stable_reasoning_len = 0usize;
+            let mut stable_timeline_len = 0usize;
 
             while let Some(event) = rx.recv().await {
                 if !epoch_still_active(&active_tasks, &assistant_message_id, epoch) {
@@ -265,21 +270,25 @@ impl StreamManager {
                     }
                     StreamEvent::Status { kind } => {
                         if kind.starts_with("stream_retry") {
-                            content.clear();
-                            reasoning.clear();
+                            content.truncate(stable_content_len);
+                            reasoning.truncate(stable_reasoning_len);
                             if let Ok(mut guard) = content_ref.lock() {
-                                guard.clear();
+                                guard.truncate(stable_content_len);
                             }
                             if let Ok(mut guard) = reasoning_ref.lock() {
-                                guard.clear();
+                                guard.truncate(stable_reasoning_len);
                             }
-                            conversation.reset_work_timeline(&session_id, &assistant_message_id);
+                            conversation.truncate_work_timeline(
+                                &session_id,
+                                &assistant_message_id,
+                                stable_timeline_len,
+                            );
                             conversation.update_message(
                                 &session_id,
                                 &assistant_message_id,
                                 MessageStatus::Streaming,
-                                Some(String::new()),
-                                Some(None),
+                                Some(content.clone()),
+                                Some(non_empty_string(reasoning.clone())),
                             );
                         } else if kind == "soft_injected" {
                             turn_span.soft_inject(0);
@@ -287,6 +296,11 @@ impl StreamManager {
                             if let Ok(count) = kind.trim_start_matches("tools:").parse::<u32>() {
                                 turn_span.add_tools(count);
                             }
+                            // Round committed — later retries keep this prefix.
+                            stable_content_len = content.len();
+                            stable_reasoning_len = reasoning.len();
+                            stable_timeline_len =
+                                conversation.work_timeline_len(&session_id, &assistant_message_id);
                         }
                         event_bus.emit(BusEvent::ChatStatus {
                             session_id: session_id.clone(),
@@ -356,13 +370,43 @@ impl StreamManager {
                         finish_reason: turn_finish,
                     } => {
                         if !turn_content.is_empty() {
-                            content = turn_content;
+                            let is_stop_notice = matches!(
+                                turn_finish.as_deref(),
+                                Some("tool_failure_breaker" | "max_steps" | "user_denied")
+                            );
+                            if is_stop_notice {
+                                // Keep prior streamed narration; surface the stop
+                                // summary so the UI can show why the turn ended.
+                                let notice = turn_content.trim();
+                                if content.trim().is_empty() {
+                                    content = notice.to_string();
+                                } else if !content.contains(notice) {
+                                    content = format!("{}\n\n{}", content.trim_end(), notice);
+                                }
+                                conversation.append_work_timeline_text(
+                                    &session_id,
+                                    &assistant_message_id,
+                                    TimelineTextKind::Content,
+                                    &format!("\n\n{notice}"),
+                                );
+                            } else {
+                                // Multi-turn agent loops stream deltas across many
+                                // provider rounds, then emit TurnComplete with only
+                                // the *last* round's text. Never shrink the
+                                // accumulated transcript — that dropped earlier
+                                // reasoning/narration and left the UI incomplete.
+                                if content.is_empty() || turn_content.len() >= content.len() {
+                                    content = turn_content;
+                                }
+                            }
                             if let Ok(mut guard) = content_ref.lock() {
                                 *guard = content.clone();
                             }
                         }
                         if let Some(value) = turn_reasoning {
-                            reasoning = value;
+                            if reasoning.is_empty() || value.len() >= reasoning.len() {
+                                reasoning = value;
+                            }
                             if let Ok(mut guard) = reasoning_ref.lock() {
                                 *guard = reasoning.clone();
                             }
@@ -573,6 +617,17 @@ fn finish_success(
         .rev()
         .find(|message| message.role == crate::core::runtime::Role::User)
         .map(|message| super::selection::visible_user_text(&message.content).to_string());
+
+    // work_timeline is the interleaved source of truth across tool rounds.
+    // Prefer it when richer than the flat accumulators (which used to be
+    // overwritten by the last provider turn's TurnComplete).
+    let (content, reasoning) = enrich_from_work_timeline(
+        conversation,
+        session_id,
+        message_id,
+        content,
+        reasoning,
+    );
     let reasoning = non_empty_string(reasoning);
     conversation.update_message(
         session_id,
@@ -594,6 +649,48 @@ fn finish_success(
             crate::core::tools::memory::shared_memory_store().remember_exchange(user, content);
         });
     }
+}
+
+fn enrich_from_work_timeline(
+    conversation: &ConversationManager,
+    session_id: &str,
+    message_id: &str,
+    content: String,
+    reasoning: String,
+) -> (String, String) {
+    let Some(message) = conversation
+        .messages(session_id)
+        .into_iter()
+        .find(|message| message.id == message_id)
+    else {
+        return (content, reasoning);
+    };
+    let Some(timeline) = message.work_timeline.as_ref() else {
+        return (content, reasoning);
+    };
+
+    use crate::core::runtime::WorkTimelineItem;
+    let mut timeline_content = String::new();
+    let mut timeline_reasoning = String::new();
+    for item in timeline {
+        match item {
+            WorkTimelineItem::Content { content: text, .. } => timeline_content.push_str(text),
+            WorkTimelineItem::Reasoning { content: text, .. } => timeline_reasoning.push_str(text),
+            WorkTimelineItem::Tool { .. } => {}
+        }
+    }
+
+    let content = if timeline_content.len() > content.len() {
+        timeline_content
+    } else {
+        content
+    };
+    let reasoning = if timeline_reasoning.len() > reasoning.len() {
+        timeline_reasoning
+    } else {
+        reasoning
+    };
+    (content, reasoning)
 }
 
 const TITLE_MAX_CHARS: usize = 24;

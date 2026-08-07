@@ -606,9 +606,9 @@ fn dirs_path() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("."))
         .join(if cfg!(debug_assertions) {
-            "AAAi Debug"
+            "Anya Debug"
         } else {
-            "AAAi"
+            "Anya"
         })
 }
 pub fn skills_dir() -> PathBuf {
