@@ -111,10 +111,31 @@
           </button>
         </div>
 
-        <button type="button" class="new-chat-button" @click.stop="createQuickConversation">
+        <button type="button" class="new-chat-button" @click.stop="handleCreateQuickConversation">
           <SquarePen :size="15" />
           <span>{{ labels.newChat }}</span>
         </button>
+
+        <div class="navigation-shortcuts" role="group" :aria-label="navigationLabels.extensions">
+          <button
+            type="button"
+            class="nav-shortcut-button"
+            :class="{ active: extensionView === 'skills' }"
+            @click.stop="openExtensionView('skills')"
+          >
+            <ScrollText :size="15" :stroke-width="1.75" />
+            <span>{{ navigationLabels.skills }}</span>
+          </button>
+          <button
+            type="button"
+            class="nav-shortcut-button"
+            :class="{ active: extensionView === 'mcp' }"
+            @click.stop="openExtensionView('mcp')"
+          >
+            <Cable :size="15" :stroke-width="1.75" />
+            <span>{{ navigationLabels.mcp }}</span>
+          </button>
+        </div>
 
         <nav class="session-list peek-scrollbar" :aria-label="labels.conversations" @click.stop>
           <section
@@ -195,7 +216,7 @@
                     <button
                       type="button"
                       :title="navigationLabels.newWorkspaceChat"
-                      @click.stop="createWorkspaceConversation(workspace)"
+                      @click.stop="handleCreateWorkspaceConversation(workspace)"
                     >
                       <SquarePen :size="13" />
                     </button>
@@ -233,7 +254,7 @@
                   :attention-session-ids="attentionSessionIds"
                   :unread-session-ids="unreadSessionIdList"
                   variant="workspace"
-                  @select="selectConversation"
+                  @select="handleSelectConversation"
                   @delete="removeConversation"
                 />
               </section>
@@ -258,7 +279,7 @@
                 type="button"
                 class="section-action"
                 :title="navigationLabels.newQuickAsk"
-                @click="createQuickConversation"
+                @click="handleCreateQuickConversation"
               >
                 <SquarePen :size="13" />
               </button>
@@ -274,7 +295,7 @@
               :attention-session-ids="attentionSessionIds"
               :unread-session-ids="unreadSessionIdList"
               variant="quick"
-              @select="selectConversation"
+              @select="handleSelectConversation"
               @delete="removeConversation"
             />
           </section>
@@ -286,102 +307,115 @@
         :sessions="sessionsWithLiveTokens"
         :workspaces="workspaces"
         :language="settingStore.language"
-        @select-session="selectConversation"
-        @new-chat="createQuickConversation"
+        @select-session="handleSelectConversation"
+        @new-chat="handleCreateQuickConversation"
       />
 
       <section
         class="conversation-pane"
-        :class="{ 'empty-conversation': !hasConversationMessages }"
+        :class="{
+          'empty-conversation': !extensionView && !hasConversationMessages,
+          'extension-open': Boolean(extensionView),
+        }"
       >
-        <div v-if="contextNotice" class="context-notice" role="status">
-          <CircleAlert :size="14" :stroke-width="1.8" aria-hidden="true" />
-          <span>{{ contextNotice }}</span>
+        <div v-if="extensionView" class="extension-pane">
+          <div class="extension-scroll peek-scrollbar">
+            <div class="extension-panel">
+              <SkillsSettings v-if="extensionView === 'skills'" />
+              <McpSettings v-else-if="extensionView === 'mcp'" />
+            </div>
+          </div>
         </div>
-        <Transition name="empty-hero">
-          <div v-if="!hasConversationMessages" class="empty-conversation-hero">
-            <div class="empty-conversation-brand" data-onboarding-logo-target aria-hidden="true">
-              <img :src="appIconAsset" alt="" draggable="false" />
-            </div>
-            <p class="empty-conversation-prompt">
-              {{ emptyConversationPrompt }}
-            </p>
+        <template v-else>
+          <div v-if="contextNotice" class="context-notice" role="status">
+            <CircleAlert :size="14" :stroke-width="1.8" aria-hidden="true" />
+            <span>{{ contextNotice }}</span>
           </div>
-        </Transition>
-        <MessageList
-          class="workbench-messages"
-          :messages="messages"
-          :session-id="activeSessionId"
-          :checkpoints="checkpoints"
-          @rewound="handleRewound"
-          @review-changes="openReview('diff')"
-          @inspect-subagent="openAgentReview"
-          @preview-image="previewImage"
-        />
-
-        <div
-          class="composer-wrap"
-          :class="{ 'has-interaction-picker': Boolean(activePendingInteraction) }"
-        >
-          <div
-            v-if="stagedMessages.length"
-            class="staged-wrap peek-scrollbar"
-            data-tauri-drag-region="false"
-          >
-            <div class="staged-list">
-              <div
-                v-for="(message, index) in stagedMessages"
-                :key="`${index}-${message}`"
-                class="staged-item"
-              >
-                <span class="staged-item-text">{{ message }}</span>
-                <span class="staged-item-actions">
-                  <button
-                    type="button"
-                    class="staged-btn staged-btn-guide"
-                    :title="labels.guideOneHint"
-                    @click="guideStaged(index)"
-                  >
-                    <CornerDownLeft :size="13" />
-                  </button>
-                  <button
-                    type="button"
-                    class="staged-btn"
-                    :title="labels.editStaged"
-                    @click="startStagedEdit(index)"
-                  >
-                    <Pencil :size="13" />
-                  </button>
-                  <button
-                    type="button"
-                    class="staged-btn staged-btn-danger"
-                    :title="labels.removeStaged"
-                    @click="removeStaged(index)"
-                  >
-                    <Trash2 :size="13" />
-                  </button>
-                </span>
+          <Transition name="empty-hero">
+            <div v-if="!hasConversationMessages" class="empty-conversation-hero">
+              <div class="empty-conversation-brand" data-onboarding-logo-target aria-hidden="true">
+                <img :src="appIconAsset" alt="" draggable="false" />
               </div>
+              <p class="empty-conversation-prompt">
+                {{ emptyConversationPrompt }}
+              </p>
             </div>
-          </div>
-          <ChatInputBar
-            ref="inputRef"
-            :sending="sending"
-            :close-on-escape="false"
-            appearance="workbench"
-            overlay-pickers
+          </Transition>
+          <MessageList
+            class="workbench-messages"
+            :messages="messages"
             :session-id="activeSessionId"
-            :ask-user="askUserSession"
-            :path-permission="pathPermissionSession"
-            :tool-approval="toolApprovalSession"
-            @submit="submitMessage"
-            @pause="pauseResponse"
-            @ask-user-complete="completeAskUser"
-            @path-permission-complete="completePathPermission"
-            @tool-approval-complete="completeToolApproval"
+            :checkpoints="checkpoints"
+            @rewound="handleRewound"
+            @review-changes="openReview('diff')"
+            @inspect-subagent="openAgentReview"
             @preview-image="previewImage"
           />
-        </div>
+
+          <div
+            class="composer-wrap"
+            :class="{ 'has-interaction-picker': Boolean(activePendingInteraction) }"
+          >
+            <div
+              v-if="stagedMessages.length"
+              class="staged-wrap peek-scrollbar"
+              data-tauri-drag-region="false"
+            >
+              <div class="staged-list">
+                <div
+                  v-for="(message, index) in stagedMessages"
+                  :key="`${index}-${message}`"
+                  class="staged-item"
+                >
+                  <span class="staged-item-text">{{ message }}</span>
+                  <span class="staged-item-actions">
+                    <button
+                      type="button"
+                      class="staged-btn staged-btn-guide"
+                      :title="labels.guideOneHint"
+                      @click="guideStaged(index)"
+                    >
+                      <CornerDownLeft :size="13" />
+                    </button>
+                    <button
+                      type="button"
+                      class="staged-btn"
+                      :title="labels.editStaged"
+                      @click="startStagedEdit(index)"
+                    >
+                      <Pencil :size="13" />
+                    </button>
+                    <button
+                      type="button"
+                      class="staged-btn staged-btn-danger"
+                      :title="labels.removeStaged"
+                      @click="removeStaged(index)"
+                    >
+                      <Trash2 :size="13" />
+                    </button>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <ChatInputBar
+              ref="inputRef"
+              :sending="sending"
+              :close-on-escape="false"
+              appearance="workbench"
+              overlay-pickers
+              :session-id="activeSessionId"
+              :ask-user="askUserSession"
+              :path-permission="pathPermissionSession"
+              :tool-approval="toolApprovalSession"
+              @submit="submitMessage"
+              @pause="pauseResponse"
+              @ask-user-complete="completeAskUser"
+              @path-permission-complete="completePathPermission"
+              @tool-approval-complete="completeToolApproval"
+              @preview-image="previewImage"
+            />
+          </div>
+        </template>
       </section>
 
       <Transition name="review-panel">
@@ -512,6 +546,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   ArrowUpCircle,
   BookOpen,
+  Cable,
   CircleAlert,
   ChevronRight,
   CornerDownLeft,
@@ -526,6 +561,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  ScrollText,
   Search,
   Settings,
   SquarePen,
@@ -566,6 +602,13 @@ import type { Workspace } from "@/commands/workspace";
 import type { ChatSessionSummary } from "@/types/chat";
 
 const SettingsPage = defineAsyncComponent(() => import("@/pages/Settings/index.vue"));
+const SkillsSettings = defineAsyncComponent(
+  () => import("@/components/settings/SkillsSettings.vue"),
+);
+const McpSettings = defineAsyncComponent(() => import("@/components/settings/McpSettings.vue"));
+
+type ExtensionView = "skills" | "mcp";
+const extensionView = ref<ExtensionView | null>(null);
 
 const chatStore = useChatStore();
 const settingStore = useSettingStore();
@@ -600,13 +643,24 @@ const {
   syncMaximizedState,
   toggleMaximizeWindow,
   hideWindow,
-  openSettings,
+  openSettings: openSettingsPanel,
   closeSettings,
   toggleSettings,
 } = useWorkbenchWindow({ appWindow });
 
+function openSettings(category?: Parameters<typeof openSettingsPanel>[0]) {
+  extensionView.value = null;
+  openSettingsPanel(category);
+}
+
+function openExtensionView(view: ExtensionView) {
+  closeSettings();
+  extensionView.value = extensionView.value === view ? null : view;
+}
+
 function openTutorial() {
   settingsOpen.value = false;
+  extensionView.value = null;
   showOnboarding.value = true;
 }
 
@@ -734,6 +788,16 @@ const {
   clearSessionUnread,
 });
 
+function handleCreateQuickConversation() {
+  extensionView.value = null;
+  return createQuickConversation();
+}
+
+function handleSelectConversation(sessionId: string) {
+  extensionView.value = null;
+  return selectConversation(sessionId);
+}
+
 const {
   collapsedWorkspaceIds,
   collapsedNavigationSections,
@@ -765,6 +829,11 @@ const {
   createConversation,
 });
 
+function handleCreateWorkspaceConversation(workspace: Workspace) {
+  extensionView.value = null;
+  return createWorkspaceConversation(workspace);
+}
+
 const { searchPaletteOpen, shortcutHelpOpen, openSearchPalette, handleWorkbenchHotkey } =
   useWorkbenchHotkeys({
     settingsOpen,
@@ -773,11 +842,13 @@ const { searchPaletteOpen, shortcutHelpOpen, openSearchPalette, handleWorkbenchH
     inputRef,
     toggleReviewSidebar,
     openSettings,
-    createQuickConversation,
+    createQuickConversation: handleCreateQuickConversation,
   });
 
 const activeTitle = computed(() => {
   if (settingsOpen.value) return labels.value.settings;
+  if (extensionView.value === "skills") return navigationLabels.value.skills;
+  if (extensionView.value === "mcp") return navigationLabels.value.mcp;
   if (!hasConversationMessages.value) return labels.value.untitled;
   const preview =
     sessions.value.find((session) => session.sessionId === activeSessionId.value)?.preview || "";
@@ -796,8 +867,8 @@ useWorkbenchLifecycle({
   openSettings,
   syncMaximizedState,
   refreshSessions,
-  selectConversation,
-  createQuickConversation,
+  selectConversation: handleSelectConversation,
+  createQuickConversation: handleCreateQuickConversation,
   refreshCheckpoints,
   clearSessionUnread,
   markSessionUnread,
@@ -912,6 +983,7 @@ button {
   font: inherit;
 }
 .new-chat-button,
+.nav-shortcut-button,
 .session-row,
 .review-tabs button {
   border: 0;
@@ -1126,7 +1198,8 @@ button {
   line-height: 1;
   text-transform: lowercase;
 }
-.new-chat-button {
+.new-chat-button,
+.nav-shortcut-button {
   height: 34px;
   display: flex;
   align-items: center;
@@ -1137,8 +1210,34 @@ button {
   font-size: 12px;
   font-weight: 550;
 }
-.new-chat-button:hover {
+.new-chat-button:hover,
+.nav-shortcut-button:hover {
   background: color-mix(in srgb, var(--peek-text) 10%, transparent);
+}
+.navigation-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 2px 0 6px;
+}
+.nav-shortcut-button {
+  width: 100%;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.nav-shortcut-button.active {
+  background: color-mix(in srgb, var(--peek-text) 8%, transparent);
+  color: var(--peek-text);
+}
+.nav-shortcut-button > svg {
+  flex: none;
+  color: var(--peek-muted);
+}
+.nav-shortcut-button:hover > svg,
+.nav-shortcut-button.active > svg {
+  color: var(--peek-text);
 }
 .session-list {
   flex: 1;
@@ -1365,6 +1464,41 @@ button {
   background: var(--peek-list-bg);
   container-type: size;
   container-name: conversation;
+}
+.conversation-pane.extension-open {
+  background: var(--peek-list-bg);
+}
+.extension-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.extension-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+}
+.extension-panel {
+  flex: 1;
+  min-height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  box-sizing: border-box;
+}
+.extension-panel > :deep(.skills-settings),
+.extension-panel > :deep(.mcp-settings) {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
 }
 .workbench-messages {
   box-sizing: border-box;

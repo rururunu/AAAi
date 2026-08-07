@@ -205,7 +205,7 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
     "Adjust window opacity and enable frosted glass background.",
   "settings.fields.primaryHotkey.title": "Primary shortcut",
   "settings.fields.primaryHotkey.description":
-    "Record the modifier key to double-tap for opening AAAi. Default: double Alt.",
+    "Record the modifier to open AAAi with two quick taps (short presses). Default: double Alt.",
   "settings.fields.secondaryHotkey.title": "Secondary shortcut",
   "settings.fields.secondaryHotkey.description":
     "Record a backup shortcut for apps that steal double-Alt (e.g. IDEA). Default: Ctrl+Alt+Space.",
@@ -392,7 +392,8 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.opacity.title": "透明度",
     "settings.fields.opacity.description": "调整窗口背景透明度与毛玻璃效果。",
     "settings.fields.primaryHotkey.title": "主快捷键",
-    "settings.fields.primaryHotkey.description": "录制用于打开 AAAi 的双击修饰键。默认：双击 Alt。",
+    "settings.fields.primaryHotkey.description":
+      "录制用于打开 AAAi 的修饰键：需快速连按两下短按才会弹出，减少误触。默认：双击 Alt。",
     "settings.fields.secondaryHotkey.title": "副快捷键",
     "settings.fields.secondaryHotkey.description":
       "为会抢走双击 Alt 的应用（如 IDEA）录制备用快捷键。默认：Ctrl+Alt+Space。",

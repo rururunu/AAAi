@@ -1,26 +1,38 @@
 <template>
   <div class="server-list">
     <p v-if="servers.length === 0 && !disabledActions" class="empty">{{ copy.empty }}</p>
-    <article v-for="server in servers" :key="server.id" class="server-card">
-      <div class="server-main">
-        <div class="server-title-row">
-          <strong>{{ serverTitle(server) }}</strong>
-          <span class="badge" :class="{ on: server.enabled !== false }">
-            {{ server.enabled !== false ? copy.enabled : copy.disabled }}
-          </span>
-        </div>
-        <p v-if="server.description?.trim()" class="catalog-desc">{{ server.description }}</p>
-        <p class="command-line">
-          <code>{{ formatCommand(server) }}</code>
-        </p>
-        <p v-if="server.title?.trim() && server.title.trim() !== server.id" class="env-line">
-          {{ server.id }}
-        </p>
-        <p v-if="server.env?.length" class="env-line">
-          {{ copy.envCount(server.env.length) }}
-        </p>
-      </div>
-      <div class="server-actions">
+    <CatalogItemCard
+      v-for="server in servers"
+      :key="server.id"
+      :title="serverTitle(server)"
+      :vendor="serverVendor(server)"
+      :meta="metaLine(server)"
+      :description="server.description"
+      :icon-url="server.iconUrl"
+      :icon-cache-kind="'mcp'"
+      :icon-cache-key="server.id"
+      :icon-fallback="serverVendor(server) || serverTitle(server)"
+      :pills="pillsFor(server)"
+      :expand-label="copy.expand"
+      :collapse-label="copy.collapse"
+    >
+      <template #action>
+        <CatalogRoundAction
+          v-if="showConnect(server)"
+          :busy="isBusy(server.id)"
+          :disabled="disabledActions"
+          :label="isBusy(server.id) ? copy.connecting : copy.connectNow"
+          :icon="Link2"
+          @click="$emit('connect', server)"
+        />
+        <CatalogRoundAction
+          v-if="showReauth(server)"
+          :busy="isBusy(server.id)"
+          :disabled="disabledActions"
+          :label="isBusy(server.id) ? copy.connecting : copy.reauthenticate"
+          :icon="RefreshCw"
+          @click="$emit('reauthenticate', server)"
+        />
         <button
           type="button"
           class="setting-toggle"
@@ -31,42 +43,36 @@
         >
           <span class="setting-toggle-knob" />
         </button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          class="size-8 shrink-0 text-muted-foreground"
-          :title="copy.edit"
-          :aria-label="copy.edit"
+        <CatalogRoundAction
           :disabled="disabledActions"
+          :label="copy.edit"
+          :icon="Pencil"
+          :lock-when-done="false"
           @click="$emit('edit', server)"
-        >
-          <Pencil class="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          class="size-8 shrink-0 text-muted-foreground hover:text-destructive"
-          :title="copy.remove"
-          :aria-label="copy.remove"
+        />
+        <CatalogRoundAction
           :disabled="disabledActions"
+          :label="copy.remove"
+          :icon="Trash2"
+          :lock-when-done="false"
           @click="$emit('remove', server)"
-        >
-          <Trash2 class="size-3.5" />
-        </Button>
-      </div>
-    </article>
+        />
+      </template>
+    </CatalogItemCard>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Pencil, Trash2 } from "@lucide/vue";
-import { Button } from "@/components/ui/button";
+import { Link2, Pencil, RefreshCw, Trash2 } from "@lucide/vue";
+import CatalogItemCard from "@/components/settings/CatalogItemCard.vue";
+import CatalogRoundAction from "@/components/settings/CatalogRoundAction.vue";
+import { isMcpRemoteServer, type McpServerRuntimeStatus } from "@/services/mcp/remote";
 import type { McpServerConfig } from "@/types/setting";
 
-defineProps<{
+const props = defineProps<{
   servers: McpServerConfig[];
+  statuses: Record<string, McpServerRuntimeStatus>;
+  busyId: string;
   disabledActions: boolean;
   copy: {
     empty: string;
@@ -75,6 +81,16 @@ defineProps<{
     edit: string;
     remove: string;
     envCount: (count: number) => string;
+    authConnected: string;
+    authSaved: string;
+    authNeeded: string;
+    authLocal: string;
+    authDisabled: string;
+    reauthenticate: string;
+    connectNow: string;
+    connecting: string;
+    expand: string;
+    collapse: string;
   };
 }>();
 
@@ -82,6 +98,8 @@ defineEmits<{
   toggle: [server: McpServerConfig];
   edit: [server: McpServerConfig];
   remove: [server: McpServerConfig];
+  connect: [server: McpServerConfig];
+  reauthenticate: [server: McpServerConfig];
 }>();
 
 function formatCommand(server: McpServerConfig) {
@@ -89,7 +107,79 @@ function formatCommand(server: McpServerConfig) {
 }
 
 function serverTitle(server: McpServerConfig) {
-  return server.title?.trim() || server.id;
+  return server.title?.trim() || server.qualifiedName?.trim() || server.id;
+}
+
+function serverVendor(server: McpServerConfig) {
+  return server.qualifiedName?.trim() || "";
+}
+
+function metaLine(server: McpServerConfig) {
+  const parts: string[] = [];
+  if (!server.qualifiedName?.trim() && server.title?.trim() && server.title.trim() !== server.id) {
+    parts.push(server.id);
+  }
+  parts.push(formatCommand(server));
+  if (server.env?.length) {
+    parts.push(props.copy.envCount(server.env.length));
+  }
+  return parts.join(" · ");
+}
+
+function isRemote(server: McpServerConfig) {
+  return isMcpRemoteServer(server);
+}
+
+function isBusy(id: string) {
+  return props.busyId === id;
+}
+
+function statusFor(server: McpServerConfig): McpServerRuntimeStatus | undefined {
+  return props.statuses[server.id];
+}
+
+function authLabel(server: McpServerConfig) {
+  const state = statusFor(server)?.state;
+  switch (state) {
+    case "connected":
+      return props.copy.authConnected;
+    case "authenticated":
+      return props.copy.authSaved;
+    case "needs_auth":
+      return props.copy.authNeeded;
+    case "disabled":
+      return props.copy.authDisabled;
+    case "local":
+      return props.copy.authLocal;
+    default:
+      if (server.enabled === false) return props.copy.authDisabled;
+      return isRemote(server) ? props.copy.authNeeded : props.copy.authLocal;
+  }
+}
+
+function pillsFor(server: McpServerConfig) {
+  const pills = [
+    server.enabled !== false ? props.copy.enabled : props.copy.disabled,
+    authLabel(server),
+  ];
+  return pills;
+}
+
+function showConnect(server: McpServerConfig) {
+  if (server.enabled === false || !isRemote(server)) return false;
+  const state = statusFor(server)?.state;
+  return state === "needs_auth" || state === "authenticated" || !state;
+}
+
+function showReauth(server: McpServerConfig) {
+  if (server.enabled === false || !isRemote(server)) return false;
+  // Smithery hosted: always offer reauth so a "connected" vault can still be relinked.
+  if (server.source === "smithery") return true;
+  const status = statusFor(server);
+  if (!status) return false;
+  return (
+    status.state === "connected" || status.state === "authenticated" || status.hasSavedCredentials
+  );
 }
 </script>
 
@@ -101,85 +191,10 @@ function serverTitle(server: McpServerConfig) {
   line-height: 1.5;
 }
 
-.catalog-desc {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--muted-foreground);
-}
-
-.server-card {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--sidebar) 55%, transparent);
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
-}
-
 .server-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.server-main {
-  min-width: 0;
-  flex: 1;
-}
-
-.server-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.server-title-row strong {
-  font-size: 13px;
-}
-
-.badge {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--muted-foreground) 16%, transparent);
-  color: var(--muted-foreground);
-}
-
-.badge.on {
-  background: color-mix(in srgb, var(--primary) 18%, transparent);
-  color: var(--primary);
-}
-
-.command-line {
-  margin: 6px 0 0;
-  font-size: 11px;
-  overflow: hidden;
-}
-
-.command-line code {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--muted-foreground);
-}
-
-.env-line {
-  margin: 4px 0 0;
-  font-size: 11px;
-  color: var(--muted-foreground);
-}
-
-.server-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
+  gap: 10px;
 }
 
 .setting-toggle {
@@ -192,6 +207,7 @@ function serverTitle(server: McpServerConfig) {
   cursor: pointer;
   padding: 0;
   flex: none;
+  margin-top: 5px;
 }
 
 .setting-toggle.active {

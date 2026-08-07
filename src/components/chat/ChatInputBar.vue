@@ -301,19 +301,33 @@
             v-else-if="seg.kind === 'skill'"
             class="selection-tag hash-mention-tag hash-skill-tag"
             data-tauri-drag-region="false"
-            :title="`#skill:${seg.id}`"
+            :title="hashChipTitle('skill', seg.id)"
           >
-            <Zap :size="12" />
-            <span class="file-mention-name">#{{ seg.id }}</span>
+            <img
+              v-if="hashIconFor('skill', seg.id)"
+              class="file-chip-icon-img"
+              :src="hashIconFor('skill', seg.id) || ''"
+              alt=""
+              referrerpolicy="no-referrer"
+            />
+            <Zap v-else :size="12" />
+            <span class="file-mention-name">{{ hashLabelFor("skill", seg.id) }}</span>
           </span>
           <span
             v-else-if="seg.kind === 'mcp'"
             class="selection-tag hash-mention-tag hash-mcp-tag"
             data-tauri-drag-region="false"
-            :title="`#mcp:${seg.id}`"
+            :title="hashChipTitle('mcp', seg.id)"
           >
-            <Bot :size="12" />
-            <span class="file-mention-name">#{{ seg.id }}</span>
+            <img
+              v-if="hashIconFor('mcp', seg.id)"
+              class="file-chip-icon-img"
+              :src="hashIconFor('mcp', seg.id) || ''"
+              alt=""
+              referrerpolicy="no-referrer"
+            />
+            <Bot v-else :size="12" />
+            <span class="file-mention-name">{{ hashLabelFor("mcp", seg.id) }}</span>
           </span>
         </template>
         <textarea
@@ -322,6 +336,7 @@
           v-model="message"
           :placeholder="inputPlaceholder"
           class="chat-input workbench-textarea peek-scrollbar"
+          :class="{ 'is-multiline': workbenchInputMultiline }"
           data-tauri-drag-region="false"
           spellcheck="false"
           autocomplete="off"
@@ -505,7 +520,7 @@
             class="conversation-token-count"
             :title="conversationTokenTitle"
           >
-            ≈ {{ formatTokenCount(conversationTokenCount) }} tokens
+            ≈ {{ formatTokenCount(conversationTokenCount, language) }} tokens
           </span>
 
           <button
@@ -613,7 +628,14 @@ import {
   filterHashMentionItems,
   type HashMentionItem,
 } from "@/services/chat/hashMentions";
-import { estimateMessageTokens } from "@/services/chat/tokenEstimate";
+import {
+  mcpMentionIconUrl,
+  mcpMentionLabel,
+  prettyHashInstallId,
+  skillMentionIconUrl,
+  skillMentionLabel,
+} from "@/services/chat/hashMentionDisplay";
+import { estimateMessageTokens, formatTokenCount } from "@/services/chat/tokenEstimate";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useChatModelStore } from "@/stores/chatModel";
 import { useSettingStore } from "@/stores/setting";
@@ -632,7 +654,6 @@ import {
   localizeThinkingTierLabel,
   modelHasThinkingVariants,
 } from "@/lib/modelThinking";
-import { formatTokenCount } from "@/lib/formatTokens";
 import { useChatStore, type SessionCompose } from "@/stores/chat";
 import {
   localizedOptionLabel,
@@ -746,6 +767,7 @@ const emit = defineEmits<{
 
 const message = ref("");
 const composerSegments = ref<ComposerSegment[]>([]);
+const workbenchInputMultiline = ref(false);
 const attachedImages = ref<string[]>([]);
 const attachedFiles = ref<AttachedFileChip[]>([]);
 const fileDragOver = ref(false);
@@ -2254,12 +2276,20 @@ async function ensureHashCatalog() {
   hashCatalogLoading.value = true;
   try {
     const skills = await listSkills();
-    const skillItems: HashMentionItem[] = skills.map((skill) => ({
-      kind: "skill",
-      id: skill.name,
-      title: skill.title || skill.name,
-      description: skill.description || undefined,
-    }));
+    const enabledBuiltins = new Set(settingStore.enabledBuiltinSkills ?? []);
+    const skillItems: HashMentionItem[] = skills
+      .filter((skill) => skill.source !== "builtin" || enabledBuiltins.has(skill.name))
+      .map((skill) => ({
+        kind: "skill" as const,
+        id: skill.name,
+        title: skill.title || skill.name,
+        description: skill.description || undefined,
+        iconUrl: skill.iconUrl ?? null,
+        vendor:
+          skill.qualifiedName?.trim() ||
+          (skill.namespace && skill.slug ? `${skill.namespace}/${skill.slug}` : undefined) ||
+          undefined,
+      }));
     const mcpItems: HashMentionItem[] = (settingStore.mcpServers ?? [])
       .filter((server) => server.enabled !== false)
       .map((server) => ({
@@ -2267,6 +2297,8 @@ async function ensureHashCatalog() {
         id: server.id,
         title: server.title || server.id,
         description: server.description || server.command || undefined,
+        iconUrl: server.iconUrl ?? null,
+        vendor: server.qualifiedName?.trim() || undefined,
       }));
     hashCatalog.value = [...skillItems, ...mcpItems];
     hashCatalogReady.value = true;
@@ -2278,6 +2310,34 @@ async function ensureHashCatalog() {
   }
 }
 
+function hashCatalogItem(kind: "skill" | "mcp", id: string): HashMentionItem | undefined {
+  return hashCatalog.value.find((item) => item.kind === kind && item.id === id);
+}
+
+function hashLabelFor(kind: "skill" | "mcp", id: string): string {
+  const item = hashCatalogItem(kind, id);
+  if (item?.title?.trim()) return item.title.trim();
+  if (kind === "mcp") return mcpMentionLabel(id, settingStore.mcpServers ?? []);
+  return skillMentionLabel(id);
+}
+
+function hashIconFor(kind: "skill" | "mcp", id: string): string | null {
+  const fromCatalog = hashCatalogItem(kind, id)?.iconUrl?.trim();
+  if (fromCatalog) return fromCatalog;
+  if (kind === "mcp") return mcpMentionIconUrl(id, settingStore.mcpServers ?? []);
+  return skillMentionIconUrl(id);
+}
+
+function hashChipTitle(kind: "skill" | "mcp", id: string): string {
+  const item = hashCatalogItem(kind, id);
+  if (item?.vendor) return item.vendor;
+  if (kind === "mcp") {
+    const server = (settingStore.mcpServers ?? []).find((entry) => entry.id === id);
+    return server?.qualifiedName?.trim() || prettyHashInstallId(id);
+  }
+  return prettyHashInstallId(id);
+}
+
 function selectHashMention(item: HashMentionItem) {
   const mention = activeHashQuery.value;
   if (!mention) return;
@@ -2287,7 +2347,10 @@ function selectHashMention(item: HashMentionItem) {
     item.kind === "skill" ? { kind: "skill", id: item.id } : { kind: "mcp", id: item.id },
   );
   selectedIndex.value = 0;
-  void nextTick(() => focusInput());
+  void nextTick(() => {
+    resizeWorkbenchInput();
+    focusInput();
+  });
 }
 
 async function ensureWorkspaceFiles() {
@@ -2313,7 +2376,10 @@ function selectWorkspaceFile(path: string) {
   flushMessageToSegments();
   pushComposerSegment({ kind: "mention", path });
   selectedIndex.value = 0;
-  void nextTick(() => focusInput());
+  void nextTick(() => {
+    resizeWorkbenchInput();
+    focusInput();
+  });
 }
 
 function fileName(path: string) {
@@ -2333,8 +2399,13 @@ function resizeWorkbenchInput() {
   if (props.appearance !== "workbench" || !(inputRef.value instanceof HTMLTextAreaElement)) {
     return;
   }
-  inputRef.value.style.height = "auto";
-  inputRef.value.style.height = `${Math.min(inputRef.value.scrollHeight, 144)}px`;
+  const el = inputRef.value;
+  el.style.height = "auto";
+  const nextHeight = Math.min(el.scrollHeight, 144);
+  el.style.height = `${nextHeight}px`;
+  // Single-line: sit after @/# chips on the same row (text flow).
+  // Multi-line: take the full row so text isn't trapped in a side column.
+  workbenchInputMultiline.value = nextHeight > 28;
 }
 
 /** Keyboard navigation for pickers must work even if the input lost focus (e.g. after Alt-Tab). */
@@ -3345,7 +3416,7 @@ watch(hashSuggestions, () => {
 });
 
 watch(
-  () => settingStore.mcpServers,
+  () => [settingStore.mcpServers, settingStore.enabledBuiltinSkills],
   () => {
     hashCatalogReady.value = false;
   },
@@ -3640,12 +3711,12 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
 }
 
 .chat-input {
-  /* Prefer filling leftover space after chips; if < ~half a line remains,
-     wrap onto the next row instead of squeezing text into a narrow column. */
-  flex: 1 1 50%;
+  /* Sit after chips on the same row; wrap to the next row only when the
+     leftover space is too narrow to type comfortably. */
+  flex: 1 1 8rem;
   display: block;
   width: auto;
-  min-width: min(100%, 50%);
+  min-width: 8rem;
   max-width: 100%;
   height: 24px;
   margin: 0;
@@ -3696,10 +3767,10 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
 }
 
 .workbench-composer .workbench-textarea {
-  flex: 1 1 50%;
+  flex: 1 1 8rem;
   display: block;
   width: auto;
-  min-width: min(100%, 50%);
+  min-width: 8rem;
   max-width: 100%;
   min-height: 24px;
   height: auto;
@@ -3710,6 +3781,15 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   font-size: 14px;
   line-height: 24px;
   white-space: pre-wrap;
+  field-sizing: content;
+  align-self: flex-start;
+}
+
+/* Long drafts drop under chips so @/# tags stay in the text stream instead of
+   pinning a tall side column beside the first chip. */
+.workbench-composer .workbench-textarea.is-multiline {
+  flex: 1 1 100%;
+  min-width: 100%;
 }
 
 .workbench-composer .input-footer {
@@ -4143,6 +4223,7 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   display: inline-flex;
   flex: none;
   align-items: center;
+  align-self: center;
   height: 24px;
   margin: 0;
   padding: 0 8px;
@@ -4154,6 +4235,7 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   font-weight: 550;
   line-height: 24px;
   white-space: nowrap;
+  vertical-align: middle;
 }
 
 .workspace-control:hover {

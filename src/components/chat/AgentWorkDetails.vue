@@ -13,6 +13,13 @@
         embedded
       />
 
+      <Markdown
+        v-else-if="segment.type === 'content'"
+        :content="segment.content"
+        class="agent-work-content"
+        @preview-image="emit('previewImage', $event)"
+      />
+
       <ToolActivityList
         v-else-if="segment.type === 'inline'"
         :activities="segment.activities"
@@ -64,6 +71,7 @@
 <script setup lang="ts">
 import { ChevronRight } from "@lucide/vue";
 import { computed, reactive, watch } from "vue";
+import Markdown from "@/components/chat/Markdown.vue";
 import ReasoningBlock from "@/components/chat/ReasoningBlock.vue";
 import ToolActivityList from "@/components/chat/ToolActivityList.vue";
 import type { ChatMessage, ToolActivity } from "@/types/chat";
@@ -81,15 +89,22 @@ const props = withDefaults(
     showReasoning?: boolean;
     /** detailed = shell/diff inline; compact = fold into process details. */
     displayMode?: AgentWorkDisplay;
+    /** Content is a special-cased marker (e.g. "configure a provider") rendered
+     * elsewhere, so skip showing it as regular inline text here. */
+    suppressContent?: boolean;
   }>(),
   {
     displayMode: "detailed",
   },
 );
-const emit = defineEmits<{ inspectSubagent: [activityId: string] }>();
+const emit = defineEmits<{
+  inspectSubagent: [activityId: string];
+  previewImage: [source: string];
+}>();
 
 type TimelineSegment =
   | { type: "reasoning"; id: string; content: string }
+  | { type: "content"; id: string; content: string }
   | { type: "inline"; id: string; activities: ToolActivity[]; operations: boolean }
   | { type: "process"; id: string; activities: ToolActivity[]; operations: boolean };
 
@@ -162,33 +177,73 @@ function pushActivity(segments: TimelineSegment[], activity: ToolActivity) {
   segments.push(kind === "inline" ? { type: "inline", ...base } : { type: "process", ...base });
 }
 
+type TextSegment = Extract<TimelineSegment, { type: "reasoning" | "content" }>;
+
+function isTextSegment(segment: TimelineSegment): segment is TextSegment {
+  return segment.type === "reasoning" || segment.type === "content";
+}
+
+/**
+ * Append any part of `finalText` that isn't already covered by the matching
+ * segments in `out`. Keeps the reply visible even when the timeline is
+ * missing, partial, or stale (persisted history predating this feature, a
+ * reply delivered in one lump instead of incremental deltas, etc.) without
+ * mutating the reactive timeline items that were copied in.
+ */
+function reconcileTrailingText(
+  out: TimelineSegment[],
+  kind: "reasoning" | "content",
+  finalText: string | undefined,
+) {
+  const finalValue = finalText ?? "";
+  if (!finalValue) return;
+  let accumulated = "";
+  for (const segment of out) {
+    if (isTextSegment(segment) && segment.type === kind) accumulated += segment.content;
+  }
+  if (finalValue.length <= accumulated.length) return;
+  const missing = finalValue.slice(accumulated.length);
+  const last = out[out.length - 1];
+  if (last && isTextSegment(last) && last.type === kind) {
+    last.content += missing;
+  } else {
+    out.push({
+      type: kind,
+      id: `${kind}-final-${out.length}`,
+      content: missing,
+    } as TimelineSegment);
+  }
+}
+
 /** Single chronological stream with process-detail chunks interleaved. */
 const segments = computed<TimelineSegment[]>(() => {
-  const out: TimelineSegment[] = [];
+  let out: TimelineSegment[] = [];
   const timeline = props.message.workTimeline ?? [];
   const seen = new Set<string>();
 
-  if (timeline.length) {
-    for (const item of timeline) {
-      if (item.type === "reasoning") {
-        if (props.showReasoning !== false && item.content.trim()) {
-          out.push(item);
-        }
-        continue;
+  for (const item of timeline) {
+    if (item.type === "content" && props.suppressContent) continue;
+    if (item.type === "reasoning" || item.type === "content") {
+      if (item.content.trim()) {
+        // Copy rather than reuse the store's item so reconciliation below
+        // never mutates reactive state held elsewhere.
+        out.push({ ...item });
       }
-      const activity = activityById.value.get(item.toolActivityId);
-      if (!activity) continue;
-      seen.add(activity.id);
-      pushActivity(out, activity);
+      continue;
     }
-  } else {
-    if (props.showReasoning !== false && props.message.reasoning?.trim()) {
-      out.push({
-        type: "reasoning",
-        id: "stream-reasoning",
-        content: props.message.reasoning ?? "",
-      });
-    }
+    const activity = activityById.value.get(item.toolActivityId);
+    if (!activity) continue;
+    seen.add(activity.id);
+    pushActivity(out, activity);
+  }
+
+  reconcileTrailingText(out, "reasoning", props.message.reasoning);
+  if (!props.suppressContent) {
+    reconcileTrailingText(out, "content", props.message.content);
+  }
+
+  if (props.showReasoning === false) {
+    out = out.filter((segment) => segment.type !== "reasoning");
   }
 
   for (const activity of topLevelActivities.value) {
@@ -266,6 +321,14 @@ watch(
 .agent-work :deep(.task-list-card.embedded) {
   margin-left: 0;
   margin-right: 0;
+}
+
+.agent-work-content :deep(> *:first-child) {
+  margin-top: 0;
+}
+
+.agent-work-content :deep(> *:last-child) {
+  margin-bottom: 0;
 }
 
 .agent-work-details {

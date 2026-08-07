@@ -36,6 +36,7 @@ pub async fn drain_soft_injects(
             role: Role::User,
             content: format!("[Follow-up instruction while you were working]\n{content}"),
             reasoning: None,
+            work_timeline: None,
             tool_activities: None,
             tool_calls: None,
             tool_call_id: None,

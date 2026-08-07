@@ -1,8 +1,8 @@
 # AAAi Architecture Overview
 
-This document describes the logical structure, dependency rules, control flow, and
-orchestration of AAAi. It is intended for contributors who need to locate code
-paths and reason about change impact.
+This document describes the logical structure, dependency rules, control flow,
+persistence, and orchestration of AAAi. It is intended for contributors who need
+to locate code paths and reason about change impact.
 
 <p>
   <a href="./architecture-overview.md">English</a> ·
@@ -12,9 +12,12 @@ paths and reason about change impact.
 |             |                                     |
 | ----------- | ----------------------------------- |
 | **Product** | AAAi — Windows desktop AI assistant |
+| **Version** | v0.2.1                              |
 | **Runtime** | Tauri 2 (WebView2 + Rust)           |
 | **UI**      | Vue 3 · Vite · Pinia · TypeScript   |
 | **Domain**  | Rust (`src-tauri/src`)              |
+
+**Related:** [Maintenance](./maintenance.md) · [Release](./release.md) · [Docs index](./README.md)
 
 ---
 
@@ -26,19 +29,22 @@ paths and reason about change impact.
 - Layered module boundaries and allowed dependencies
 - Primary chat request path (UI → domain → provider → tools → UI events)
 - Agent turn orchestration and policy hooks
+- Persistence (SQLite, journal, work timeline)
+- Frontend stream projection and session model
+- Extension points (providers, tools, skills, MCP)
 
 **Out of scope**
 
 - Provider-specific HTTP schemas
 - Individual tool argument contracts
-- UI visual design
+- UI visual design tokens
 
 ---
 
 ## 2. System context
 
-AAAi runs as a single native process hosting multiple WebView windows. The Rust
-host owns OS integration; the WebView owns presentation and local UI state.
+AAAi runs as a **single native process** hosting multiple WebView windows. The
+Rust host owns OS integration; WebViews own presentation and local UI state.
 
 ```mermaid
 flowchart LR
@@ -47,6 +53,7 @@ flowchart LR
   Host -->|COM| Office[Word / Excel / PPT]
   Host -->|HTTPS SSE / REST| LLM[Model providers]
   Host -->|HTTPS / stdio| Aux[MCP · search · mem0]
+  Host --> Disk[(SQLite · settings · checkpoints)]
 ```
 
 | Actor / system      | Interaction                                                       |
@@ -56,6 +63,7 @@ flowchart LR
 | Microsoft Office    | COM for document context and `word_*` / `excel_*` / `ppt_*` tools |
 | Model providers     | Authenticated HTTPS; streaming where supported                    |
 | MCP / search / mem0 | Optional; enabled explicitly in settings                          |
+| Local disk          | Chat DB, settings store, updater pubkey, checkpoint undo data     |
 
 ---
 
@@ -64,8 +72,7 @@ flowchart LR
 ### 3.1 Layers
 
 Dependencies point **downward only**. Cross-layer calls that skip a boundary
-(e.g. Vue store → raw Tauri API, `commands/` → provider HTTP) are treated as
-bugs.
+(e.g. Vue store → raw Tauri API, `commands/` → provider HTTP) are treated as bugs.
 
 ```mermaid
 flowchart TB
@@ -87,12 +94,13 @@ flowchart TB
     Ai["core/ai<br/>Provider trait + implementations"]
     Tools["core/tools<br/>registry · approval · sandbox"]
     Ctx["core/context · workspace · rules · token"]
+    Persist["conversation_manager · db · journal"]
   end
 
   subgraph Adapters["L4 Adapters"]
     Rt["crate::runtime<br/>git · search · browser · shell"]
     OfficeCore["core/office · core/mcp · core/lsp"]
-    Svc["services/<br/>window · hotkey · settings · oauth"]
+    Svc["services/<br/>window · hotkey · settings · oauth · pin_badge"]
   end
 
   Win --> UI --> Store --> FeIpc
@@ -104,18 +112,19 @@ flowchart TB
   Chat --> Ai
   Chat --> Tools
   Chat --> Ctx
+  Chat --> Persist
   Tools --> Rt
   Tools --> OfficeCore
   Bus --> FeIpc
   Chat --> Bus
 ```
 
-| Layer           | Location                                            | Responsibility                                   | Must not                        |
-| --------------- | --------------------------------------------------- | ------------------------------------------------ | ------------------------------- |
-| L1 Presentation | `src/{layouts,components,composables,stores,pages}` | Render, local UX state, RAF-batched stream merge | Call providers or execute tools |
-| L2 Bridge       | `src/services/ipc`, `commands/`, `adapters/`        | Serialize IPC DTOs; map `BusEvent` → Tauri emits | Own business policy             |
-| L3 Domain       | `core/{chat,ai,tools,agent,context,…}`              | Chat lifecycle, agent loop, tools, prompts       | Depend on Vue / DOM             |
-| L4 Adapters     | `runtime/`, `services/`, `core/{office,mcp,lsp}`    | OS, COM, HTTP clients, MCP transport             | Drive the agent loop            |
+| Layer           | Location                                            | Responsibility                                          | Must not                        |
+| --------------- | --------------------------------------------------- | ------------------------------------------------------- | ------------------------------- |
+| L1 Presentation | `src/{layouts,components,composables,stores,pages}` | Render, local UX state, RAF-batched stream merge        | Call providers or execute tools |
+| L2 Bridge       | `src/services/ipc`, `commands/`, `adapters/`        | Serialize IPC DTOs; map `BusEvent` → Tauri emits        | Own business policy             |
+| L3 Domain       | `core/{chat,ai,tools,agent,context,…}`              | Chat lifecycle, agent loop, tools, prompts, persistence | Depend on Vue / DOM             |
+| L4 Adapters     | `runtime/`, `services/`, `core/{office,mcp,lsp}`    | OS, COM, HTTP clients, MCP transport                    | Drive the agent loop            |
 
 ### 3.2 Frontend dependency rule
 
@@ -173,21 +182,30 @@ and Workbench may attach to the **same** session concurrently.
 
 ---
 
-## 5. Component catalog (domain)
+## 5. Module map
 
-| Component         | Path                                       | Role                                                                       |
-| ----------------- | ------------------------------------------ | -------------------------------------------------------------------------- |
-| `ChatService`     | `core/chat/service.rs`                     | Entry: persist messages, resolve context/model, start or soft-inject a run |
-| `StreamManager`   | `core/chat/stream.rs`                      | Background task, cancel, stream aggregation, emit UI events                |
-| `AgentRunner`     | `core/chat/agent.rs`                       | **Primary** model↔tools loop                                               |
-| `agent_loop::*`   | `core/chat/agent_loop/`                    | Turn policies: stream collect, tools, challenge, compact, failure breaker  |
-| `AgentRuntime`    | `core/agent/runtime/`                      | Run state machine, cancel, soft-inject queue, debug snapshots              |
-| `AIProvider`      | `core/ai/`                                 | Streaming / non-streaming model adapters                                   |
-| `ToolRegistry`    | `core/tools/`                              | Schema exposure, approval, path permission, execution                      |
-| `ContextResolver` | `core/context/`                            | Environment, selection, IDE, Explorer context                              |
-| `EventBus`        | `core/event/` + `adapters/tauri_events.rs` | Domain → frontend event projection                                         |
+### 5.1 Rust domain (`src-tauri/src/core`)
 
-### Naming: three “runtime” modules
+| Module              | Path                                      | Role                                                                  |
+| ------------------- | ----------------------------------------- | --------------------------------------------------------------------- |
+| Chat service        | `core/chat/service.rs`                    | Entry: persist messages, resolve context/model, start or soft-inject  |
+| Stream manager      | `core/chat/stream.rs`                     | Background task, cancel, stream aggregation, UI events, timeline text |
+| Agent runner        | `core/chat/agent.rs`                      | **Primary** model↔tools loop                                          |
+| Agent loop policies | `core/chat/agent_loop/`                   | stream_turn, tools, challenge, compact, soft_inject, failure          |
+| Conversation store  | `core/chat/conversation_manager.rs`       | In-memory sessions + async SQLite; work timeline                      |
+| DB / journal        | `core/chat/db.rs`, `core/chat/journal.rs` | Schema, save/load, crash recovery                                     |
+| Prompts             | `core/chat/prompts/`, `prompts/*.md`      | System / tools / policies / skills markdown                           |
+| Agent runtime       | `core/agent/runtime/`                     | Run state machine, cancel, soft-inject queue, debug                   |
+| AI providers        | `core/ai/`                                | DeepSeek, Gemini/Antigravity, multimodal helpers                      |
+| Tools               | `core/tools/`                             | Registry, approval, files, shell, skills, agent tools                 |
+| Context             | `core/context/`                           | IDE, selection, clipboard, environment, Office hints                  |
+| Checkpoint          | `core/checkpoint/`                        | Undo / review of applied file changes                                 |
+| Token               | `core/token/`                             | Accounting, usage persistence                                         |
+| MCP / LSP / Office  | `core/mcp`, `core/lsp`, `core/office`     | External protocol adapters                                            |
+| Protocol types      | `core/runtime/`                           | `ChatMessage`, `StreamEvent`, `WorkTimelineItem`                      |
+| Event bus           | `core/event/`                             | Domain events                                                         |
+
+### 5.2 Naming: three “runtime” modules
 
 | Path                  | Meaning                                                           |
 | --------------------- | ----------------------------------------------------------------- |
@@ -195,16 +213,16 @@ and Workbench may attach to the **same** session concurrently.
 | `crate::runtime/`     | Pluggable tool adapters (git, search, browser, …)                 |
 | `core/agent/runtime/` | Agent **run lifecycle** shell                                     |
 
-### AgentRunner vs AgentRuntime
+### 5.3 Frontend (`src/`)
 
-|                     | AgentRunner                                 | AgentRuntime                                                        |
-| ------------------- | ------------------------------------------- | ------------------------------------------------------------------- |
-| Question it answers | “What does the model do next?”              | “Is this run active / cancelled / injectible?”                      |
-| Owns                | Stream turns, tool batches, completion gate | Run id, epoch, soft-inject queue, event bridge                      |
-| Call direction      | Invoked by `StreamManager`                  | Creates run; delegates streaming to `StreamManager` → `AgentRunner` |
-
-Planner / executor under `core/agent/` support run-level plan steps and a tool
-façade. They are **not** a second chat agent loop.
+| Area                        | Path                                           | Role                                         |
+| --------------------------- | ---------------------------------------------- | -------------------------------------------- |
+| Overlay / Workbench layouts | `layouts/Overlay.vue`, `layouts/Main.vue`      | Window shells                                |
+| Chat UI                     | `components/chat/*`                            | Message list, timeline, tool cards, composer |
+| Stores                      | `stores/chat.ts`, `setting.ts`, `chatModel.ts` | Session messages, settings, model selection  |
+| IPC                         | `services/ipc/`                                | Typed invoke + event subscription            |
+| Stream batching             | `services/chat/rafBatch.ts`, `main.ts`         | RAF coalesce for deltas                      |
+| Settings pages              | `pages/Settings/`                              | Provider / agent / MCP / skills UI           |
 
 ---
 
@@ -223,26 +241,30 @@ sequenceDiagram
   participant R as AgentRunner
   participant P as AIProvider
   participant T as Tools
+  participant CM as ConversationManager
 
   FE->>IPC: invoke("chat")
   IPC->>CS: send(session, message, prefs)
   alt active assistant for session
     CS->>AR: soft_inject
   else new turn
-    CS->>CS: persist user + pending assistant
+    CS->>CM: persist user + pending assistant
     CS->>AR: create_run + collect_context
     CS->>SM: spawn stream task
     SM->>R: run(ChatRequest, tx)
     loop until terminal finish_reason
       R->>P: stream(request)
       P-->>SM: Delta / Reasoning / Status / ToolCall
+      SM->>CM: append_work_timeline_text
       SM-->>FE: chat-delta / chat-reasoning / chat-status
       opt tool_calls non-empty
         R->>T: execute serial or parallel
+        T->>CM: upsert_tool_activity (+ timeline Tool)
         T-->>FE: tool-started / tool-finished
         R->>R: append tool results to messages
       end
     end
+    SM->>CM: update_message (Done + content/reasoning/timeline)
     SM-->>FE: chat-finished or chat-error
   end
 ```
@@ -251,18 +273,20 @@ Mid-turn follow-up takes the `soft_inject` branch and does not create a new assi
 
 ### 6.2 Frontend projection
 
-```text
-Tauri emit
-  → src/main.ts listeners
-  → createRafBatch (delta/reasoning only)
-  → chatStore.applyStreamDeltas | finishMessage | failMessage | setActivityStatus
-  → MessageList / activity indicator
+```mermaid
+flowchart LR
+  Emit[Tauri emit] --> Listen[src/main.ts listeners]
+  Listen -->|delta / reasoning| RAF[createRafBatch]
+  Listen -->|tool / finish / error| Sync[Immediate store update]
+  RAF --> Store[chatStore.applyStreamDeltas]
+  Sync --> Store
+  Store --> UI[MessageList / AgentWorkDetails]
 ```
 
-Transport errors that are retried inside the provider emit
-`chat-status` with `kind = stream_retry:{attempt}:{max}` before a new attempt.
-The store clears partial assistant content for that message so tokens are not
-duplicated.
+Transport errors that are retried inside the provider emit `chat-status` with
+`kind = stream_retry:{attempt}:{max}` before a new attempt. The store clears
+partial assistant content for that message so tokens are not duplicated. The
+backend also resets `work_timeline` on retry.
 
 ### 6.3 Call stack (reference)
 
@@ -313,16 +337,120 @@ stateDiagram-v2
 | `soft_inject`      | Merge queued user follow-ups at a safe boundary                                   |
 | `failure`          | Consecutive / identical tool-error circuit breaker                                |
 
-**Ask vs Agent** is enforced at tool schema exposure and approval policy (settings),
-not by a separate runner. Ask mode withholds write / shell / git capabilities;
-Agent mode enables them subject to approval mode (e.g. always allow, ask each time).
+### Ask vs Agent
+
+Enforced at **tool schema exposure** and **approval policy** (settings), not by a
+separate runner. Ask mode withholds write / shell / git capabilities; Agent mode
+enables them subject to approval mode (e.g. always allow, ask each time).
+
+### AgentRunner vs AgentRuntime
+
+|                | AgentRunner                                 | AgentRuntime                                                        |
+| -------------- | ------------------------------------------- | ------------------------------------------------------------------- |
+| Question       | “What does the model do next?”              | “Is this run active / cancelled / injectible?”                      |
+| Owns           | Stream turns, tool batches, completion gate | Run id, epoch, soft-inject queue, event bridge                      |
+| Call direction | Invoked by `StreamManager`                  | Creates run; delegates streaming to `StreamManager` → `AgentRunner` |
+
+Planner / executor under `core/agent/` support run-level plan steps and a tool
+façade. They are **not** a second chat agent loop.
 
 ---
 
-## 8. Event contract (domain → UI)
+## 8. Work timeline (interleaved UI)
+
+Narration and tool cards must appear in the order they actually happened.
+
+```mermaid
+flowchart TB
+  subgraph Timeline["work_timeline on ChatMessage"]
+    R1[Reasoning run]
+    T1[Tool activity ref]
+    C1[Content run]
+    T2[Tool activity ref]
+    C2[Content run]
+  end
+
+  R1 --> T1 --> C1 --> T2 --> C2
+```
+
+| Kind        | Produced when                          | Persistence                                             |
+| ----------- | -------------------------------------- | ------------------------------------------------------- |
+| `reasoning` | Stream reasoning chunks                | Merged into trailing same-kind item; saved with message |
+| `content`   | Stream content deltas                  | Same merge rules                                        |
+| `tool`      | First `upsert_tool_activity` for an id | Anchored at start time; status updates do not duplicate |
+
+Frontend `AgentWorkDetails` renders the timeline and reconciles trailing text if
+history predates the feature or a lump reply arrives without incremental deltas.
+
+---
+
+## 9. Persistence & crash recovery
+
+```mermaid
+flowchart TB
+  Live[In-memory ConversationManager] -->|terminal update / tool done| DB[(chat_messages SQLite)]
+  Live -->|streaming deltas| J[(chat_journal_events)]
+  Boot[App start] --> Hydrate[hydrate_orphaned_from_journal]
+  Hydrate --> Settle[settle pending/streaming + running tools]
+  Settle --> DB
+```
+
+| Store                 | Contents                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| `chat_messages`       | Messages: content, reasoning, tool_activities, **work_timeline**, tool_calls, status, tokens |
+| `chat_journal_events` | Compacted delta snapshots for in-flight recovery                                             |
+| Session metadata      | Titles, workspace bindings                                                                   |
+| Token usage records   | Per-run accounting when providers report usage                                               |
+
+On boot, orphaned `pending` / `streaming` messages are hydrated from the journal
+and settled to a terminal state so the UI cannot stick on “executing”.
+
+---
+
+## 10. Context assembly
+
+Before a turn streams, the prompt stack is assembled (system → rules/memories →
+context block → history → current user):
+
+```mermaid
+flowchart LR
+  SYS[System prompt md] --> SLOT[prompt/slots]
+  RULE[Workspace rules] --> SLOT
+  MEM[Memories] --> SLOT
+  IDE[IDE / selection / Office] --> SLOT
+  HIST[Prior messages] --> SLOT
+  USER[Current user turn] --> SLOT
+  SLOT --> REQ[ChatRequest.messages]
+```
+
+Resolution precedence lives in `prompts/context.md` and `core/context` providers
+(explicit user path beats inferred active file, etc.).
+
+---
+
+## 11. Tools, approval, and skills
+
+```mermaid
+flowchart TB
+  Model[Model tool_calls] --> Reg[ToolRegistry]
+  Reg --> Mode{Ask / Agent / plan / read_only?}
+  Mode -->|blocked| Deny[Schema omitted or denied]
+  Mode -->|allowed| Appr[Approval policy]
+  Appr -->|ask user| UI[ask_user / permission UI]
+  Appr -->|allow| Exec[Builtin / Skill / MCP / Office / Subagent]
+  Exec --> Act[ToolActivity + work_timeline]
+```
+
+Skills are markdown playbooks under `src-tauri/prompts/skills/` (plus vendor
+assets). Invoking a skill typically injects the playbook and may run a subagent
+with optional `read_only`.
+
+---
+
+## 12. Event contract (domain → UI)
 
 Events are defined in `core/event::BusEvent` and projected by
-`adapters/tauri_events.rs`. Primary chat surface events:
+`adapters/tauri_events.rs`.
 
 | BusEvent        | Tauri event                      | Consumer effect                       |
 | --------------- | -------------------------------- | ------------------------------------- |
@@ -339,7 +467,36 @@ event-driven.
 
 ---
 
-## 9. Extension points
+## 13. Session / workspace model
+
+| Kind              | Binding       | Typical entry                   |
+| ----------------- | ------------- | ------------------------------- |
+| Quick Ask         | No workspace  | Overlay outside IDE             |
+| Workspace session | Bound folder  | IDE foreground, `/work`, picker |
+| Pinned            | User pin flag | Workbench sidebar               |
+
+Overlay and workbench share the conversation store; “open in workbench” reuses
+the same `session_id`.
+
+---
+
+## 14. Update / release data flow
+
+```mermaid
+flowchart LR
+  Tag[git tag v*] --> CI[release.yml]
+  CI --> MSI[AAAi_x_x64.msi + .sig]
+  CI --> LJ[latest.json]
+  MSI --> GH[GitHub Release assets]
+  LJ --> GH
+  App[Installed AAAi] -->|updater plugin| GH
+```
+
+Details: [release.md](./release.md).
+
+---
+
+## 15. Extension points
 
 | Goal                    | Preferred hook                                          |
 | ----------------------- | ------------------------------------------------------- |
@@ -348,19 +505,22 @@ event-driven.
 | New turn policy         | `core/chat/agent_loop` module called from `AgentRunner` |
 | New window surface      | Tauri window label + `src/main.ts` bootstrap branch     |
 | External context source | `core/context` provider                                 |
+| New skill               | `src-tauri/prompts/skills/*.md` (+ assets if needed)    |
 
 Avoid introducing a parallel agent loop beside `AgentRunner`.
 
 ---
 
-## 10. Related source entry points
+## 16. Related source entry points
 
-| Concern                       | Start here                                               |
-| ----------------------------- | -------------------------------------------------------- |
-| App bootstrap / tray / hotkey | `src-tauri/src/lib.rs`                                   |
-| Chat IPC                      | `commands/chat.rs`                                       |
-| Send + context assembly       | `core/chat/service.rs`                                   |
-| Stream lifecycle              | `core/chat/stream.rs`                                    |
-| Agent loop                    | `core/chat/agent.rs`, `core/chat/agent_loop/`            |
-| Run shell                     | `core/agent/runtime/`                                    |
-| Frontend IPC + stream batch   | `src/services/ipc/`, `src/main.ts`, `src/stores/chat.ts` |
+| Concern                          | Start here                                               |
+| -------------------------------- | -------------------------------------------------------- |
+| App bootstrap / tray / hotkey    | `src-tauri/src/lib.rs`                                   |
+| Chat IPC                         | `commands/chat.rs`                                       |
+| Send + context assembly          | `core/chat/service.rs`                                   |
+| Stream lifecycle + timeline text | `core/chat/stream.rs`                                    |
+| Work timeline persistence        | `core/chat/conversation_manager.rs`, `core/chat/db.rs`   |
+| Agent loop                       | `core/chat/agent.rs`, `core/chat/agent_loop/`            |
+| Run shell                        | `core/agent/runtime/`                                    |
+| Frontend IPC + stream batch      | `src/services/ipc/`, `src/main.ts`, `src/stores/chat.ts` |
+| Timeline UI                      | `src/components/chat/AgentWorkDetails.vue`               |

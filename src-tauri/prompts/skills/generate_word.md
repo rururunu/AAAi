@@ -7,11 +7,29 @@ description: Generate .docx Word documents with python-docx. Use when the user a
 
 You produce a real `.docx` file in the workspace (not Markdown pretending to be Word).
 
-## When to use which skill
-- **General Word / short reports / letters** → this skill (`generate_word`)
-- **Edit existing .docx / tracked changes / OOXML / comments** → `#skill:docx`
-- **Markdown ↔ DOCX/PDF/HTML conversion** → `#skill:pandoc`
-- **Technical bid / 技术标 / 综合评分技术部分** → `generate_bid_tech` (table-first planner + gate)
+## When to use this skill
+
+Use `generate_word` for a **general, short, script-generated** document with no special layout requirements and no existing file to preserve — a report, a letter, a short brief.
+
+## When NOT to use this skill
+
+| Need | Use instead |
+|---|---|
+| Edit an existing .docx / tracked changes / OOXML / comments | `#skill:docx` |
+| Markdown ↔ DOCX/PDF/HTML conversion | `#skill:pandoc` |
+| 技术标 / 综合评分技术部分 (scoring-table bid, table-first + gate) | `generate_bid_tech` |
+
+<example>
+User: "帮我写一份两页的项目周报，导出成 Word。"
+Reasoning: short, new document, no existing file, no scoring-table requirements.
+Correct: `generate_word`.
+</example>
+
+<example>
+User: "这是招标文件，按评分表写一份技术标。"
+Reasoning: scoring-table bids need forced table structures, a chapter planner, and a completion gate that `generate_word` does not enforce — using it here would produce a document that fails the actual scoring criteria.
+Correct: `generate_bid_tech`, not `generate_word`.
+</example>
 
 ## Rules
 1. Prefer **python-docx**. If it is missing and package installation is within the user's requested workflow, install it with `run_shell`; otherwise report the dependency clearly.

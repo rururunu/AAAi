@@ -1,6 +1,6 @@
 # AAAi 技术架构总览
 
-本文描述 AAAi 的逻辑结构、依赖约束、控制流与编排，面向需要定位代码路径、评估变更影响的贡献者。
+本文描述 AAAi 的逻辑结构、依赖约束、控制流、持久化与编排，面向需要定位代码路径、评估变更影响的贡献者。
 
 <p>
   <a href="./architecture-overview.md">English</a> ·
@@ -10,9 +10,12 @@
 |            |                                   |
 | ---------- | --------------------------------- |
 | **产品**   | AAAi — Windows 桌面 AI 助手       |
+| **版本**   | v0.2.1                            |
 | **运行时** | Tauri 2（WebView2 + Rust）        |
 | **界面**   | Vue 3 · Vite · Pinia · TypeScript |
 | **领域**   | Rust（`src-tauri/src`）           |
+
+**相关文档：** [维护手册](./maintenance.zh-CN.md) · [发布](./release.zh-CN.md) · [文档索引](./README.zh-CN.md)
 
 ---
 
@@ -24,12 +27,15 @@
 - 分层边界与允许的依赖方向
 - 主聊天请求路径（UI → 领域 → Provider → 工具 → UI 事件）
 - Agent 回合编排与策略钩子
+- 持久化（SQLite、journal、work timeline）
+- 前端流式投影与会话模型
+- 扩展点（Provider、工具、Skills、MCP）
 
 **范围外**
 
 - 各 Provider 的 HTTP 协议细节
 - 单个工具的参数契约
-- UI 视觉设计
+- UI 视觉设计细节
 
 ---
 
@@ -44,6 +50,7 @@ flowchart LR
   Host -->|COM| Office[Word / Excel / PPT]
   Host -->|HTTPS SSE / REST| LLM[模型服务商]
   Host -->|HTTPS / stdio| Aux[MCP · 搜索 · mem0]
+  Host --> Disk[(SQLite · 设置 · 检查点)]
 ```
 
 | 参与方            | 交互方式                                              |
@@ -53,6 +60,7 @@ flowchart LR
 | Microsoft Office  | COM：文档上下文与 `word_*` / `excel_*` / `ppt_*` 工具 |
 | 模型服务商        | 鉴权 HTTPS；支持处使用流式                            |
 | MCP / 搜索 / mem0 | 可选；在设置中显式启用                                |
+| 本地磁盘          | 聊天库、设置、更新公钥、检查点撤销数据                |
 
 ---
 
@@ -82,12 +90,13 @@ flowchart TB
     Ai["core/ai<br/>Provider trait + implementations"]
     Tools["core/tools<br/>registry · approval · sandbox"]
     Ctx["core/context · workspace · rules · token"]
+    Persist["conversation_manager · db · journal"]
   end
 
   subgraph Adapters["L4 Adapters"]
     Rt["crate::runtime<br/>git · search · browser · shell"]
     OfficeCore["core/office · core/mcp · core/lsp"]
-    Svc["services/<br/>window · hotkey · settings · oauth"]
+    Svc["services/<br/>window · hotkey · settings · oauth · pin_badge"]
   end
 
   Win --> UI --> Store --> FeIpc
@@ -99,6 +108,7 @@ flowchart TB
   Chat --> Ai
   Chat --> Tools
   Chat --> Ctx
+  Chat --> Persist
   Tools --> Rt
   Tools --> OfficeCore
   Bus --> FeIpc
@@ -109,7 +119,7 @@ flowchart TB
 | --------------- | --------------------------------------------------- | ----------------------------------------------- | ------------------------ |
 | L1 Presentation | `src/{layouts,components,composables,stores,pages}` | 渲染、本地 UX 状态、RAF 合并流式增量            | 调用 Provider 或执行工具 |
 | L2 Bridge       | `src/services/ipc`、`commands/`、`adapters/`        | 序列化 IPC DTO；将 `BusEvent` 投影为 Tauri emit | 承载业务策略             |
-| L3 Domain       | `core/{chat,ai,tools,agent,context,…}`              | 聊天生命周期、Agent 循环、工具、提示词          | 依赖 Vue / DOM           |
+| L3 Domain       | `core/{chat,ai,tools,agent,context,…}`              | 聊天生命周期、Agent 循环、工具、提示词、持久化  | 依赖 Vue / DOM           |
 | L4 Adapters     | `runtime/`、`services/`、`core/{office,mcp,lsp}`    | OS、COM、HTTP 客户端、MCP 传输                  | 驱动 Agent 主循环        |
 
 ### 3.2 前端依赖规则
@@ -131,7 +141,7 @@ lib / main
 services（window、hotkey、settings）→ 按需依赖 core
 ```
 
-`commands/*` 只做入参校验与转发；编排归属 `ChatService` 与 `AgentRuntime`，不写在 command handler 里。
+`commands/*` 只做入参校验与转发；编排归属 `ChatService` 与 `AgentRuntime`。
 
 ---
 
@@ -166,37 +176,47 @@ flowchart TB
 
 ---
 
-## 5. 领域组件目录
+## 5. 模块地图
 
-| 组件              | 路径                                       | 职责                                                         |
-| ----------------- | ------------------------------------------ | ------------------------------------------------------------ |
-| `ChatService`     | `core/chat/service.rs`                     | 入口：落库消息、解析上下文/模型、启动或 soft-inject 一轮 run |
-| `StreamManager`   | `core/chat/stream.rs`                      | 后台任务、取消、流式聚合、向外发 UI 事件                     |
-| `AgentRunner`     | `core/chat/agent.rs`                       | **主** model↔tools 循环                                      |
-| `agent_loop::*`   | `core/chat/agent_loop/`                    | 回合策略：收流、工具、challenge、压缩、失败熔断              |
-| `AgentRuntime`    | `core/agent/runtime/`                      | Run 状态机、取消、soft-inject 队列、debug 快照               |
-| `AIProvider`      | `core/ai/`                                 | 流式 / 非流式模型适配                                        |
-| `ToolRegistry`    | `core/tools/`                              | Schema 暴露、审批、路径权限、执行                            |
-| `ContextResolver` | `core/context/`                            | 环境、选区、IDE、资源管理器上下文                            |
-| `EventBus`        | `core/event/` + `adapters/tauri_events.rs` | 领域 → 前端事件投影                                          |
+### 5.1 Rust 领域（`src-tauri/src/core`）
 
-### 命名：三处 “runtime”
+| 模块               | 路径                                      | 职责                                                         |
+| ------------------ | ----------------------------------------- | ------------------------------------------------------------ |
+| Chat service       | `core/chat/service.rs`                    | 入口：落库、解析上下文/模型、启动或 soft-inject              |
+| Stream manager     | `core/chat/stream.rs`                     | 后台任务、取消、流式聚合、UI 事件、时间线文本                |
+| Agent runner       | `core/chat/agent.rs`                      | **主** model↔tools 循环                                      |
+| Agent loop 策略    | `core/chat/agent_loop/`                   | stream_turn、tools、challenge、compact、soft_inject、failure |
+| 会话存储           | `core/chat/conversation_manager.rs`       | 内存会话 + 异步 SQLite；work timeline                        |
+| DB / journal       | `core/chat/db.rs`、`core/chat/journal.rs` | Schema、存取、崩溃恢复                                       |
+| 提示词             | `core/chat/prompts/`、`prompts/*.md`      | system / tools / policies / skills                           |
+| Agent runtime      | `core/agent/runtime/`                     | Run 状态机、取消、soft-inject、debug                         |
+| AI providers       | `core/ai/`                                | DeepSeek、Gemini/Antigravity、多模态                         |
+| Tools              | `core/tools/`                             | 注册表、审批、文件、shell、skills、子 Agent                  |
+| Context            | `core/context/`                           | IDE、选区、剪贴板、环境、Office 提示                         |
+| Checkpoint         | `core/checkpoint/`                        | 已应用文件变更的撤销 / 审查                                  |
+| Token              | `core/token/`                             | 用量记账与持久化                                             |
+| MCP / LSP / Office | `core/mcp`、`core/lsp`、`core/office`     | 外部协议适配                                                 |
+| 协议类型           | `core/runtime/`                           | `ChatMessage`、`StreamEvent`、`WorkTimelineItem`             |
+| Event bus          | `core/event/`                             | 领域事件                                                     |
 
-| 路径                  | 含义                                                        |
-| --------------------- | ----------------------------------------------------------- |
-| `core/runtime/`       | 聊天协议类型（`ChatMessage`、`StreamEvent`、`ChatRequest`） |
-| `crate::runtime/`     | 可插拔工具适配（git、search、browser 等）                   |
-| `core/agent/runtime/` | Agent **run 生命周期**壳                                    |
+### 5.2 命名：三处 “runtime”
 
-### AgentRunner 与 AgentRuntime
+| 路径                  | 含义                                      |
+| --------------------- | ----------------------------------------- |
+| `core/runtime/`       | 聊天协议类型                              |
+| `crate::runtime/`     | 可插拔工具适配（git、search、browser 等） |
+| `core/agent/runtime/` | Agent **run 生命周期**壳                  |
 
-|            | AgentRunner                  | AgentRuntime                                               |
-| ---------- | ---------------------------- | ---------------------------------------------------------- |
-| 回答的问题 | 「模型下一步做什么？」       | 「本轮 run 是否活跃 / 已取消 / 可注入？」                  |
-| 拥有       | 流式回合、工具批次、完成门禁 | Run id、epoch、soft-inject 队列、事件桥                    |
-| 调用方向   | 由 `StreamManager` 调用      | 创建 run；将流式工作委托给 `StreamManager` → `AgentRunner` |
+### 5.3 前端（`src/`）
 
-`core/agent/` 下的 Planner / Executor 服务于 run 级计划步骤与工具门面，**不是**第二套对话 Agent 循环。
+| 区域                | 路径                                      | 职责                               |
+| ------------------- | ----------------------------------------- | ---------------------------------- |
+| Overlay / Workbench | `layouts/Overlay.vue`、`layouts/Main.vue` | 窗口壳                             |
+| 聊天 UI             | `components/chat/*`                       | 消息列表、时间线、工具卡片、输入栏 |
+| Stores              | `stores/chat.ts` 等                       | 会话消息、设置、模型选择           |
+| IPC                 | `services/ipc/`                           | 类型化 invoke 与事件订阅           |
+| 流式批处理          | `services/chat/rafBatch.ts`、`main.ts`    | delta RAF 合并                     |
+| 设置页              | `pages/Settings/`                         | 服务商 / Agent / MCP / skills      |
 
 ---
 
@@ -215,44 +235,51 @@ sequenceDiagram
   participant R as AgentRunner
   participant P as AIProvider
   participant T as Tools
+  participant CM as ConversationManager
 
   FE->>IPC: invoke("chat")
   IPC->>CS: send(session, message, prefs)
   alt 会话已有活跃 assistant
     CS->>AR: soft_inject
   else 新回合
-    CS->>CS: 落库 user + pending assistant
+    CS->>CM: 落库 user + pending assistant
     CS->>AR: create_run + collect_context
     CS->>SM: spawn stream task
     SM->>R: run(ChatRequest, tx)
     loop 直至终态 finish_reason
       R->>P: stream(request)
       P-->>SM: Delta / Reasoning / Status / ToolCall
+      SM->>CM: append_work_timeline_text
       SM-->>FE: chat-delta / chat-reasoning / chat-status
       opt tool_calls 非空
         R->>T: execute serial or parallel
+        T->>CM: upsert_tool_activity（+ timeline Tool）
         T-->>FE: tool-started / tool-finished
         R->>R: 工具结果写回 messages
       end
     end
+    SM->>CM: update_message（Done + content/reasoning/timeline）
     SM-->>FE: chat-finished or chat-error
   end
 ```
 
-回合中追问走 `soft_inject` 分支，不会新建 assistant 气泡。
+回合中追问走 `soft_inject`，不会新建 assistant 气泡。
 
 ### 6.2 前端投影
 
-```text
-Tauri emit
-  → src/main.ts 监听
-  → createRafBatch（仅 delta / reasoning）
-  → chatStore.applyStreamDeltas | finishMessage | failMessage | setActivityStatus
-  → MessageList / 活动指示器
+```mermaid
+flowchart LR
+  Emit[Tauri emit] --> Listen[src/main.ts 监听]
+  Listen -->|delta / reasoning| RAF[createRafBatch]
+  Listen -->|tool / finish / error| Sync[立即更新 store]
+  RAF --> Store[chatStore.applyStreamDeltas]
+  Sync --> Store
+  Store --> UI[MessageList / AgentWorkDetails]
 ```
 
 Provider 内可重试的传输错误会在再次尝试前发出 `chat-status`，
-`kind = stream_retry:{attempt}:{max}`。Store 清空该消息的半截 assistant 内容，避免 token 重复拼接。
+`kind = stream_retry:{attempt}:{max}`。Store 清空该消息半截内容；后端同时
+`reset_work_timeline`，避免重复拼接。
 
 ### 6.3 调用栈（检索用）
 
@@ -272,7 +299,7 @@ commands/chat.rs::chat
 
 ## 7. 编排 — AgentRunner 循环
 
-`AgentRunner::run` 是聊天、eval 与子 Agent 的**唯一**编排主轴。`agent_loop/` 中的策略模块挂接在该主轴上。
+`AgentRunner::run` 是聊天、eval 与子 Agent 的**唯一**编排主轴。
 
 ```mermaid
 stateDiagram-v2
@@ -293,22 +320,117 @@ stateDiagram-v2
   StopBreaker --> [*]
 ```
 
-| 模块               | 关注点                                                                    |
-| ------------------ | ------------------------------------------------------------------------- |
-| `stream_turn`      | 将一轮 Provider 流折叠为 content / reasoning / tool_calls，并转发 UI 事件 |
-| `tools`            | 串行 / 并行调度；工具 activity 事件                                       |
-| `challenge`        | 空完成 / 校验门禁；必要时再开一轮                                         |
-| `mid_turn_compact` | 上下文窗口压力下的压缩                                                    |
-| `soft_inject`      | 在安全边界合并排队中的用户追问                                            |
-| `failure`          | 连续失败 / 同错重复的熔断                                                 |
+| 模块               | 关注点                                                    |
+| ------------------ | --------------------------------------------------------- |
+| `stream_turn`      | 将一轮 Provider 流折叠为 content / reasoning / tool_calls |
+| `tools`            | 串行 / 并行调度；工具 activity 事件                       |
+| `challenge`        | 空完成 / 校验门禁                                         |
+| `mid_turn_compact` | 上下文窗口压力下的压缩                                    |
+| `soft_inject`      | 在安全边界合并排队中的用户追问                            |
+| `failure`          | 连续失败 / 同错重复的熔断                                 |
 
-**Ask 与 Agent** 通过工具 Schema 暴露与审批策略（设置）约束，而不是单独的 Runner。Ask 不开放写文件 / Shell / Git；Agent 在审批模式（如一律允许、每次询问）下开放。
+### Ask 与 Agent
+
+通过**工具 Schema 暴露**与**审批策略**约束，而不是单独的 Runner。Ask 不开放写文件 / Shell / Git；Agent 在审批模式下开放。
+
+### AgentRunner 与 AgentRuntime
+
+|            | AgentRunner                  | AgentRuntime                                         |
+| ---------- | ---------------------------- | ---------------------------------------------------- |
+| 回答的问题 | 「模型下一步做什么？」       | 「本轮 run 是否活跃 / 已取消 / 可注入？」            |
+| 拥有       | 流式回合、工具批次、完成门禁 | Run id、epoch、soft-inject 队列、事件桥              |
+| 调用方向   | 由 `StreamManager` 调用      | 创建 run；流式委托给 `StreamManager` → `AgentRunner` |
+
+`core/agent/` 下的 Planner / Executor **不是**第二套对话 Agent 循环。
 
 ---
 
-## 8. 事件契约（领域 → UI）
+## 8. 工作时间线（交错 UI）
 
-事件定义于 `core/event::BusEvent`，由 `adapters/tauri_events.rs` 投影。聊天主表面事件：
+叙述与工具卡片必须按真实发生顺序展示。
+
+```mermaid
+flowchart TB
+  subgraph Timeline["ChatMessage.work_timeline"]
+    R1[Reasoning 段]
+    T1[Tool 引用]
+    C1[Content 段]
+    T2[Tool 引用]
+    C2[Content 段]
+  end
+
+  R1 --> T1 --> C1 --> T2 --> C2
+```
+
+| 类型        | 产生时机                       | 持久化                             |
+| ----------- | ------------------------------ | ---------------------------------- |
+| `reasoning` | 流式思考增量                   | 同类型合并到末尾项；随消息落盘     |
+| `content`   | 流式正文增量                   | 同上                               |
+| `tool`      | 某 activity id **首次** upsert | 锚定在开始时刻；状态更新不重复插入 |
+
+前端 `AgentWorkDetails` 渲染时间线；对旧历史或缺增量的整块回复做 trailing reconcile。
+
+---
+
+## 9. 持久化与崩溃恢复
+
+```mermaid
+flowchart TB
+  Live[内存 ConversationManager] -->|终态更新 / 工具完成| DB[(chat_messages SQLite)]
+  Live -->|流式 delta| J[(chat_journal_events)]
+  Boot[应用启动] --> Hydrate[hydrate_orphaned_from_journal]
+  Hydrate --> Settle[结算 pending/streaming + running tools]
+  Settle --> DB
+```
+
+| 存储                  | 内容                                                                               |
+| --------------------- | ---------------------------------------------------------------------------------- |
+| `chat_messages`       | content、reasoning、tool_activities、**work_timeline**、tool_calls、status、tokens |
+| `chat_journal_events` | 进行中回合的压缩 delta 快照                                                        |
+| 会话元数据            | 标题、工作区绑定                                                                   |
+| Token 用量记录        | Provider 上报时的按 run 记账                                                       |
+
+启动时对孤儿 `pending` / `streaming` 消息做 journal 回填并结算到终态，避免 UI 卡在「执行中」。
+
+---
+
+## 10. 上下文组装
+
+回合流式开始前组装提示词栈（system → rules/memories → context → history → 当前用户）：
+
+```mermaid
+flowchart LR
+  SYS[System prompt md] --> SLOT[prompt/slots]
+  RULE[工作区规则] --> SLOT
+  MEM[记忆] --> SLOT
+  IDE[IDE / 选区 / Office] --> SLOT
+  HIST[历史消息] --> SLOT
+  USER[当前用户回合] --> SLOT
+  SLOT --> REQ[ChatRequest.messages]
+```
+
+解析优先级见 `prompts/context.md` 与 `core/context` providers。
+
+---
+
+## 11. 工具、审批与 Skills
+
+```mermaid
+flowchart TB
+  Model[Model tool_calls] --> Reg[ToolRegistry]
+  Reg --> Mode{Ask / Agent / plan / read_only?}
+  Mode -->|拦截| Deny[省略 Schema 或拒绝]
+  Mode -->|允许| Appr[审批策略]
+  Appr -->|询问用户| UI[ask_user / 权限 UI]
+  Appr -->|允许| Exec[Builtin / Skill / MCP / Office / Subagent]
+  Exec --> Act[ToolActivity + work_timeline]
+```
+
+Skills 位于 `src-tauri/prompts/skills/`（含厂商资源）。调用时常注入 playbook，并可按子 Agent 执行（可选 `read_only`）。
+
+---
+
+## 12. 事件契约（领域 → UI）
 
 | BusEvent        | Tauri 事件                       | 消费效果                       |
 | --------------- | -------------------------------- | ------------------------------ |
@@ -324,7 +446,35 @@ stateDiagram-v2
 
 ---
 
-## 9. 扩展点
+## 13. 会话 / 工作区模型
+
+| 类型       | 绑定         | 典型入口                  |
+| ---------- | ------------ | ------------------------- |
+| 快速提问   | 无工作区     | IDE 外悬浮窗              |
+| 工作区会话 | 绑定文件夹   | IDE 前台、`/work`、选择器 |
+| 置顶       | 用户置顶标记 | 工作台侧栏                |
+
+悬浮窗与工作台共享会话存储；「在工作台打开」复用同一 `session_id`。
+
+---
+
+## 14. 更新 / 发布数据流
+
+```mermaid
+flowchart LR
+  Tag[git tag v*] --> CI[release.yml]
+  CI --> MSI[AAAi_x_x64.msi + .sig]
+  CI --> LJ[latest.json]
+  MSI --> GH[GitHub Release assets]
+  LJ --> GH
+  App[已安装 AAAi] -->|updater 插件| GH
+```
+
+细节见 [release.zh-CN.md](./release.zh-CN.md)。
+
+---
+
+## 15. 扩展点
 
 | 目标         | 首选挂接点                                         |
 | ------------ | -------------------------------------------------- |
@@ -333,19 +483,22 @@ stateDiagram-v2
 | 新回合策略   | `core/chat/agent_loop` 模块，由 `AgentRunner` 调用 |
 | 新窗口表面   | Tauri window label + `src/main.ts` 启动分支        |
 | 外部上下文源 | `core/context` provider                            |
+| 新 Skill     | `src-tauri/prompts/skills/*.md`（按需加资源）      |
 
 避免在 `AgentRunner` 之外平行再造一套 Agent 循环。
 
 ---
 
-## 10. 相关源码入口
+## 16. 相关源码入口
 
-| 关注点                 | 从此处开始                                               |
-| ---------------------- | -------------------------------------------------------- |
-| 应用启动 / 托盘 / 热键 | `src-tauri/src/lib.rs`                                   |
-| 聊天 IPC               | `commands/chat.rs`                                       |
-| 发送与上下文组装       | `core/chat/service.rs`                                   |
-| 流式生命周期           | `core/chat/stream.rs`                                    |
-| Agent 循环             | `core/chat/agent.rs`、`core/chat/agent_loop/`            |
-| Run 壳                 | `core/agent/runtime/`                                    |
-| 前端 IPC 与流式批处理  | `src/services/ipc/`、`src/main.ts`、`src/stores/chat.ts` |
+| 关注点                    | 从此处开始                                               |
+| ------------------------- | -------------------------------------------------------- |
+| 应用启动 / 托盘 / 热键    | `src-tauri/src/lib.rs`                                   |
+| 聊天 IPC                  | `commands/chat.rs`                                       |
+| 发送与上下文组装          | `core/chat/service.rs`                                   |
+| 流式生命周期 + 时间线文本 | `core/chat/stream.rs`                                    |
+| 时间线持久化              | `core/chat/conversation_manager.rs`、`core/chat/db.rs`   |
+| Agent 循环                | `core/chat/agent.rs`、`core/chat/agent_loop/`            |
+| Run 壳                    | `core/agent/runtime/`                                    |
+| 前端 IPC 与流式批处理     | `src/services/ipc/`、`src/main.ts`、`src/stores/chat.ts` |
+| 时间线 UI                 | `src/components/chat/AgentWorkDetails.vue`               |

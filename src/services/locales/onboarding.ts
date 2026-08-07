@@ -44,7 +44,7 @@ export const onboardingEn: Record<OnboardingI18nKey, string> = {
   "onboarding.hotkeyTitle": "Summon with Alt · Alt",
   "onboarding.hotkeySubtitle":
     "Double-tap Alt anywhere to open the AAAi overlay. Ask, paste, and keep working without leaving your flow.",
-  "onboarding.hotkeyHint": "Primary shortcut (double modifier)",
+  "onboarding.hotkeyHint": "Primary shortcut — two quick taps (not a long hold)",
   "onboarding.hotkeyGesture": "Alt",
   "onboarding.finish": "Enter workspace",
   "onboarding.customName": "Provider name",
@@ -55,10 +55,7 @@ export const onboardingEn: Record<OnboardingI18nKey, string> = {
   "onboarding.stepOf": "Step {current} of {total}",
 };
 
-export const onboardingLocales: Record<
-  AppLanguage,
-  Partial<Record<OnboardingI18nKey, string>>
-> = {
+export const onboardingLocales: Record<AppLanguage, Partial<Record<OnboardingI18nKey, string>>> = {
   "en-US": {},
   "zh-CN": {
     "onboarding.welcomeTitle": "欢迎您使用 AAAi",
@@ -78,7 +75,7 @@ export const onboardingLocales: Record<
     "onboarding.hotkeyTitle": "连按 Alt · Alt 呼出",
     "onboarding.hotkeySubtitle":
       "在任意界面连按两次 Alt，即可唤出 AAAi 悬浮窗，提问与粘贴无需打断当前工作。",
-    "onboarding.hotkeyHint": "主快捷键（双击修饰键）",
+    "onboarding.hotkeyHint": "主快捷键：快速连按两下短按（长按无效）",
     "onboarding.hotkeyGesture": "Alt",
     "onboarding.finish": "进入工作区",
     "onboarding.customName": "提供商名称",

@@ -62,6 +62,15 @@ export interface McpServerConfig {
   args?: string[];
   env?: Array<[string, string]>;
   enabled?: boolean;
+  /** Remote icon URL captured at install time (Smithery / catalog). */
+  iconUrl?: string;
+  /** Stable registry identity, e.g. Smithery `qualifiedName`. */
+  qualifiedName?: string;
+  /** Upstream registry record id (Smithery server.id). */
+  registryId?: string;
+  homepage?: string;
+  /** `smithery` | `catalog` | `manual` */
+  source?: string;
 }
 
 export interface CustomProviderConfig {
@@ -124,6 +133,10 @@ export interface AppSettings {
   lspEnabled: boolean;
   lspServers: LspServerConfig[];
   mcpServers: McpServerConfig[];
+  /** Smithery API key for hosted MCP (query `api_key`, avoids local browser OAuth). */
+  smitheryApiKey: string;
+  /** Built-in skill names opted in for the agent. Empty = none enabled. */
+  enabledBuiltinSkills: string[];
   opacity: number;
   chatModel: string;
   chatModelProvider: string;
@@ -176,6 +189,8 @@ export interface AppSettingsPatch {
   lspEnabled?: boolean;
   lspServers?: LspServerConfig[];
   mcpServers?: McpServerConfig[];
+  smitheryApiKey?: string;
+  enabledBuiltinSkills?: string[];
   opacity?: number;
   chatModel?: string;
   chatModelProvider?: string;

@@ -500,6 +500,97 @@ pub fn current_primary_hotkey() -> PrimaryHotkey {
     *lock_recover(shared_primary_hotkey())
 }
 
+/// Max gap between first tap release and second tap press (must feel intentional).
+pub const DOUBLE_TAP_GAP_MAX_MS: u64 = 300;
+/// Min gap — ignore bounce / OS duplicate events from a single physical tap.
+pub const DOUBLE_TAP_GAP_MIN_MS: u64 = 50;
+/// Each press must be a short tap; long hold (Alt menu / Alt+Tab prep) cancels.
+pub const TAP_MAX_HOLD_MS: u64 = 200;
+
+/// Detect a deliberate double-tap of the primary modifier (default: Alt).
+///
+/// Fires only when the user completes two short, clean taps in quick succession:
+/// press→release→press→release, each hold ≤ [`TAP_MAX_HOLD_MS`], gap in
+/// [`DOUBLE_TAP_GAP_MIN_MS`, `DOUBLE_TAP_GAP_MAX_MS`]. Any other key, a long hold,
+/// or a slow second tap resets the sequence.
+#[derive(Debug, Default)]
+pub struct DoubleModifierDetector {
+    modifier: Option<PrimaryHotkey>,
+    modifier_down: bool,
+    chorded: bool,
+    /// Timestamp of the current modifier KeyPress.
+    press_ms: Option<u64>,
+    /// Timestamp of the previous clean tap's KeyRelease.
+    last_tap_release_ms: Option<u64>,
+    /// Second press landed inside the double-tap window; fire on its KeyRelease
+    /// so the modifier is up before clipboard capture simulates Ctrl+Insert.
+    pending_trigger: bool,
+}
+
+impl DoubleModifierDetector {
+    pub fn sync_modifier(&mut self, modifier: PrimaryHotkey) {
+        if self.modifier != Some(modifier) {
+            *self = Self {
+                modifier: Some(modifier),
+                ..Self::default()
+            };
+        }
+    }
+
+    pub fn key_press(&mut self, key: Key, now: u64, modifier: PrimaryHotkey) {
+        self.sync_modifier(modifier);
+        if modifier.matches(key) {
+            // Ignore OS key-repeat while the modifier is held.
+            if self.modifier_down {
+                return;
+            }
+            self.modifier_down = true;
+            self.chorded = false;
+            self.press_ms = Some(now);
+            self.pending_trigger = self.last_tap_release_ms.is_some_and(|last| {
+                let gap = now.saturating_sub(last);
+                (DOUBLE_TAP_GAP_MIN_MS..=DOUBLE_TAP_GAP_MAX_MS).contains(&gap)
+            });
+            return;
+        }
+
+        // Any other key aborts — both mid-hold chords and between-tap typing.
+        self.chorded = self.modifier_down;
+        self.last_tap_release_ms = None;
+        self.pending_trigger = false;
+    }
+
+    pub fn key_release(&mut self, key: Key, now: u64, modifier: PrimaryHotkey) -> bool {
+        self.sync_modifier(modifier);
+        if !modifier.matches(key) || !self.modifier_down {
+            return false;
+        }
+
+        self.modifier_down = false;
+        let hold_ms = self
+            .press_ms
+            .map(|press| now.saturating_sub(press))
+            .unwrap_or(u64::MAX);
+        self.press_ms = None;
+
+        if self.chorded || hold_ms > TAP_MAX_HOLD_MS {
+            self.chorded = false;
+            self.last_tap_release_ms = None;
+            self.pending_trigger = false;
+            return false;
+        }
+
+        if self.pending_trigger {
+            self.pending_trigger = false;
+            self.last_tap_release_ms = None;
+            return true;
+        }
+
+        self.last_tap_release_ms = Some(now);
+        false
+    }
+}
+
 fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,
@@ -556,5 +647,69 @@ mod tests {
         detector.key_press(Key::ControlLeft, &chord);
         detector.key_press(Key::Space, &chord);
         assert!(!detector.key_release(Key::Space, &chord));
+    }
+
+    #[test]
+    fn double_alt_requires_two_quick_short_taps() {
+        let mut d = DoubleModifierDetector::default();
+        let m = PrimaryHotkey::Alt;
+        // Tap 1
+        d.key_press(Key::Alt, 1_000, m);
+        assert!(!d.key_release(Key::Alt, 1_080, m));
+        // Tap 2 within window
+        d.key_press(Key::Alt, 1_200, m);
+        assert!(d.key_release(Key::Alt, 1_280, m));
+    }
+
+    #[test]
+    fn double_alt_ignores_slow_second_tap() {
+        let mut d = DoubleModifierDetector::default();
+        let m = PrimaryHotkey::Alt;
+        d.key_press(Key::Alt, 1_000, m);
+        assert!(!d.key_release(Key::Alt, 1_080, m));
+        let second = 1_080 + DOUBLE_TAP_GAP_MAX_MS + 1;
+        d.key_press(Key::Alt, second, m);
+        assert!(!d.key_release(Key::Alt, second + 80, m));
+    }
+
+    #[test]
+    fn double_alt_ignores_long_hold() {
+        let mut d = DoubleModifierDetector::default();
+        let m = PrimaryHotkey::Alt;
+        d.key_press(Key::Alt, 1_000, m);
+        assert!(!d.key_release(Key::Alt, 1_000 + TAP_MAX_HOLD_MS + 1, m));
+        d.key_press(Key::Alt, 1_250, m);
+        assert!(!d.key_release(Key::Alt, 1_320, m));
+    }
+
+    #[test]
+    fn double_alt_cancels_when_other_key_between_taps() {
+        let mut d = DoubleModifierDetector::default();
+        let m = PrimaryHotkey::Alt;
+        d.key_press(Key::Alt, 1_000, m);
+        assert!(!d.key_release(Key::Alt, 1_080, m));
+        d.key_press(Key::KeyA, 1_120, m);
+        d.key_press(Key::Alt, 1_200, m);
+        assert!(!d.key_release(Key::Alt, 1_280, m));
+    }
+
+    #[test]
+    fn double_alt_cancels_chord_like_alt_tab() {
+        let mut d = DoubleModifierDetector::default();
+        let m = PrimaryHotkey::Alt;
+        d.key_press(Key::Alt, 1_000, m);
+        d.key_press(Key::Tab, 1_050, m);
+        assert!(!d.key_release(Key::Alt, 1_100, m));
+    }
+
+    #[test]
+    fn double_alt_ignores_bounce_gap() {
+        let mut d = DoubleModifierDetector::default();
+        let m = PrimaryHotkey::Alt;
+        d.key_press(Key::Alt, 1_000, m);
+        assert!(!d.key_release(Key::Alt, 1_080, m));
+        // Second press too soon after release — treat as bounce, not a new tap.
+        d.key_press(Key::Alt, 1_080 + DOUBLE_TAP_GAP_MIN_MS - 1, m);
+        assert!(!d.key_release(Key::Alt, 1_200, m));
     }
 }

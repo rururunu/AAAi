@@ -5,17 +5,31 @@ description: Convert documents between Markdown, DOCX, PDF, HTML, LaTeX with pan
 
 # Pandoc document conversion
 
-Playbook adapted from [plinde-pandoc](https://github.com/plinde/pandoc). Universal format conversion — prefer this over hand-rolling when the source is already Markdown or you need PDF/HTML export.
+Universal format conversion — prefer this over hand-rolling when the source is already Markdown or you need PDF/HTML export.
 
-## When to use which skill
+## When to use this skill
 
-| Need | Skill |
+Use `pandoc` whenever the task is a **format conversion** with no structural editing involved: Markdown → docx/pdf/html, or docx → Markdown for reading/extraction.
+
+## When NOT to use this skill
+
+| Need | Use instead |
 |---|---|
-| **md → docx / pdf / html** | **this skill (`pandoc`)** |
-| **docx → md** (read/extract) | **this skill (`pandoc`)** |
-| **Edit existing .docx OOXML / tracked changes** | **`docx`** |
-| **Build new Word from Python** | **`generate_word`** |
-| **技术标 / 评分表** | **`generate_bid_tech`** |
+| Edit existing .docx OOXML / tracked changes | `docx` |
+| Build new Word document from a Python script with custom logic | `generate_word` |
+| 技术标 / 评分表 | `generate_bid_tech` |
+
+<example>
+User: "把 README.md 转成 PDF 发给客户。"
+Reasoning: pure Markdown → PDF conversion, no editing of an existing binary document, no scoring-table requirements.
+Correct: `pandoc README.md -o README.pdf` (or with styling flags as needed).
+</example>
+
+<example>
+User: "这份 Word 合同里有修订记录，帮我看看改了哪些条款。"
+Reasoning: extracting content from an existing docx that has tracked changes is a read task pandoc can do (`--track-changes=accept/all`), but *modifying* the tracked changes themselves is OOXML editing.
+Correct: use `pandoc` to read/extract; switch to `docx` only if the user then asks to add or accept specific changes.
+</example>
 
 ## Prerequisites
 

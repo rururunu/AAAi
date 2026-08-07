@@ -18,9 +18,23 @@
 
 <p align="center">
   <img alt="platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" />
-  <img alt="release" src="https://img.shields.io/badge/version-v0.2.0-4D6BFE?style=flat-square" />
+  <img alt="release" src="https://img.shields.io/badge/version-v0.2.1-4D6BFE?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-Unlicense-3DA639?style=flat-square" />
+  <img alt="stack" src="https://img.shields.io/badge/Tauri%202%20%2B%20Vue%203%20%2B%20Rust-black?style=flat-square" />
 </p>
+
+## Documentation
+
+| Document                                                 | Description                                             |
+| -------------------------------------------------------- | ------------------------------------------------------- |
+| [Architecture overview](./docs/architecture-overview.md) | Layers, control flow, agent loop, persistence, events   |
+| [Maintenance guide](./docs/maintenance.md)               | Local setup, debug, tests, release hygiene, conventions |
+| [Releases & updates](./docs/release.md)                  | MSI signing, `latest.json`, GitHub Releases / CI        |
+| [Docs index](./docs/README.md)                           | Full documentation map (EN / 中文)                      |
+
+中文文档入口：[README.zh-CN.md](./README.zh-CN.md) · [架构](./docs/architecture-overview.zh-CN.md) · [维护](./docs/maintenance.zh-CN.md) · [发布](./docs/release.zh-CN.md)
+
+---
 
 ## Overlay — ask from anywhere
 
@@ -61,6 +75,8 @@ editor keeps working if AAAi is not running).
 - [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=AAAi.aaai-ide-context)
 - [IntelliJ Platform](https://plugins.jetbrains.com/plugin/33163-aaai-ide-context)
 
+---
+
 ## Workbench — manage every session
 
 The workbench is the full desktop surface. Temporary Quick Ask chats from the
@@ -88,7 +104,7 @@ you can inspect every addition and deletion before you move on.
 
 - Task list and verification stay on the conversation timeline.
 - Open **Review** to browse side-by-side or unified diffs.
-- Undo is available for changes AAAi applied in the current session.
+- Undo is available for changes AAAi applied in the current session (checkpoints).
 
 ### Settings
 
@@ -105,32 +121,54 @@ Highlights:
 - Split multimodal analysis when the primary model cannot see images.
 - Reasoning effort, reasoning language, and whether to show the thinking process.
 - Tool approval mode (for example Always allow) and Agent work display density.
+- Large context window toggle (≈1M vs 64k budgets for compaction / turn limits).
 
-## Ask and Agent
+---
 
-- **Ask** — read-only tools (files, search, LSP, configured read-only tools). No file writes, Shell, or Git.
-- **Agent** — default mode; can read and edit files, run PowerShell, and use Git, Skills, MCP, and sub-agents. Approval policy is controlled in Settings.
+## Capabilities
 
-### More capabilities
+### Ask and Agent
 
-- **Microsoft Office** — when Word, Excel, or PowerPoint is running, AAAi can collect document context and use `word_*` / `excel_*` / `ppt_*` tools.
+| Mode      | Intent                              | Typical tools                                       |
+| --------- | ----------------------------------- | --------------------------------------------------- |
+| **Ask**   | Read-only investigation             | Read files, search, LSP, configured read-only tools |
+| **Agent** | Default; change the world carefully | Files, PowerShell, Git, Skills, MCP, sub-agents     |
+
+Ask withholds write / shell / git capabilities. Agent enables them subject to the
+approval policy in Settings. Both modes share the same `AgentRunner` loop —
+policy is enforced at tool schema exposure and approval gates, not via a second
+orchestrator.
+
+### Timeline and tool cards
+
+Assistant turns interleave **reasoning**, **reply text**, and **tool activity**
+in chronological order (live stream and persisted history). Long thinking no
+longer hides the commands and edits that happened mid-thought.
+
+### Integrations
+
+- **Microsoft Office** — when Word, Excel, or PowerPoint is running, AAAi can collect document context and use `word_*` / `excel_*` / `ppt_*` tools (COM).
+- **Skills** — built-in and vendor skills (docx, pandoc, research, review, bid tech, …) loaded as playbooks; can run as sub-agents.
+- **MCP** — connect stdio / remote MCP servers (including Smithery-oriented helpers).
+- **LSP** — language server diagnostics when configured.
 - **Pinned-image badge** — optional PixPin / Snipaste badge to open a chat with that image attached.
 - **Sub-agents** — split larger work across child agents while progress stays visible in the main thread.
+- **Memory** — local memory tools; optional mem0 cloud sync.
+- **Web search** — Serper or Tavily when an API key is set.
 
 ### Model providers
 
-- DeepSeek with an API key.
-- Gemini through Google sign-in (Antigravity OAuth).
-- Custom OpenAI-compatible providers (Base URL, API key, model list).
+- **DeepSeek** — API key.
+- **Gemini** — Google sign-in (Antigravity OAuth).
+- **Custom** — OpenAI-compatible Base URL, API key, and model list.
 
-For image input with a text-only primary model, set a vision model or enable multimodal split analysis in Settings.
+For image input with a text-only primary model, set a vision model or enable
+multimodal split analysis in Settings.
 
-### Optional services
+The composer shows session token estimates and context usage; you can pick model
+and thinking level while tools run.
 
-- Web search — Serper or Tavily API key.
-- MCP servers, LSP, local memory, and optional mem0 cloud sync.
-
-The composer shows context usage; you can pick model and thinking level while tools run.
+---
 
 ## Install and get started
 
@@ -146,6 +184,8 @@ The composer shows context usage; you can pick model and thinking level while to
 | <kbd>/</kbd>                                        | Slash commands                                  |
 | <kbd>Esc</kbd>                                      | Clear input; closes the window in some contexts |
 
+---
+
 ## Data and privacy
 
 API keys, OAuth tokens, settings, and chat history stay on your machine by
@@ -155,32 +195,46 @@ device only when you send them to your configured provider.
 Enabling web search, MCP, or mem0 cloud sync also sends data to those services —
 enable them only if you accept their policies.
 
-## Technical architecture
+Crash recovery uses a local SQLite journal so interrupted streaming turns can be
+settled on next launch instead of leaving the UI stuck “executing”.
+
+---
+
+## Technical architecture (summary)
 
 AAAi is a single-process **Tauri 2** application: WebView2 surfaces (Vue 3 + Pinia)
 for presentation, and a Rust host for OS integration, chat domain logic, model I/O,
 and tool execution.
 
-Architecture views (context, layers, control flow, agent orchestration):
-[English](./docs/architecture-overview.md) ·
-[简体中文](./docs/architecture-overview.zh-CN.md).
-
 ```mermaid
 flowchart TB
-  subgraph L1["L1 Presentation"]
-    UI["Workbench / Overlay / Settings"]
+  subgraph Surfaces["Window surfaces"]
+    WB[Workbench]
+    OV[Overlay]
+    ST[Settings]
+    PV[Image preview]
   end
-  subgraph L2["L2 Bridge"]
-    IPC["services/ipc ↔ commands/"]
+
+  subgraph Host["AAAi.exe — Rust host"]
+    CMD[commands / EventBus]
+    CHAT[ChatService · StreamManager · AgentRunner]
+    TOOLS[ToolRegistry · Skills · MCP · Office]
+    STORE[(SQLite + journal)]
   end
-  subgraph L3["L3 Domain"]
-    Core["ChatService · AgentRuntime · AgentRunner · tools · ai"]
+
+  subgraph External["External"]
+    LLM[Model providers]
+    IDE[IDE plugins]
+    OFFICE[Word / Excel / PPT]
   end
-  subgraph L4["L4 Adapters"]
-    Adapt["runtime · office · mcp · hotkey · window"]
-  end
-  UI --> IPC --> Core --> Adapt
-  Core -->|HTTPS| LLM[Model providers]
+
+  WB & OV & ST & PV <-->|IPC invoke + events| CMD
+  CMD --> CHAT
+  CHAT --> TOOLS
+  CHAT --> STORE
+  CHAT -->|HTTPS stream| LLM
+  IDE -->|context push| Host
+  TOOLS -->|COM| OFFICE
 ```
 
 Primary chat path:
@@ -192,10 +246,20 @@ invoke("chat")
   → AgentRunner::run  (agent_loop policies)
   → AIProvider::stream + ToolRegistry
   → EventBus → chat-* / tool-* events → Pinia
+  → ConversationManager persists messages (+ work_timeline)
 ```
 
 `AgentRunner` owns the model↔tools loop. `AgentRuntime` owns run lifecycle
 (cancel, soft-inject, debug). Do not add a second chat loop beside `AgentRunner`.
+
+Full diagrams (layers, sequencing, persistence, frontend batching, updates):
+[Architecture overview](./docs/architecture-overview.md) ·
+[简体中文](./docs/architecture-overview.zh-CN.md).
+
+Maintainer workflows (debug, tests, version bump, data paths):
+[Maintenance guide](./docs/maintenance.md).
+
+---
 
 ## Run from source
 
@@ -207,15 +271,18 @@ pnpm tauri:dev
 ```
 
 ```bash
-pnpm check   # typecheck + lint + test
+pnpm check          # typecheck + lint + frontend tests
+cd src-tauri && cargo test --lib
 pnpm tauri:build
 ```
 
 The installer is written to `src-tauri/target/release/bundle/msi/` as
-`AAAi_0.2.0_x64.msi` (no `_en-US` suffix).
+`AAAi_0.2.1_x64.msi` (no `_en-US` suffix).
 
 For releases and in-app updates (`latest.json`, signing, GitHub Releases), see
 [Releases and remote updates](./docs/release.md) · [简体中文](./docs/release.zh-CN.md).
+
+---
 
 ## License
 

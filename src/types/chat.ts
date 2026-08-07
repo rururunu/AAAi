@@ -180,6 +180,7 @@ export interface ChatMessage {
 
 export type WorkTimelineItem =
   | { type: "reasoning"; id: string; content: string }
+  | { type: "content"; id: string; content: string }
   | { type: "tool"; id: string; toolActivityId: string };
 
 export interface ChatSendRequest {

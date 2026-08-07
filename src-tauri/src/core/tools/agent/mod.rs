@@ -297,6 +297,7 @@ pub async fn execute_async_tool(
         }
         "run_skill" => {
             let skill = args["name"].as_str().unwrap_or("");
+            crate::core::tools::skills::require_skill_enabled(skill)?;
             let task = args["task"].as_str().unwrap_or("");
             let prompt = if matches!(skill, "generate_bid_tech" | "bid_tech" | "tech_bid") {
                 crate::core::tools::skills::build_bid_tech_prompt(task, &ctx.workspace_root)?
@@ -340,12 +341,14 @@ pub async fn execute_async_tool(
             .await
         }
         "generate_bid_tech" => {
+            crate::core::tools::skills::require_skill_enabled("generate_bid_tech")?;
             let task = args["task"].as_str().unwrap_or("");
             let prompt =
                 crate::core::tools::skills::build_bid_tech_prompt(task, &ctx.workspace_root)?;
             run_subagent(ctx, &prompt, false, None).await
         }
         "review_bid_tech" => {
+            crate::core::tools::skills::require_skill_enabled("review_bid_tech")?;
             let task = args["task"].as_str().unwrap_or("");
             let prompt = crate::core::tools::skills::build_review_bid_tech_prompt(
                 task,
@@ -354,6 +357,7 @@ pub async fn execute_async_tool(
             run_subagent(ctx, &prompt, true, None).await
         }
         "docx" => {
+            crate::core::tools::skills::require_skill_enabled("docx")?;
             let task = args["task"].as_str().unwrap_or("");
             let prompt = crate::core::tools::skills::build_docx_prompt(task, &ctx.workspace_root)?;
             run_subagent(ctx, &prompt, false, None).await
@@ -373,6 +377,7 @@ async fn run_builtin_skill(
     task: &str,
     read_only: bool,
 ) -> Result<String, ToolError> {
+    crate::core::tools::skills::require_skill_enabled(skill)?;
     let body = crate::core::tools::skills::resolve_skill_body(skill)?;
     let prompt = format!("{body}\n\n## Task\n{task}");
     run_subagent(ctx, &prompt, read_only, None).await

@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -13,6 +14,67 @@ use crate::core::tools::registry::ToolRegistry;
 
 mod bid_tech_assets;
 mod docx_assets;
+
+fn enabled_builtin_skills() -> &'static Mutex<HashSet<String>> {
+    static ENABLED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    ENABLED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Apply Settings → Skills opt-in list for built-in skills (default: none).
+pub fn configure_enabled_builtin_skills(names: &[String]) {
+    let mut set = HashSet::new();
+    for name in names {
+        if let Some(canon) = canonical_builtin_name(name) {
+            set.insert(canon.to_string());
+        } else {
+            let cleaned = name.trim();
+            if !cleaned.is_empty() {
+                set.insert(cleaned.to_string());
+            }
+        }
+    }
+    if let Ok(mut lock) = enabled_builtin_skills().lock() {
+        *lock = set;
+    }
+}
+
+/// Canonical built-in skill id, or `None` if `name` is not a known built-in / alias.
+pub fn canonical_builtin_name(name: &str) -> Option<&'static str> {
+    match name.trim() {
+        "explore" | "explore_codebase" => Some("explore"),
+        "research" | "research_topic" => Some("research"),
+        "review" | "review_code" => Some("review"),
+        "security_review" | "review_security" => Some("security_review"),
+        "generate_word" | "generate_docx" | "word" => Some("generate_word"),
+        "generate_bid_tech" | "bid_tech" | "tech_bid" => Some("generate_bid_tech"),
+        "review_bid_tech" | "bid_tech_review" => Some("review_bid_tech"),
+        "docx" | "docx_skill" | "word_docx" => Some("docx"),
+        "pandoc" | "convert_document" | "md2docx" => Some("pandoc"),
+        _ => None,
+    }
+}
+
+/// Whether a skill name may be used by the agent.
+/// User-installed skills are always allowed; built-ins require Settings opt-in.
+pub fn is_skill_enabled(name: &str) -> bool {
+    match canonical_builtin_name(name) {
+        Some(canon) => enabled_builtin_skills()
+            .lock()
+            .map(|set| set.contains(canon))
+            .unwrap_or(false),
+        None => true,
+    }
+}
+
+pub fn require_skill_enabled(name: &str) -> Result<(), ToolError> {
+    if is_skill_enabled(name) {
+        return Ok(());
+    }
+    let label = canonical_builtin_name(name).unwrap_or(name);
+    Err(ToolError::new(format!(
+        "built-in skill `{label}` is disabled; enable it in Settings → Skills → Built-in"
+    )))
+}
 
 /// Materialize `.aaai/bid_tech` helpers for async skill runners outside this module.
 pub(crate) fn materialize_bid_tech_for_workspace(
@@ -77,6 +139,27 @@ pub struct SkillInfo {
     pub title: String,
     pub description: String,
     pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualified_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slug: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub categories: Option<Vec<String>>,
+    /// Origin of the install: `smithery` | `file` | `builtin`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 const EXPLORE_SKILL: &str = include_str!("../../../../prompts/skills/explore.md");
@@ -264,13 +347,107 @@ fn skill_info_from_body(name: &str, source: &str, body: &str, path: Option<Strin
     if title.is_empty() {
         title = name.to_string();
     }
-    SkillInfo {
+    let mut info = SkillInfo {
         name: name.to_string(),
         source: source.to_string(),
         title,
         description,
-        path,
+        path: path.clone(),
+        icon_url: None,
+        qualified_name: None,
+        registry_id: None,
+        namespace: None,
+        slug: None,
+        homepage: None,
+        git_url: None,
+        verified: None,
+        categories: None,
+        origin: None,
+    };
+    if let Some(dir) = path.as_ref().map(PathBuf::from) {
+        merge_skill_meta(&mut info, &dir);
+    } else if source == "user" {
+        if let Ok(dir) = user_skill_dir(name) {
+            merge_skill_meta(&mut info, &dir);
+        }
     }
+    info
+}
+
+fn skill_meta_path(dir: &Path) -> PathBuf {
+    dir.join("meta.json")
+}
+
+fn merge_skill_meta(info: &mut SkillInfo, dir: &Path) {
+    let path = skill_meta_path(dir);
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return;
+    };
+    if let Some(v) = value.get("displayName").and_then(|v| v.as_str()) {
+        if !v.trim().is_empty() {
+            info.title = v.trim().to_string();
+        }
+    }
+    if let Some(v) = value.get("description").and_then(|v| v.as_str()) {
+        if !v.trim().is_empty() {
+            info.description = v.trim().to_string();
+        }
+    }
+    info.icon_url = value
+        .get("iconUrl")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or(info.icon_url.clone());
+    info.qualified_name = value
+        .get("qualifiedName")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    info.registry_id = value
+        .get("registryId")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    info.namespace = value
+        .get("namespace")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    info.slug = value.get("slug").and_then(|v| v.as_str()).map(str::to_string);
+    info.homepage = value
+        .get("homepage")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    info.git_url = value
+        .get("gitUrl")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    info.verified = value.get("verified").and_then(|v| v.as_bool());
+    info.categories = value.get("categories").and_then(|v| {
+        v.as_array().map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+    });
+    info.origin = value
+        .get("source")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or(info.origin.clone());
+}
+
+pub fn write_skill_meta(name: &str, meta: &serde_json::Value) -> Result<(), ToolError> {
+    let dir = user_skill_dir(name)?;
+    if !dir.is_dir() {
+        return Err(ToolError::new(format!("skill `{name}` is not installed")));
+    }
+    let path = skill_meta_path(&dir);
+    let raw = serde_json::to_string_pretty(meta)
+        .map_err(|error| ToolError::new(format!("invalid skill meta: {error}")))?;
+    fs::write(path, raw)?;
+    Ok(())
 }
 
 pub fn list_skill_infos() -> Result<Vec<SkillInfo>, ToolError> {
@@ -350,6 +527,47 @@ pub fn install_skill_at(source: &Path, name: Option<&str>) -> Result<SkillInfo, 
         &name,
         "user",
         &body,
+        Some(dest.to_string_lossy().to_string()),
+    ))
+}
+
+/// Install a skill from markdown content (e.g. downloaded from Smithery).
+pub fn install_skill_from_markdown(
+    name: &str,
+    content: &str,
+    meta: Option<&serde_json::Value>,
+) -> Result<SkillInfo, ToolError> {
+    let name = sanitize_skill_name(name)?;
+    if list_builtin_names().iter().any(|b| *b == name) {
+        return Err(ToolError::new(format!(
+            "cannot manage built-in skill `{name}`"
+        )));
+    }
+    let body = content.trim();
+    if body.is_empty() {
+        return Err(ToolError::new("skill markdown is empty"));
+    }
+
+    let dest = skills_dir().join(&name);
+    if dest.exists() {
+        if dest.is_dir() {
+            fs::remove_dir_all(&dest)?;
+        } else {
+            fs::remove_file(&dest)?;
+        }
+    }
+    fs::create_dir_all(&dest)?;
+    fs::write(dest.join("SKILL.md"), body)?;
+    if let Some(meta) = meta {
+        let raw = serde_json::to_string_pretty(meta)
+            .map_err(|error| ToolError::new(format!("invalid skill meta: {error}")))?;
+        fs::write(skill_meta_path(&dest), raw)?;
+    }
+
+    Ok(skill_info_from_body(
+        &name,
+        "user",
+        body,
         Some(dest.to_string_lossy().to_string()),
     ))
 }
@@ -446,6 +664,7 @@ impl Tool for LoadSkillTool {
     }
     fn execute(&self, _ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         let name = args["name"].as_str().unwrap_or("");
+        require_skill_enabled(name)?;
         resolve_skill_body(name)
     }
 }
@@ -472,6 +691,7 @@ impl Tool for RunSkillTool {
     }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         let name = args["name"].as_str().unwrap_or("");
+        require_skill_enabled(name)?;
         let task = args["task"].as_str().unwrap_or("");
         let prompt = if matches!(name, "generate_bid_tech" | "bid_tech" | "tech_bid") {
             build_bid_tech_prompt(task, &ctx.workspace_root)?
@@ -508,7 +728,10 @@ impl Tool for ListSkillsTool {
         true
     }
     fn execute(&self, _ctx: &ToolContext, _args: Value) -> Result<String, ToolError> {
-        let infos = list_skill_infos()?;
+        let infos = list_skill_infos()?
+            .into_iter()
+            .filter(|info| info.source != "builtin" || is_skill_enabled(&info.name))
+            .collect::<Vec<_>>();
         if infos.is_empty() {
             return Ok("(no skills)".into());
         }
@@ -615,7 +838,11 @@ macro_rules! shortcut_skill {
             fn read_only(&self) -> bool {
                 true
             }
+            fn available(&self) -> bool {
+                is_skill_enabled($skill)
+            }
             fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+                require_skill_enabled($skill)?;
                 let task = args["task"].as_str().unwrap_or("");
                 let body = resolve_skill_body($skill)?;
                 let prompt = format!("{body}\n\n## Task\n{task}");
@@ -670,7 +897,11 @@ impl Tool for GenerateWordTool {
     fn read_only(&self) -> bool {
         false
     }
+    fn available(&self) -> bool {
+        is_skill_enabled("generate_word")
+    }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        require_skill_enabled("generate_word")?;
         let task = args["task"].as_str().unwrap_or("");
         let body = resolve_skill_body("generate_word")?;
         let prompt = format!("{body}\n\n## Task\n{task}");
@@ -703,7 +934,11 @@ impl Tool for GenerateBidTechTool {
     fn read_only(&self) -> bool {
         false
     }
+    fn available(&self) -> bool {
+        is_skill_enabled("generate_bid_tech")
+    }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        require_skill_enabled("generate_bid_tech")?;
         let task = args["task"].as_str().unwrap_or("");
         let prompt = build_bid_tech_prompt(task, &ctx.workspace_root)?;
         run_subagent_sync(ctx, &prompt, false)
@@ -735,7 +970,11 @@ impl Tool for ReviewBidTechTool {
     fn read_only(&self) -> bool {
         true
     }
+    fn available(&self) -> bool {
+        is_skill_enabled("review_bid_tech")
+    }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        require_skill_enabled("review_bid_tech")?;
         let task = args["task"].as_str().unwrap_or("");
         let prompt = build_review_bid_tech_prompt(task, &ctx.workspace_root)?;
         run_subagent_sync(ctx, &prompt, true)
@@ -767,7 +1006,11 @@ impl Tool for DocxSkillTool {
     fn read_only(&self) -> bool {
         false
     }
+    fn available(&self) -> bool {
+        is_skill_enabled("docx")
+    }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        require_skill_enabled("docx")?;
         let task = args["task"].as_str().unwrap_or("");
         let prompt = build_docx_prompt(task, &ctx.workspace_root)?;
         run_subagent_sync(ctx, &prompt, false)
@@ -799,7 +1042,11 @@ impl Tool for PandocSkillTool {
     fn read_only(&self) -> bool {
         false
     }
+    fn available(&self) -> bool {
+        is_skill_enabled("pandoc")
+    }
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
+        require_skill_enabled("pandoc")?;
         let task = args["task"].as_str().unwrap_or("");
         let body = resolve_skill_body("pandoc")?;
         let prompt = format!("{body}\n\n## Task\n{task}");

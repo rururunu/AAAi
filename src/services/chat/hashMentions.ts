@@ -18,6 +18,10 @@ export type HashMentionItem = {
   title: string;
   /** Optional one-line description. */
   description?: string;
+  /** Remote or local icon URL (Smithery / cached install icon). */
+  iconUrl?: string | null;
+  /** Vendor / registry identity, e.g. `gmail` or `adamamer20/paper-search-mcp-openai`. */
+  vendor?: string;
 };
 
 /** Token written into the user message. */
@@ -52,7 +56,7 @@ export function activeHashMention(message: string): { query: string; start: numb
 
 /**
  * Filter skill/MCP catalog by the typed query after `#`.
- * Supports prefixes like `skill:`, `mcp:`, or free-text against id/title/desc.
+ * Supports prefixes like `skill:`, `mcp:`, or free-text against id/title/vendor/desc.
  */
 export function filterHashMentionItems(
   items: readonly HashMentionItem[],
@@ -82,14 +86,19 @@ export function filterHashMentionItems(
     .filter((item) => {
       if (kindFilter && item.kind !== kindFilter) return false;
       if (!needle) return true;
-      const hay = `${item.id} ${item.title} ${item.description ?? ""}`.toLowerCase();
+      const hay =
+        `${item.id} ${item.title} ${item.vendor ?? ""} ${item.description ?? ""}`.toLowerCase();
       return hay.includes(needle);
     })
     .sort((left, right) => {
       const leftId = left.id.toLowerCase();
       const rightId = right.id.toLowerCase();
-      const leftRank = needle && leftId.startsWith(needle) ? 0 : 1;
-      const rightRank = needle && rightId.startsWith(needle) ? 0 : 1;
+      const leftVendor = (left.vendor ?? "").toLowerCase();
+      const rightVendor = (right.vendor ?? "").toLowerCase();
+      const leftRank =
+        needle && (leftId.startsWith(needle) || leftVendor.startsWith(needle)) ? 0 : 1;
+      const rightRank =
+        needle && (rightId.startsWith(needle) || rightVendor.startsWith(needle)) ? 0 : 1;
       if (leftRank !== rightRank) return leftRank - rightRank;
       if (left.kind !== right.kind) return left.kind === "skill" ? -1 : 1;
       return leftId.localeCompare(rightId);

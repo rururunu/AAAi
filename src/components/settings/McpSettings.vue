@@ -2,21 +2,72 @@
   <section class="mcp-settings">
     <AppConfirmDialog ref="confirmDialogRef" />
 
+    <DialogRoot :open="smitheryConfigOpen" @update:open="onSmitheryConfigOpenChange">
+      <DialogPortal>
+        <DialogOverlay class="smithery-config-overlay" />
+        <DialogContent class="smithery-config-dialog" :aria-describedby="undefined">
+          <DialogTitle class="smithery-config-title">
+            {{ smitheryConfigRequired ? copy.smitheryApiKeyMissingTitle : copy.smitheryConfig }}
+          </DialogTitle>
+          <DialogDescription class="smithery-config-desc">
+            {{ smitheryConfigRequired ? copy.smitheryApiKeyMissingDesc : copy.smitheryApiKeyHint }}
+          </DialogDescription>
+          <label class="smithery-config-label" for="smithery-api-key">
+            {{ copy.smitheryApiKey }}
+          </label>
+          <input
+            id="smithery-api-key"
+            v-model="smitheryApiKeyDraft"
+            class="smithery-key-input"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            :placeholder="copy.smitheryApiKeyPlaceholder"
+            @keydown.enter.prevent="confirmSmitheryConfig"
+          />
+          <button type="button" class="smithery-config-link" @click="openSmitheryApiKeysPage">
+            {{ copy.smitheryGetApiKey }}
+            <ExternalLink class="size-3" />
+          </button>
+          <div class="smithery-config-actions">
+            <Button variant="outline" size="sm" class="h-8" @click="closeSmitheryConfig">
+              {{ copy.cancel }}
+            </Button>
+            <Button size="sm" class="h-8" :disabled="saving" @click="confirmSmitheryConfig">
+              {{ copy.save }}
+            </Button>
+          </div>
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
+
     <header>
       <div>
         <h2>{{ copy.title }}</h2>
-        <p>{{ copy.description }}</p>
       </div>
-      <Button
-        v-if="tab === 'installed'"
-        size="sm"
-        class="h-8 gap-1.5"
-        :disabled="Boolean(editor)"
-        @click="startCreate"
-      >
-        <Plus class="size-3.5" />
-        {{ copy.add }}
-      </Button>
+      <div class="header-actions">
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-8 gap-1.5"
+          :title="copy.smitheryConfig"
+          :aria-label="copy.smitheryConfig"
+          @click="openSmitheryConfig()"
+        >
+          <Settings class="size-3.5" />
+          {{ copy.smitheryConfig }}
+        </Button>
+        <Button
+          v-if="tab === 'installed'"
+          size="sm"
+          class="h-8 gap-1.5"
+          :disabled="Boolean(editor)"
+          @click="startCreate"
+        >
+          <Plus class="size-3.5" />
+          {{ copy.add }}
+        </Button>
+      </div>
     </header>
 
     <div class="tabs" role="tablist">
@@ -38,7 +89,17 @@
         :aria-selected="tab === 'catalog'"
         @click="openCatalog"
       >
-        {{ copy.tabCatalog }}
+        {{ copy.tabBuiltin }}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="tab"
+        :class="{ active: tab === 'smithery' }"
+        :aria-selected="tab === 'smithery'"
+        @click="openSmithery"
+      >
+        {{ copy.tabSmithery }}
       </button>
     </div>
 
@@ -58,15 +119,19 @@
     <McpInstalledList
       v-if="tab === 'installed'"
       :servers="filtered"
+      :statuses="statusMap"
+      :busy-id="authBusyId"
       :disabled-actions="Boolean(editor)"
       :copy="copy"
       @toggle="toggleEnabled"
       @edit="startEdit"
       @remove="remove"
+      @connect="connectServer"
+      @reauthenticate="reauthenticateServer"
     />
 
     <McpCatalogPanel
-      v-else
+      v-else-if="tab === 'catalog'"
       v-model:query="catalogQuery"
       :loading="catalogLoading"
       :error="catalogError"
@@ -83,14 +148,39 @@
       @install="addFromCatalog"
       @load-more="loadMoreCatalog"
     />
+
+    <McpSmitheryPanel
+      v-else-if="tab === 'smithery'"
+      v-model:query="smitheryQuery"
+      :loading="smitheryLoading"
+      :loaded="smitheryLoaded"
+      :error="smitheryError"
+      :servers="smitheryServers"
+      :has-more="smitheryHasMore"
+      :saving="saving"
+      :installing-id="smitheryInstallingId"
+      :is-installed="isSmitheryInstalled"
+      :labels="smitheryLabels"
+      @search="runSmitherySearch"
+      @load-more="loadMoreSmithery"
+      @install="installFromSmithery"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import { Plus } from "@lucide/vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { ExternalLink, Plus, Settings } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import { AppConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  DialogContent,
+  DialogDescription,
+  DialogOverlay,
+  DialogPortal,
+  DialogRoot,
+  DialogTitle,
+} from "reka-ui";
 import { invoke } from "@tauri-apps/api/core";
 import {
   type CatalogEntry,
@@ -99,6 +189,31 @@ import {
   filterInstallable,
   searchMcpRegistry,
 } from "@/services/mcp/registry";
+import {
+  isMcpRemoteServer,
+  isSameMcpInstall,
+  mcpRemoteServerUrl,
+  withoutApiKeyParam,
+  withPinnedMcpRemote,
+  type McpConnectResult,
+  type McpServerRuntimeStatus,
+} from "@/services/mcp/remote";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  buildSmitheryMcpInstall,
+  deleteSmitheryConnection,
+  getSmitheryMcpServer,
+  isSmitheryConnectProxyUrl,
+  isSmitheryHostedServer,
+  mcpInstallId,
+  resolveSmitheryDeploymentUrl,
+  searchSmitheryMcpServers,
+  sortSmitheryMcpByDownloads,
+  upsertSmitheryConnection,
+  withSmitheryConnectProxyArgs,
+  type SmitheryMcpServerSummary,
+} from "@/services/mcp/smithery";
+import { cacheInstallIcon, clearInstallIcon } from "@/services/iconCache";
 import { tr } from "@/services/i18n";
 import type { McpI18nKey } from "@/services/locales/mcp";
 import { useSettingStore } from "@/stores/setting";
@@ -106,12 +221,13 @@ import type { McpServerConfig } from "@/types/setting";
 import McpCatalogPanel from "./mcp/McpCatalogPanel.vue";
 import McpInstalledList from "./mcp/McpInstalledList.vue";
 import McpServerEditor from "./mcp/McpServerEditor.vue";
+import McpSmitheryPanel from "./mcp/McpSmitheryPanel.vue";
 
 const props = defineProps<{ query?: string }>();
 const settingStore = useSettingStore();
 const saving = ref(false);
 const error = ref("");
-const tab = ref<"installed" | "catalog">("installed");
+const tab = ref<"installed" | "catalog" | "smithery">("installed");
 const catalogQuery = ref("");
 const catalogLoading = ref(false);
 const catalogError = ref("");
@@ -120,6 +236,26 @@ const catalogNextCursor = ref<string | undefined>();
 const catalogLoaded = ref(false);
 const confirmDialogRef = ref<InstanceType<typeof AppConfirmDialog> | null>(null);
 const runtimeSupport = ref<McpRuntimeSupport>({ npm: true, pypi: true });
+
+const smitheryQuery = ref("");
+const smitheryServers = ref<SmitheryMcpServerSummary[]>([]);
+const smitheryLoading = ref(false);
+const smitheryError = ref("");
+const smitheryLoaded = ref(false);
+const smitheryPage = ref(1);
+const smitheryTotalPages = ref(1);
+const smitheryInstallingId = ref("");
+const smitheryApiKeyDraft = ref("");
+const smitheryConfigOpen = ref(false);
+const smitheryConfigRequired = ref(false);
+const smitheryConfigContinue = ref<"none" | "smithery-tab">("none");
+const statusMap = ref<Record<string, McpServerRuntimeStatus>>({});
+const authBusyId = ref("");
+/** Full Smithery install kept while the user fills required env vars. */
+const pendingSmitheryInstall = ref<McpServerConfig | null>(null);
+
+const SMITHERY_API_KEYS_URL = "https://smithery.ai/account/api-keys";
+let statusTimer: ReturnType<typeof setInterval> | null = null;
 
 type EditorState = {
   mode: "create" | "edit";
@@ -147,7 +283,6 @@ const metaLabels = computed(() => ({
 
 const copy = computed(() => ({
   title: t("mcp.title"),
-  description: t("mcp.description"),
   add: t("mcp.add"),
   empty: t("mcp.empty"),
   id: t("mcp.id"),
@@ -172,27 +307,67 @@ const copy = computed(() => ({
   idExists: t("mcp.idExists"),
   commandRequired: t("mcp.commandRequired"),
   tabInstalled: t("mcp.tabInstalled"),
-  tabCatalog: t("mcp.tabCatalog"),
+  tabBuiltin: t("mcp.tabBuiltin"),
+  tabSmithery: t("mcp.tabSmithery"),
   catalogSearch: t("mcp.catalogSearch"),
   search: t("mcp.search"),
   searching: t("mcp.searching"),
-  catalogHint: t("mcp.catalogHint"),
   curatedTitle: t("mcp.curatedTitle"),
   curatedBadge: t("mcp.curatedBadge"),
   registryTitle: t("mcp.registryTitle"),
   catalogEmpty: t("mcp.catalogEmpty"),
   install: t("mcp.install"),
+  installing: t("mcp.installing"),
   added: t("mcp.added"),
   needsEnv: (names: string) => t("mcp.needsEnv", { names }),
   loadMore: t("mcp.loadMore"),
   resultCount: (count: number) => t("mcp.resultCount", { count }),
+  smitherySearch: t("mcp.smitherySearch"),
+  smitheryEmpty: t("mcp.smitheryEmpty"),
+  smitheryNoRemote: t("mcp.smitheryNoRemote"),
+  verified: t("mcp.verified"),
+  expand: t("mcp.expand"),
+  collapse: t("mcp.collapse"),
+  authConnected: t("mcp.authConnected"),
+  authSaved: t("mcp.authSaved"),
+  authNeeded: t("mcp.authNeeded"),
+  authLocal: t("mcp.authLocal"),
+  authDisabled: t("mcp.authDisabled"),
+  reauthenticate: t("mcp.reauthenticate"),
+  connectNow: t("mcp.connectNow"),
+  connecting: t("mcp.connecting"),
+  smitheryConfig: t("mcp.smitheryConfig"),
+  smitheryApiKey: t("mcp.smitheryApiKey"),
+  smitheryApiKeyPlaceholder: t("mcp.smitheryApiKeyPlaceholder"),
+  smitheryApiKeyHint: t("mcp.smitheryApiKeyHint"),
+  smitheryGetApiKey: t("mcp.smitheryGetApiKey"),
+  smitheryApiKeyRequired: t("mcp.smitheryApiKeyRequired"),
+  smitheryApiKeyMissingTitle: t("mcp.smitheryApiKeyMissingTitle"),
+  smitheryApiKeyMissingDesc: t("mcp.smitheryApiKeyMissingDesc"),
+  smitheryAuthPending: t("mcp.smitheryAuthPending"),
+  smitheryOpenConnections: t("mcp.smitheryOpenConnections"),
 }));
+
+const smitheryLabels = computed(() => ({
+  smitherySearch: copy.value.smitherySearch,
+  smitheryEmpty: copy.value.smitheryEmpty,
+  search: copy.value.search,
+  searching: copy.value.searching,
+  install: copy.value.install,
+  installing: copy.value.installing,
+  added: copy.value.added,
+  verified: copy.value.verified,
+  expand: copy.value.expand,
+  collapse: copy.value.collapse,
+}));
+
+const smitheryHasMore = computed(
+  () => smitheryLoaded.value && smitheryPage.value < smitheryTotalPages.value,
+);
+
 const servers = computed(() => settingStore.mcpServers ?? []);
 const curatedEntries = computed(() =>
-  filterInstallable(
-    filterCurated(catalogQuery.value || props.query || ""),
-    runtimeSupport.value,
-  ),
+  filterInstallable(filterCurated(catalogQuery.value || props.query || ""), runtimeSupport.value),
 );
 const visibleRegistryEntries = computed(() =>
   filterInstallable(registryEntries.value, runtimeSupport.value),
@@ -228,6 +403,277 @@ async function refreshRuntimeSupport() {
   } catch {
     // Fail open so catalog still works if IPC unavailable during HMR.
     runtimeSupport.value = { npm: true, pypi: true };
+  }
+}
+
+async function refreshServerStatuses() {
+  try {
+    const list = await invoke<McpServerRuntimeStatus[]>("list_mcp_server_statuses");
+    const next: Record<string, McpServerRuntimeStatus> = {};
+    for (const item of list) next[item.id] = item;
+    statusMap.value = next;
+  } catch {
+    // Status is best-effort; keep last known map on IPC hiccups.
+  }
+}
+
+function startStatusPolling() {
+  stopStatusPolling();
+  void refreshServerStatuses();
+  statusTimer = setInterval(() => {
+    void refreshServerStatuses();
+  }, 2000);
+}
+
+function stopStatusPolling() {
+  if (statusTimer) {
+    clearInterval(statusTimer);
+    statusTimer = null;
+  }
+}
+
+/** After install/save: wait for background register, then ensure this server connects (OAuth if needed). */
+async function ensureConnectedAfterInstall(server: McpServerConfig) {
+  if (server.enabled === false) return;
+  tab.value = "installed";
+  error.value = "";
+  // Smithery hosted servers need an API key + website account link first.
+  if (isSmitheryHostedServer(server)) {
+    if (!hasSmitheryApiKey()) {
+      openSmitheryConfig({ required: true });
+      return;
+    }
+    authBusyId.value = server.id;
+    try {
+      if (!(await ensureSmitheryConnectionAuthorized(server))) return;
+    } finally {
+      authBusyId.value = "";
+    }
+  }
+  authBusyId.value = server.id;
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const result = await invoke<McpConnectResult>("connect_mcp_server", {
+      serverId: server.id,
+    });
+    statusMap.value = { ...statusMap.value, [server.id]: result.status };
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+    await refreshServerStatuses();
+  } finally {
+    authBusyId.value = "";
+  }
+}
+
+async function openSmitheryPage(server: McpServerConfig) {
+  const url =
+    server.homepage?.trim() ||
+    (server.qualifiedName
+      ? `https://smithery.ai/servers/${server.qualifiedName}`
+      : SMITHERY_API_KEYS_URL);
+  try {
+    await openUrl(url);
+  } catch (err) {
+    console.error("open smithery page failed:", err);
+  }
+}
+
+/**
+ * Ask Smithery's Connections API for this server's real status before spawning mcp-remote.
+ * When connected, rewrite mcp-remote to the Smithery Connect proxy so tool calls use the
+ * vaulted Google/OAuth credentials (instead of hitting Arcade upstream and landing on
+ * example.com/?flow_id=...).
+ * https://smithery.ai/docs/use/connect
+ */
+async function resolveSmitheryUpstreamUrl(server: McpServerConfig): Promise<string | null> {
+  const current = mcpRemoteServerUrl(server);
+  if (current && !isSmitheryConnectProxyUrl(current)) {
+    return withoutApiKeyParam(current);
+  }
+  const qn = server.qualifiedName?.trim();
+  if (!qn) return null;
+  try {
+    const detail = await getSmitheryMcpServer(qn);
+    return resolveSmitheryDeploymentUrl(detail);
+  } catch (err) {
+    console.error("resolve smithery upstream failed:", err);
+    return null;
+  }
+}
+
+async function routeServerThroughSmitheryConnect(
+  server: McpServerConfig,
+  namespace: string,
+  connectionId: string,
+): Promise<McpServerConfig> {
+  const proxy = `https://api.smithery.ai/connect/${encodeURIComponent(namespace)}/${encodeURIComponent(connectionId)}/mcp`;
+  const current = mcpRemoteServerUrl(server);
+  if (current && withoutApiKeyParam(current) === proxy) return server;
+  const nextArgs = withPinnedMcpRemote(
+    withSmitheryConnectProxyArgs(server.args ?? [], namespace, connectionId),
+  );
+  const updated: McpServerConfig = { ...server, args: nextArgs };
+  const nextServers = servers.value.map((item) => (item.id === server.id ? updated : item));
+  await persist(nextServers);
+  return updated;
+}
+
+async function ensureSmitheryConnectionAuthorized(
+  server: McpServerConfig,
+  options?: { forceReauth?: boolean },
+): Promise<boolean> {
+  const apiKey = settingStore.smitheryApiKey.trim();
+  if (!apiKey) return true;
+  const upstream = await resolveSmitheryUpstreamUrl(server);
+  if (!upstream) return true;
+  try {
+    if (options?.forceReauth) {
+      // Drop the vaulted connection so the next upsert returns auth_required + setupUrl.
+      await deleteSmitheryConnection(server, apiKey);
+    }
+    const status = await upsertSmitheryConnection(server, upstream, apiKey);
+    if (status.state === "connected" && !options?.forceReauth) {
+      await routeServerThroughSmitheryConnect(server, status.namespace, status.connectionId);
+      return true;
+    }
+    if (status.setupUrl) {
+      await openUrl(status.setupUrl);
+    } else {
+      await openSmitheryPage(server);
+    }
+    if (status.state === "connected" && options?.forceReauth) {
+      // Already connected again somehow — still open setup/homepage above for re-link.
+      await routeServerThroughSmitheryConnect(server, status.namespace, status.connectionId);
+    }
+    error.value = status.message || copy.value.smitheryAuthPending;
+    return false;
+  } catch (err) {
+    console.error("smithery connection check failed:", err);
+    if (options?.forceReauth) {
+      error.value = err instanceof Error ? err.message : String(err);
+      return false;
+    }
+    return true;
+  }
+}
+
+async function openSmitheryApiKeysPage() {
+  try {
+    await openUrl(SMITHERY_API_KEYS_URL);
+  } catch (err) {
+    console.error("open smithery api keys page failed:", err);
+  }
+}
+
+function hasSmitheryApiKey() {
+  return Boolean(settingStore.smitheryApiKey.trim());
+}
+
+function openSmitheryConfig(options?: {
+  required?: boolean;
+  continueTo?: "none" | "smithery-tab";
+}) {
+  smitheryApiKeyDraft.value = settingStore.smitheryApiKey;
+  smitheryConfigRequired.value = options?.required ?? false;
+  smitheryConfigContinue.value = options?.continueTo ?? "none";
+  smitheryConfigOpen.value = true;
+}
+
+function closeSmitheryConfig() {
+  smitheryConfigOpen.value = false;
+  smitheryConfigRequired.value = false;
+  smitheryConfigContinue.value = "none";
+  smitheryApiKeyDraft.value = settingStore.smitheryApiKey;
+}
+
+function onSmitheryConfigOpenChange(nextOpen: boolean) {
+  if (!nextOpen) {
+    closeSmitheryConfig();
+    return;
+  }
+  smitheryConfigOpen.value = true;
+}
+
+async function confirmSmitheryConfig() {
+  error.value = "";
+  await saveSmitheryApiKey();
+  if (smitheryConfigRequired.value && !hasSmitheryApiKey()) {
+    error.value = copy.value.smitheryApiKeyRequired;
+    return;
+  }
+  const continueTo = smitheryConfigContinue.value;
+  closeSmitheryConfig();
+  if (continueTo === "smithery-tab" && hasSmitheryApiKey()) {
+    await enterSmitheryTab();
+  }
+}
+
+async function connectServer(server: McpServerConfig) {
+  error.value = "";
+  if (isSmitheryHostedServer(server)) {
+    if (!hasSmitheryApiKey()) {
+      openSmitheryConfig({ required: true });
+      return;
+    }
+    authBusyId.value = server.id;
+    try {
+      if (!(await ensureSmitheryConnectionAuthorized(server))) return;
+    } finally {
+      authBusyId.value = "";
+    }
+  }
+  authBusyId.value = server.id;
+  try {
+    const result = await invoke<McpConnectResult>("connect_mcp_server", {
+      serverId: server.id,
+    });
+    statusMap.value = { ...statusMap.value, [server.id]: result.status };
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+    await refreshServerStatuses();
+  } finally {
+    authBusyId.value = "";
+  }
+}
+
+async function reauthenticateServer(server: McpServerConfig) {
+  error.value = "";
+  if (isSmitheryHostedServer(server)) {
+    if (!hasSmitheryApiKey()) {
+      openSmitheryConfig({ required: true });
+      return;
+    }
+    authBusyId.value = server.id;
+    try {
+      // Force Smithery hosted setupUrl even when Connection status is already connected.
+      await ensureSmitheryConnectionAuthorized(server, { forceReauth: true });
+      await refreshServerStatuses();
+    } finally {
+      authBusyId.value = "";
+    }
+    return;
+  }
+  authBusyId.value = server.id;
+  try {
+    const result = await invoke<McpConnectResult>("reauthenticate_mcp_server", {
+      serverId: server.id,
+    });
+    statusMap.value = { ...statusMap.value, [server.id]: result.status };
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+    await refreshServerStatuses();
+  } finally {
+    authBusyId.value = "";
+  }
+}
+
+async function saveSmitheryApiKey() {
+  const next = smitheryApiKeyDraft.value.trim();
+  if (next === settingStore.smitheryApiKey) return;
+  try {
+    await settingStore.update({ smitheryApiKey: next });
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
   }
 }
 
@@ -277,6 +723,22 @@ function isInstalled(id: string) {
   return servers.value.some((server) => server.id === id);
 }
 
+function isSmitheryInstalled(server: SmitheryMcpServerSummary) {
+  return servers.value.some((installed) =>
+    isSameMcpInstall(installed, {
+      id: server.id,
+      qualifiedName: server.qualifiedName,
+      installId: mcpInstallId(server),
+    }),
+  );
+}
+
+async function cacheIconForInstall(server: McpServerConfig) {
+  const url = server.iconUrl?.trim();
+  if (!url) return;
+  await cacheInstallIcon("mcp", server.id, url);
+}
+
 function serverTitle(server: McpServerConfig) {
   return server.title?.trim() || server.id;
 }
@@ -311,6 +773,7 @@ function startEdit(server: McpServerConfig) {
 
 function cancelEdit() {
   editor.value = null;
+  pendingSmitheryInstall.value = null;
   error.value = "";
 }
 
@@ -347,14 +810,23 @@ async function saveEditor() {
 
   const title = draft.title.trim();
   const description = draft.description.trim();
+  const pending =
+    draft.mode === "create" && pendingSmitheryInstall.value?.id === id
+      ? pendingSmitheryInstall.value
+      : null;
   const nextServer: McpServerConfig = {
     id,
     ...(title ? { title } : {}),
     ...(description ? { description } : {}),
     command,
-    args: parseArgs(draft.argsText),
+    args: withPinnedMcpRemote(parseArgs(draft.argsText)),
     env: parseEnv(draft.envText),
     enabled: draft.enabled,
+    ...(pending?.iconUrl ? { iconUrl: pending.iconUrl } : {}),
+    ...(pending?.qualifiedName ? { qualifiedName: pending.qualifiedName } : {}),
+    ...(pending?.registryId ? { registryId: pending.registryId } : {}),
+    ...(pending?.homepage ? { homepage: pending.homepage } : {}),
+    ...(pending?.source ? { source: pending.source } : {}),
   };
   const next =
     draft.mode === "create"
@@ -362,6 +834,17 @@ async function saveEditor() {
       : servers.value.map((server) => (server.id === id ? nextServer : server));
   await persist(next);
   editor.value = null;
+  pendingSmitheryInstall.value = null;
+  if (draft.mode === "create") {
+    void cacheIconForInstall(nextServer);
+    if (isMcpRemoteServer(nextServer)) {
+      void ensureConnectedAfterInstall(nextServer);
+    } else {
+      void refreshServerStatuses();
+    }
+  } else {
+    void refreshServerStatuses();
+  }
 }
 
 async function toggleEnabled(server: McpServerConfig) {
@@ -369,6 +852,7 @@ async function toggleEnabled(server: McpServerConfig) {
     item.id === server.id ? { ...item, enabled: item.enabled === false } : item,
   );
   await persist(next);
+  void refreshServerStatuses();
 }
 
 async function remove(server: McpServerConfig) {
@@ -380,7 +864,9 @@ async function remove(server: McpServerConfig) {
   });
   if (!confirmed) return;
   await persist(servers.value.filter((item) => item.id !== server.id));
+  void clearInstallIcon("mcp", server.id);
   if (editor.value?.id === server.id) editor.value = null;
+  void refreshServerStatuses();
 }
 
 function toPlainInstall(entry: CatalogEntry): McpServerConfig {
@@ -391,7 +877,7 @@ function toPlainInstall(entry: CatalogEntry): McpServerConfig {
     ...(title ? { title } : {}),
     ...(description ? { description } : {}),
     command: String(entry.install.command ?? "").trim(),
-    args: [...(entry.install.args ?? [])].map(String),
+    args: withPinnedMcpRemote([...(entry.install.args ?? [])].map(String)),
     env: (entry.install.env ?? []).map(([k, v]) => [String(k), String(v)] as [string, string]),
     enabled: entry.install.enabled !== false,
   };
@@ -425,6 +911,11 @@ async function addFromCatalog(entry: CatalogEntry) {
   }
   try {
     await persist([...servers.value, install]);
+    if (isMcpRemoteServer(install)) {
+      void ensureConnectedAfterInstall(install);
+    } else {
+      void refreshServerStatuses();
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   }
@@ -481,20 +972,155 @@ function openCatalog() {
   if (!catalogLoaded.value) void runCatalogSearch();
 }
 
+async function openSmithery() {
+  if (!hasSmitheryApiKey()) {
+    openSmitheryConfig({ required: true, continueTo: "smithery-tab" });
+    return;
+  }
+  await enterSmitheryTab();
+}
+
+async function enterSmitheryTab() {
+  tab.value = "smithery";
+  if (!smitheryLoaded.value && !smitheryLoading.value) {
+    await runSmitherySearch();
+  }
+}
+
+async function runSmitherySearch() {
+  smitheryLoading.value = true;
+  smitheryError.value = "";
+  smitheryPage.value = 1;
+  try {
+    const result = await searchSmitheryMcpServers(smitheryQuery.value, {
+      page: 1,
+      pageSize: 20,
+    });
+    smitheryServers.value = result.servers;
+    smitheryTotalPages.value = Math.max(1, result.pagination.totalPages || 1);
+    smitheryLoaded.value = true;
+  } catch (err) {
+    smitheryError.value = err instanceof Error ? err.message : String(err);
+    smitheryServers.value = [];
+  } finally {
+    smitheryLoading.value = false;
+  }
+}
+
+async function loadMoreSmithery() {
+  if (!smitheryHasMore.value || smitheryLoading.value) return;
+  smitheryLoading.value = true;
+  smitheryError.value = "";
+  try {
+    const nextPage = smitheryPage.value + 1;
+    const result = await searchSmitheryMcpServers(smitheryQuery.value, {
+      page: nextPage,
+      pageSize: 20,
+    });
+    const seen = new Set(smitheryServers.value.map((s) => s.id));
+    const merged = [...smitheryServers.value];
+    for (const server of result.servers) {
+      if (seen.has(server.id)) continue;
+      seen.add(server.id);
+      merged.push(server);
+    }
+    smitheryServers.value = sortSmitheryMcpByDownloads(merged);
+    smitheryPage.value = nextPage;
+    smitheryTotalPages.value = Math.max(1, result.pagination.totalPages || 1);
+  } catch (err) {
+    smitheryError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    smitheryLoading.value = false;
+  }
+}
+
+async function installFromSmithery(server: SmitheryMcpServerSummary) {
+  if (isSmitheryInstalled(server)) return;
+  smitheryInstallingId.value = server.id;
+  smitheryError.value = "";
+  error.value = "";
+  try {
+    const detail = await getSmitheryMcpServer(server.qualifiedName);
+    const plan = buildSmitheryMcpInstall(
+      {
+        ...detail,
+        iconUrl: detail.iconUrl || server.iconUrl,
+        homepage: detail.homepage || server.homepage,
+      },
+      { apiKey: settingStore.smitheryApiKey },
+    );
+    if (!plan) {
+      smitheryError.value = copy.value.smitheryNoRemote;
+      return;
+    }
+    const { install, requiredEnv } = plan;
+    if (requiredEnv.length) {
+      // Stash full install payload so saveEditor can keep metadata + cache the icon.
+      pendingSmitheryInstall.value = install;
+      editor.value = {
+        mode: "create",
+        id: install.id,
+        title: install.title ?? "",
+        description: install.description ?? "",
+        command: install.command,
+        argsText: (install.args ?? []).join(" "),
+        envText: requiredEnv.map((item) => `${item.name}=`).join("\n"),
+        enabled: true,
+      };
+      tab.value = "installed";
+      error.value = copy.value.needsEnv(requiredEnv.map((item) => item.name).join(", "));
+      return;
+    }
+    await persist([...servers.value, install]);
+    void cacheIconForInstall(install);
+    void ensureConnectedAfterInstall(install);
+  } catch (err) {
+    smitheryError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    smitheryInstallingId.value = "";
+  }
+}
+
 watch(
   () => props.query,
   (value) => {
-    if (tab.value === "catalog" && value != null) {
+    if (value == null) return;
+    if (tab.value === "catalog") {
       catalogQuery.value = value;
       void runCatalogSearch();
+    } else if (tab.value === "smithery") {
+      smitheryQuery.value = value;
+      void runSmitherySearch();
     }
   },
 );
 
 onMounted(() => {
-  if (props.query?.trim()) catalogQuery.value = props.query;
+  smitheryApiKeyDraft.value = settingStore.smitheryApiKey;
+  if (props.query?.trim()) {
+    catalogQuery.value = props.query;
+    smitheryQuery.value = props.query;
+  }
   void refreshRuntimeSupport();
+  startStatusPolling();
 });
+
+onUnmounted(() => {
+  stopStatusPolling();
+});
+
+watch(tab, (value) => {
+  if (value === "installed") void refreshServerStatuses();
+});
+
+watch(
+  () => settingStore.smitheryApiKey,
+  (value) => {
+    if (document.activeElement?.id !== "smithery-api-key") {
+      smitheryApiKeyDraft.value = value;
+    }
+  },
+);
 </script>
 
 <style scoped>
@@ -526,6 +1152,13 @@ header p {
   max-width: 52ch;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
 .tabs {
   display: flex;
   gap: 4px;
@@ -555,5 +1188,99 @@ header p {
   color: #ef4444;
   font-size: 12px;
   line-height: 1.5;
+}
+</style>
+
+<style>
+.smithery-config-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: color-mix(in srgb, #000 48%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.smithery-config-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 51;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--peek-border, rgba(255, 255, 255, 0.14));
+  border-radius: 12px;
+  background: var(--peek-dialog-bg, var(--peek-surface, #252526));
+  color: var(--peek-text, #f3f4f6);
+  box-shadow: 0 18px 48px var(--peek-shadow, rgb(0 0 0 / 28%));
+  transform: translate(-50%, -50%);
+  outline: none;
+}
+
+.smithery-config-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.smithery-config-desc {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-line;
+  word-break: break-all;
+}
+
+.smithery-config-label {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.smithery-config-dialog .smithery-key-input {
+  width: 100%;
+  height: 32px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--foreground);
+}
+
+.smithery-config-dialog .smithery-key-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+}
+
+.smithery-config-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.smithery-config-link:hover {
+  text-decoration: underline;
+}
+
+.smithery-config-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
 }
 </style>

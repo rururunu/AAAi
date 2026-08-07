@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
  * Generate `release/latest.json` for GitHub Releases + Tauri Updater.
  *
  * Usage:
- *   node scripts/generate-latest-json.mjs --tag v0.2.0
- *   node scripts/generate-latest-json.mjs --tag v0.2.0 --notes "Release notes"
+ *   node scripts/generate-latest-json.mjs --tag v0.2.1
+ *   node scripts/generate-latest-json.mjs --tag v0.2.1 --notes "Release notes"
  *
  * Requires a signed release build:
  *   src-tauri/target/release/bundle/msi/AAAi_<version>_x64.msi
@@ -62,7 +62,7 @@ async function findMsiPair(version) {
 
 const options = parseArgs(process.argv.slice(2));
 if (!options.tag) {
-  console.error("[generate-latest-json] missing --tag (example: --tag v0.2.0)");
+  console.error("[generate-latest-json] missing --tag (example: --tag v0.2.1)");
   process.exit(1);
 }
 

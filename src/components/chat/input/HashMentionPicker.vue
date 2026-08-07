@@ -15,20 +15,29 @@
       :class="{ active: index === selectedIndex }"
       role="option"
       :aria-selected="index === selectedIndex"
+      :title="rowTitle(item)"
       @mouseenter="$emit('hover', index)"
       @mousedown.prevent="$emit('select', item)"
     >
-      <span class="hash-kind-badge" :data-kind="item.kind">{{ kindLabel(item.kind) }}</span>
-      <div class="hash-suggestion-text">
-        <span class="hash-suggestion-title">{{ item.title || item.id }}</span>
-        <span v-if="item.description" class="command-desc">{{ item.description }}</span>
-        <span v-else class="command-desc">#{{ item.kind }}:{{ item.id }}</span>
-      </div>
+      <span class="hash-icon" aria-hidden="true">
+        <img
+          v-if="item.iconUrl && !brokenIcons[itemKey(item)]"
+          :src="item.iconUrl"
+          alt=""
+          referrerpolicy="no-referrer"
+          @error="markBroken(item)"
+        />
+        <span v-else class="hash-icon-fallback">{{ fallbackLetter(item) }}</span>
+      </span>
+      <span class="hash-title">{{ item.title || item.id }}</span>
+      <span v-if="item.vendor" class="hash-vendor">{{ item.vendor }}</span>
+      <span class="hash-kind-pill" :data-kind="item.kind">{{ kindLabel(item.kind) }}</span>
     </li>
   </ul>
 </template>
 
 <script setup lang="ts">
+import { reactive, watch } from "vue";
 import type { HashMentionItem, HashResourceKind } from "@/services/chat/hashMentions";
 
 const props = defineProps<{
@@ -47,20 +56,50 @@ defineEmits<{
   select: [item: HashMentionItem];
 }>();
 
+const brokenIcons = reactive<Record<string, boolean>>({});
+
+watch(
+  () => props.items.map((item) => `${item.kind}:${item.id}:${item.iconUrl ?? ""}`).join("|"),
+  () => {
+    for (const key of Object.keys(brokenIcons)) {
+      delete brokenIcons[key];
+    }
+  },
+);
+
+function itemKey(item: HashMentionItem) {
+  return `${item.kind}:${item.id}`;
+}
+
+function markBroken(item: HashMentionItem) {
+  brokenIcons[itemKey(item)] = true;
+}
+
 function kindLabel(kind: HashResourceKind): string {
   return kind === "skill" ? props.skillLabel : props.mcpLabel;
+}
+
+function fallbackLetter(item: HashMentionItem): string {
+  const source = item.title || item.id || "?";
+  return source.trim().charAt(0).toUpperCase() || "?";
+}
+
+function rowTitle(item: HashMentionItem): string {
+  const kind = kindLabel(item.kind);
+  const vendor = item.vendor?.trim();
+  return vendor ? `${kind} · ${vendor}` : `${kind} · ${item.id}`;
 }
 </script>
 
 <style scoped>
 .command-list {
-  --command-row-height: 36px;
-  --command-list-padding: 8px;
+  --command-row-height: 30px;
+  --command-list-padding: 6px;
   --picker-meta-row-height: 28px;
-  --command-list-visible-rows: 8;
+  --command-list-visible-rows: 10;
   list-style: none;
   margin: 0;
-  padding: 4px 0;
+  padding: 3px 0;
   border-bottom: 1px solid var(--peek-border);
   background: var(--peek-list-bg);
   flex: none;
@@ -78,10 +117,11 @@ function kindLabel(kind: HashResourceKind): string {
 .command-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 12px;
-  min-height: var(--command-row-height);
+  gap: 8px;
+  padding: 0 10px;
+  height: var(--command-row-height);
   cursor: default;
+  box-sizing: border-box;
 }
 
 .command-item.active {
@@ -89,54 +129,83 @@ function kindLabel(kind: HashResourceKind): string {
   color: var(--peek-accent);
 }
 
-.hash-kind-badge {
+.hash-icon {
   flex: none;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--peek-muted) 18%, transparent);
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  overflow: visible;
+  display: grid;
+  place-items: center;
+  background: transparent;
+}
+
+.hash-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: transparent;
+}
+
+.hash-icon-fallback {
+  font-size: 9px;
+  font-weight: 700;
   color: var(--peek-muted);
-  text-transform: uppercase;
+  line-height: 1;
 }
 
-.hash-kind-badge[data-kind="skill"] {
-  background: color-mix(in srgb, var(--peek-accent) 16%, transparent);
-  color: var(--peek-accent);
-}
-
-.hash-kind-badge[data-kind="mcp"] {
-  background: color-mix(in srgb, #3b82f6 18%, transparent);
-  color: #60a5fa;
-}
-
-.hash-suggestion-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.hash-suggestion-title {
+.hash-title {
+  flex: none;
+  max-width: 42%;
   font-size: 12px;
+  font-weight: 600;
   color: var(--peek-fg, inherit);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.command-desc {
+.hash-vendor {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
+  font-weight: 500;
   color: var(--peek-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.command-item.active .hash-vendor {
+  color: color-mix(in srgb, var(--peek-accent) 50%, var(--peek-muted));
+}
+
+.hash-kind-pill {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.35;
+}
+
+.hash-kind-pill[data-kind="skill"] {
+  background: color-mix(in srgb, var(--peek-accent) 16%, transparent);
+  color: var(--peek-accent);
+}
+
+.hash-kind-pill[data-kind="mcp"] {
+  background: color-mix(in srgb, #3b82f6 18%, transparent);
+  color: #60a5fa;
+}
+
 .picker-meta {
-  padding: 8px 12px;
+  padding: 6px 10px;
   font-size: 12px;
   color: var(--peek-muted);
 }

@@ -25,6 +25,29 @@ pub struct ToolActivity {
     pub status: String,
 }
 
+/// Chronological marker for one piece of assistant work: a run of reasoning
+/// text, a run of regular reply text, or a tool call — in the order they
+/// actually happened. Persisted alongside the message so history reloads and
+/// crash recovery keep narration interleaved with the tool cards it
+/// describes, instead of collapsing into "all text, then all tools".
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WorkTimelineItem {
+    Reasoning {
+        id: String,
+        content: String,
+    },
+    Content {
+        id: String,
+        content: String,
+    },
+    Tool {
+        id: String,
+        #[serde(rename = "toolActivityId")]
+        tool_activity_id: String,
+    },
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -53,6 +76,8 @@ pub struct ChatMessage {
     pub content: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_timeline: Option<Vec<WorkTimelineItem>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_activities: Option<Vec<ToolActivity>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

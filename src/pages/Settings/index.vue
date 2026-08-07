@@ -135,7 +135,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   Bot,
   BrainCircuit,
-  Plug,
+  Cable,
   Shield,
   Folders,
   Globe2,
@@ -144,9 +144,9 @@ import {
   Minus,
   Palette,
   Pin,
+  ScrollText,
   Server,
   Settings2,
-  Sparkles,
   X,
   BarChart3,
   ArrowLeft,
@@ -290,8 +290,8 @@ const categories = computed(() => [
   { id: "agent" as const, label: t.value.categories.agent, icon: Shield },
   { id: "history" as const, label: t.value.categories.history, icon: History },
   { id: "usage" as const, label: t.value.categories.usage, icon: BarChart3 },
-  { id: "mcp" as const, label: t.value.categories.mcp, icon: Plug },
-  { id: "skills" as const, label: t.value.categories.skills, icon: Sparkles },
+  { id: "mcp" as const, label: t.value.categories.mcp, icon: Cable },
+  { id: "skills" as const, label: t.value.categories.skills, icon: ScrollText },
   { id: "plugins" as const, label: t.value.categories.plugins, icon: Pin },
   {
     id: "memory" as const,
@@ -650,6 +650,8 @@ watch(
   min-height: 0;
   overflow-y: auto;
   padding-right: 1px;
+  display: flex;
+  flex-direction: column;
 }
 
 .settings-nav-content {
@@ -730,7 +732,11 @@ watch(
 }
 
 .settings-panel {
+  flex: 1;
   min-height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
   padding: 4px;
   will-change: opacity, transform;
 }

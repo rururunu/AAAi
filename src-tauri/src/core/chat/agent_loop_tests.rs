@@ -185,6 +185,7 @@ fn base_request() -> ChatRequest {
             role: Role::User,
             content: "hello".into(),
             reasoning: None,
+            work_timeline: None,
             tool_activities: None,
             tool_calls: None,
             tool_call_id: None,

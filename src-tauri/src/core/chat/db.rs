@@ -80,6 +80,15 @@ pub async fn init_db(db_path: &Path) -> Result<SqlitePool, String> {
             .await
             .map_err(|e| e.to_string())?;
     }
+    if !message_columns
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "work_timeline")
+    {
+        sqlx::query("ALTER TABLE chat_messages ADD COLUMN work_timeline TEXT")
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
 
     // Create index on session_id for faster history lookup
     sqlx::query(
@@ -337,6 +346,10 @@ pub async fn save_message(pool: &SqlitePool, msg: &ChatMessage) -> Result<(), St
         .tool_activities
         .as_ref()
         .and_then(|value| serde_json::to_string(value).ok());
+    let work_timeline_json = msg
+        .work_timeline
+        .as_ref()
+        .and_then(|value| serde_json::to_string(value).ok());
     let timestamp_val = msg.timestamp as i64;
     let estimated_tokens = if matches!(
         msg.status,
@@ -353,8 +366,8 @@ pub async fn save_message(pool: &SqlitePool, msg: &ChatMessage) -> Result<(), St
 
     sqlx::query(
         "INSERT OR REPLACE INTO chat_messages (
-            id, session_id, role, content, reasoning, tool_activities, tool_calls, tool_call_id, name, status, timestamp, estimated_tokens
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"
+            id, session_id, role, content, reasoning, tool_activities, tool_calls, tool_call_id, name, status, timestamp, estimated_tokens, work_timeline
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"
     )
     .bind(&msg.id)
     .bind(&msg.session_id)
@@ -368,6 +381,7 @@ pub async fn save_message(pool: &SqlitePool, msg: &ChatMessage) -> Result<(), St
     .bind(status_str)
     .bind(timestamp_val)
     .bind(estimated_tokens)
+    .bind(work_timeline_json)
     .execute(pool)
     .await
     .map_err(|e| e.to_string())?;
@@ -377,7 +391,7 @@ pub async fn save_message(pool: &SqlitePool, msg: &ChatMessage) -> Result<(), St
 
 pub async fn load_all_messages(pool: &SqlitePool) -> Result<Vec<ChatMessage>, String> {
     let rows = sqlx::query(
-        "SELECT id, session_id, role, content, reasoning, tool_activities, tool_calls, tool_call_id, name, status, timestamp, estimated_tokens
+        "SELECT id, session_id, role, content, reasoning, tool_activities, tool_calls, tool_call_id, name, status, timestamp, estimated_tokens, work_timeline
          FROM chat_messages
          ORDER BY timestamp ASC;"
     )
@@ -409,6 +423,10 @@ pub async fn load_all_messages(pool: &SqlitePool) -> Result<Vec<ChatMessage>, St
         let tool_calls: Option<Vec<ToolCallPayload>> =
             tool_calls_str.and_then(|s| serde_json::from_str(&s).ok());
 
+        let work_timeline_str: Option<String> = row.get("work_timeline");
+        let work_timeline: Option<Vec<crate::core::runtime::WorkTimelineItem>> =
+            work_timeline_str.and_then(|value| serde_json::from_str(&value).ok());
+
         let tool_call_id: Option<String> = row.get("tool_call_id");
         let name: Option<String> = row.get("name");
 
@@ -439,6 +457,7 @@ pub async fn load_all_messages(pool: &SqlitePool) -> Result<Vec<ChatMessage>, St
             status,
             timestamp,
             estimated_tokens: cached_tokens.map(|tokens| tokens.max(0) as usize),
+            work_timeline,
         };
         if message.estimated_tokens.is_none()
             && !matches!(
@@ -486,7 +505,7 @@ mod message_persistence_tests {
                 content TEXT NOT NULL, reasoning TEXT, tool_activities TEXT,
                 tool_calls TEXT, tool_call_id TEXT, name TEXT,
                 status TEXT NOT NULL, timestamp INTEGER NOT NULL,
-                estimated_tokens INTEGER
+                estimated_tokens INTEGER, work_timeline TEXT
             )",
         )
         .execute(&pool)
@@ -498,6 +517,7 @@ mod message_persistence_tests {
             role: Role::Assistant,
             content: "done".into(),
             reasoning: None,
+            work_timeline: None,
             tool_activities: Some(vec![ToolActivity {
                 id: "activity-1".into(),
                 subagent_id: Some("child-1".into()),
@@ -544,7 +564,7 @@ mod message_persistence_tests {
                 content TEXT NOT NULL, reasoning TEXT, tool_activities TEXT,
                 tool_calls TEXT, tool_call_id TEXT, name TEXT,
                 status TEXT NOT NULL, timestamp INTEGER NOT NULL,
-                estimated_tokens INTEGER
+                estimated_tokens INTEGER, work_timeline TEXT
             )",
         )
         .execute(&pool)

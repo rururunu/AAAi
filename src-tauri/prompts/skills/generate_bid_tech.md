@@ -10,6 +10,30 @@ description: 表驱动生成「综合评分技术部分」技术标 .docx。用�
 工作区已物化（或即将物化）Python 工具包：`.aaai/bid_tech/`。
 生成脚本必须 `sys.path` 引入该包，并使用其中的 `style` / `tables` / `planner` / `gate` / `quality` / `reference` / `docx_inspect` / `align`。
 
+## 何时使用本 skill
+
+用户要求交付**按招标综合评分表打分的技术标 / 投标技术方案 / 研学方案**——评分点决定了必须有真实表格、量化流程、可核查的门禁，而不是一篇通顺但空洞的说明文。
+
+## 何时不要用本 skill
+
+| 需求 | 改用 |
+|---|---|
+| 普通 Word 短文档（无评分表约束） | `generate_word` |
+| 编辑已有 .docx（修订/批注/OOXML） | `#skill:docx` |
+| Markdown ↔ Word/PDF 批量转换 | `#skill:pandoc` |
+
+<example>
+用户："帮我写一份公司简介，导出成 Word。"
+判断：没有招标评分表、没有硬性门禁要求，属于普通短文档。
+正确做法：用 `generate_word`，不要套用本 skill 的门禁流程——那会为一个不需要门禁的任务强加不必要的复杂度。
+</example>
+
+<example>
+用户："这是招标文件和评分细则，写一份能过打分的技术标。"
+判断：评分表驱动、需要真表格与量化流程，正是本 skill 的适用场景。
+正确做法：先跑骨架规划（`planner`），再逐章填表，完成后走门禁与 `review_bid_tech` 评议，不得跳过门禁直接宣称完成。
+</example>
+
 ## 硬性规则（违反即未完成）
 
 1. **先骨架后正文**：用 `planner.build_default_plan`（或从招标文件抽出的章节覆盖）写出目录与每章最低交付物；用 `update_tasks` 跟踪。

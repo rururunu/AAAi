@@ -149,18 +149,26 @@ export function mergeActiveHistory(persisted: ChatMessage[], live: ChatMessage[]
   return merged;
 }
 
-function appendReasoningTimeline(
+/**
+ * Append a text chunk (reasoning or regular content) to the work timeline,
+ * merging into the trailing segment when it's the same kind so consecutive
+ * deltas don't fragment into one segment per network chunk. Tool activities
+ * are inserted separately (see `upsertToolActivity`), so a new segment only
+ * starts here once a tool call has broken the run of same-kind text.
+ */
+function appendTimelineText(
   timeline: WorkTimelineItem[] | undefined,
   chunk: string,
+  kind: "reasoning" | "content",
 ): WorkTimelineItem[] {
   const next = [...(timeline ?? [])];
   const last = next[next.length - 1];
-  if (last?.type === "reasoning") {
+  if (last?.type === kind) {
     next[next.length - 1] = { ...last, content: last.content + chunk };
   } else {
     next.push({
-      type: "reasoning",
-      id: `reasoning-${Date.now()}-${next.length}`,
+      type: kind,
+      id: `${kind}-${Date.now()}-${next.length}`,
       content: chunk,
     });
   }
@@ -815,7 +823,7 @@ export const useChatStore = defineStore("chat", {
       next[index] = {
         ...current,
         reasoning: (current.reasoning ?? "") + chunk,
-        workTimeline: appendReasoningTimeline(current.workTimeline, chunk),
+        workTimeline: appendTimelineText(current.workTimeline, chunk, "reasoning"),
         status: current.status === "pending" ? "streaming" : current.status,
         activityStatus: undefined,
       };
@@ -953,6 +961,15 @@ export const useChatStore = defineStore("chat", {
           }
 
           const current = next[index];
+          // Reasoning normally precedes the content it informs within one
+          // batched frame, so fold it into the timeline first.
+          let workTimeline = current.workTimeline;
+          if (delta.reasoningDelta.length > 0) {
+            workTimeline = appendTimelineText(workTimeline, delta.reasoningDelta, "reasoning");
+          }
+          if (delta.contentDelta.length > 0) {
+            workTimeline = appendTimelineText(workTimeline, delta.contentDelta, "content");
+          }
           next[index] = {
             ...current,
             content: current.content + delta.contentDelta,
@@ -960,10 +977,7 @@ export const useChatStore = defineStore("chat", {
               delta.reasoningDelta.length > 0
                 ? (current.reasoning ?? "") + delta.reasoningDelta
                 : current.reasoning,
-            workTimeline:
-              delta.reasoningDelta.length > 0
-                ? appendReasoningTimeline(current.workTimeline, delta.reasoningDelta)
-                : current.workTimeline,
+            workTimeline,
             status:
               current.status === "pending" || delta.contentDelta || delta.reasoningDelta
                 ? "streaming"

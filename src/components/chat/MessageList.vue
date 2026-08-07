@@ -99,18 +99,34 @@
                 <span
                   v-else-if="part.kind === 'skill'"
                   class="user-mention-chip user-hash-chip user-hash-skill"
-                  :title="`#skill:${part.id}`"
+                  :title="hashChipTitle('skill', part.id)"
                 >
-                  <Zap :size="12" class="user-mention-fallback" />
-                  <span class="user-mention-name">#{{ part.id }}</span>
+                  <img
+                    v-if="hashChipIcon('skill', part.id)"
+                    class="user-mention-icon"
+                    :src="hashChipIcon('skill', part.id) || ''"
+                    alt=""
+                    referrerpolicy="no-referrer"
+                    @error="markHashIconBroken('skill', part.id)"
+                  />
+                  <Zap v-else :size="12" class="user-mention-fallback" />
+                  <span class="user-mention-name">{{ hashChipLabel("skill", part.id) }}</span>
                 </span>
                 <span
                   v-else-if="part.kind === 'mcp'"
                   class="user-mention-chip user-hash-chip user-hash-mcp"
-                  :title="`#mcp:${part.id}`"
+                  :title="hashChipTitle('mcp', part.id)"
                 >
-                  <Bot :size="12" class="user-mention-fallback" />
-                  <span class="user-mention-name">#{{ part.id }}</span>
+                  <img
+                    v-if="hashChipIcon('mcp', part.id)"
+                    class="user-mention-icon"
+                    :src="hashChipIcon('mcp', part.id) || ''"
+                    alt=""
+                    referrerpolicy="no-referrer"
+                    @error="markHashIconBroken('mcp', part.id)"
+                  />
+                  <Bot v-else :size="12" class="user-mention-fallback" />
+                  <span class="user-mention-name">{{ hashChipLabel("mcp", part.id) }}</span>
                 </span>
                 <template v-else>{{ part.text }}</template>
               </template>
@@ -159,7 +175,9 @@
             :language="settingStore.language"
             :show-reasoning="settingStore.showReasoning"
             :display-mode="settingStore.agentWorkDisplay"
+            :suppress-content="needsProviderSetup(item.message)"
             @inspect-subagent="emit('inspectSubagent', $event)"
+            @preview-image="emit('previewImage', $event)"
           />
           <AskUserAnswerCard
             v-if="item.message.askUserAnswer?.length"
@@ -183,11 +201,6 @@
               {{ tr(settingStore.language, "configureProviderAction") }}
             </button>
           </div>
-          <Markdown
-            v-else-if="item.message.content"
-            :content="item.message.content"
-            @preview-image="emit('previewImage', $event)"
-          />
           <div v-if="item.injects.length" class="soft-inject-list">
             <div
               v-for="inject in item.injects"
@@ -260,16 +273,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { Bot, Check, Copy, File, Undo2, Zap } from "@lucide/vue";
 import { codeLanguageForPath } from "@/services/chat/codeLanguage";
+import {
+  mcpMentionIconUrl,
+  mcpMentionLabel,
+  prettyHashInstallId,
+  skillMentionIconUrl,
+  skillMentionLabel,
+} from "@/services/chat/hashMentionDisplay";
+import { lookupInstallIcon } from "@/services/iconCache";
 import AgentWorkDetails from "@/components/chat/AgentWorkDetails.vue";
 import CodeChangesSummary from "@/components/chat/CodeChangesSummary.vue";
 import AssistantActivityIndicator from "@/components/chat/AssistantActivityIndicator.vue";
 import AskUserAnswerCard from "@/components/chat/AskUserAnswerCard.vue";
 import ImageAnalysisDetails from "@/components/chat/ImageAnalysisDetails.vue";
 import EnvironmentContextCard from "@/components/chat/EnvironmentContextCard.vue";
-import Markdown from "@/components/chat/Markdown.vue";
 import { AppConfirmDialog } from "@/components/ui/confirm-dialog";
 import { openSettings as ipcOpenSettings, rewindSession } from "@/services/ipc";
 import { useSettingStore } from "@/stores/setting";
@@ -312,6 +332,60 @@ const emit = defineEmits<{
 const settingStore = useSettingStore();
 const appStore = useAppStore();
 const confirmDialogRef = ref<InstanceType<typeof AppConfirmDialog> | null>(null);
+const brokenHashIcons = reactive<Record<string, boolean>>({});
+const resolvedHashIcons = reactive<Record<string, string>>({});
+
+function hashChipKey(kind: "skill" | "mcp", id: string) {
+  return `${kind}:${id}`;
+}
+
+function hashChipLabel(kind: "skill" | "mcp", id: string): string {
+  if (kind === "mcp") return mcpMentionLabel(id, settingStore.mcpServers ?? []);
+  return skillMentionLabel(id);
+}
+
+function hashChipTitle(kind: "skill" | "mcp", id: string): string {
+  if (kind === "mcp") {
+    const server = (settingStore.mcpServers ?? []).find((item) => item.id === id);
+    return server?.qualifiedName?.trim() || prettyHashInstallId(id);
+  }
+  return prettyHashInstallId(id);
+}
+
+function hashChipIcon(kind: "skill" | "mcp", id: string): string | null {
+  const key = hashChipKey(kind, id);
+  if (brokenHashIcons[key]) return null;
+  if (resolvedHashIcons[key]) return resolvedHashIcons[key];
+  const sync =
+    kind === "mcp" ? mcpMentionIconUrl(id, settingStore.mcpServers ?? []) : skillMentionIconUrl(id);
+  if (sync) {
+    resolvedHashIcons[key] = sync;
+    return sync;
+  }
+  void lookupInstallIcon(kind, id).then((local) => {
+    if (local && !brokenHashIcons[key]) resolvedHashIcons[key] = local;
+  });
+  return null;
+}
+
+function markHashIconBroken(kind: "skill" | "mcp", id: string) {
+  brokenHashIcons[hashChipKey(kind, id)] = true;
+}
+
+function warmHashIcons() {
+  for (const server of settingStore.mcpServers ?? []) {
+    void lookupInstallIcon("mcp", server.id).then((local) => {
+      const key = hashChipKey("mcp", server.id);
+      if (local && !brokenHashIcons[key]) resolvedHashIcons[key] = local;
+    });
+  }
+}
+
+watch(
+  () => settingStore.mcpServers,
+  () => warmHashIcons(),
+  { deep: true, immediate: true },
+);
 
 function needsProviderSetup(message: ChatMessage): boolean {
   return message.status === "error" && isConfigureProviderError(message.content);

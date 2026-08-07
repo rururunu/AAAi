@@ -6,6 +6,8 @@ pub mod message;
 pub mod request;
 pub mod stream;
 
-pub use message::{ChatMessage, MessageStatus, Role, ToolActivity, DEFAULT_SESSION_ID};
+pub use message::{
+    ChatMessage, MessageStatus, Role, ToolActivity, WorkTimelineItem, DEFAULT_SESSION_ID,
+};
 pub use request::{ChatRequest, RequestContext};
 pub use stream::{StreamEvent, ToolCallPayload};

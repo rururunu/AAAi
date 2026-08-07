@@ -7,6 +7,16 @@ export type SkillInfo = {
   title: string;
   description: string;
   path?: string | null;
+  iconUrl?: string | null;
+  qualifiedName?: string | null;
+  registryId?: string | null;
+  namespace?: string | null;
+  slug?: string | null;
+  homepage?: string | null;
+  gitUrl?: string | null;
+  verified?: boolean | null;
+  categories?: string[] | null;
+  origin?: string | null;
 };
 
 export function listSkills(): Promise<SkillInfo[]> {
@@ -15,6 +25,18 @@ export function listSkills(): Promise<SkillInfo[]> {
 
 export function installSkill(path: string, name?: string): Promise<SkillInfo> {
   return invoke("install_skill", { path, name: name ?? null });
+}
+
+export function installSkillMarkdown(
+  name: string,
+  content: string,
+  meta?: Record<string, unknown> | null,
+): Promise<SkillInfo> {
+  return invoke("install_skill_markdown", { name, content, meta: meta ?? null });
+}
+
+export function writeSkillMeta(name: string, meta: Record<string, unknown>): Promise<void> {
+  return invoke("write_skill_meta", { name, meta });
 }
 
 export function uninstallSkill(name: string): Promise<void> {

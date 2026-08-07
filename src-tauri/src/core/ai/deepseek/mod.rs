@@ -238,6 +238,7 @@ mod tests {
             role: Role::Assistant,
             content: "final answer".into(),
             reasoning: Some("hidden chain of thought".into()),
+            work_timeline: None,
             tool_activities: None,
             tool_calls: None,
             tool_call_id: None,
@@ -347,6 +348,7 @@ mod tests {
             role: Role::Assistant,
             content: String::new(),
             reasoning: None,
+            work_timeline: None,
             tool_activities: None,
             tool_calls: Some(vec![ToolCallPayload {
                 id: "call-1".into(),
@@ -366,6 +368,7 @@ mod tests {
             role: Role::Tool,
             content: "file contents".into(),
             reasoning: None,
+            work_timeline: None,
             tool_activities: None,
             tool_calls: None,
             tool_call_id: Some("call-1".into()),
@@ -395,6 +398,7 @@ mod tests {
             role: Role::Assistant,
             content: String::new(),
             reasoning: Some("plan once".into()),
+            work_timeline: None,
             tool_activities: None,
             tool_calls: Some(vec![ToolCallPayload {
                 id: "call-1".into(),
@@ -414,6 +418,7 @@ mod tests {
             role: Role::Tool,
             content: "ok".into(),
             reasoning: None,
+            work_timeline: None,
             tool_activities: None,
             tool_calls: None,
             tool_call_id: Some("call-1".into()),
@@ -446,6 +451,7 @@ mod tests {
             role: Role::Assistant,
             content: String::new(),
             reasoning: Some("need to read the file first".into()),
+            work_timeline: None,
             tool_activities: None,
             tool_calls: Some(vec![ToolCallPayload {
                 id: "call-1".into(),

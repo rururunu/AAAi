@@ -375,6 +375,7 @@ async fn run_one_task(task: &EvalTask, options: &EvalOptions, seed: u32) -> Task
             role: Role::User,
             content: task.prompt.clone(),
             reasoning: None,
+            work_timeline: None,
             tool_activities: None,
             tool_calls: None,
             tool_call_id: None,

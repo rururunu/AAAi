@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::core::ai::provider::{AIProvider, ProviderError};
 use crate::core::chat::agent::AgentRunner;
-use crate::core::chat::conversation_manager::ConversationManager;
+use crate::core::chat::conversation_manager::{ConversationManager, TimelineTextKind};
 use crate::core::chat::error::ChatError;
 use crate::core::chat::limits::truncate_chars;
 use crate::core::chat::telemetry::TurnSpan;
@@ -226,6 +226,12 @@ impl StreamManager {
                             &delta,
                             false,
                         );
+                        conversation.append_work_timeline_text(
+                            &session_id,
+                            &assistant_message_id,
+                            TimelineTextKind::Content,
+                            &delta,
+                        );
                         event_bus.emit(BusEvent::ChatDelta {
                             session_id: session_id.clone(),
                             message_id: assistant_message_id.clone(),
@@ -245,6 +251,12 @@ impl StreamManager {
                             &chunk,
                             true,
                         );
+                        conversation.append_work_timeline_text(
+                            &session_id,
+                            &assistant_message_id,
+                            TimelineTextKind::Reasoning,
+                            &chunk,
+                        );
                         event_bus.emit(BusEvent::ChatReasoning {
                             session_id: session_id.clone(),
                             message_id: assistant_message_id.clone(),
@@ -261,6 +273,7 @@ impl StreamManager {
                             if let Ok(mut guard) = reasoning_ref.lock() {
                                 guard.clear();
                             }
+                            conversation.reset_work_timeline(&session_id, &assistant_message_id);
                             conversation.update_message(
                                 &session_id,
                                 &assistant_message_id,
@@ -648,6 +661,7 @@ async fn generate_session_title(
                 role: Role::System,
                 content: "You create a very short conversation title. Reply with ONLY the title: plain text, no quotes, no trailing punctuation, no explanation, no emoji. Keep it to 2-6 words (under 24 characters). If the conversation is not in English, reply in the same language as the user's message.".into(),
                 reasoning: None,
+                work_timeline: None,
                 tool_activities: None,
                 tool_calls: None,
                 tool_call_id: None,
@@ -662,6 +676,7 @@ async fn generate_session_title(
                 role: Role::User,
                 content: material,
                 reasoning: None,
+                work_timeline: None,
                 tool_activities: None,
                 tool_calls: None,
                 tool_call_id: None,

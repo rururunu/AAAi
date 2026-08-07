@@ -10,7 +10,7 @@ pub use core::chat::eval_harness;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rdev::{listen, Event, EventType, Key};
+use rdev::{listen, Event, EventType};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -21,8 +21,8 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 use app_state::AppState;
 use commands::{
-    app, ask, chat, diff, gemini, harness, mcp, permission, settings, skills, token_usage, window,
-    workspace,
+    app, ask, chat, diff, gemini, harness, icons, mcp, permission, settings, skills, token_usage,
+    window, workspace,
 };
 use services::overlay_native::clear_minimize_pending;
 use services::settings_store::{
@@ -33,8 +33,6 @@ use services::window::{
     mark_blur_guard, should_keep_overlay_visible, show_settings_window, show_workbench_window,
     toggle_overlay,
 };
-
-const DOUBLE_TAP_MS: u64 = 400;
 
 fn now_millis() -> u64 {
     SystemTime::now()
@@ -48,82 +46,6 @@ fn cursor_pos() -> Option<(i32, i32)> {
     unsafe { GetCursorPos(&mut pt).ok().map(|_| (pt.x, pt.y)) }
 }
 
-#[derive(Default)]
-struct DoubleModifierDetector {
-    modifier: Option<crate::services::hotkey::PrimaryHotkey>,
-    modifier_down: bool,
-    chorded: bool,
-    last_tap_ms: Option<u64>,
-    /// Second modifier press within the double-tap window; fire on its keyup
-    /// so Alt is no longer held when we simulate Ctrl+Insert / Ctrl+C.
-    pending_trigger: bool,
-}
-
-impl DoubleModifierDetector {
-    fn sync_modifier(&mut self, modifier: crate::services::hotkey::PrimaryHotkey) {
-        if self.modifier != Some(modifier) {
-            *self = Self {
-                modifier: Some(modifier),
-                ..Self::default()
-            };
-        }
-    }
-
-    fn key_press(&mut self, key: Key, now: u64, modifier: crate::services::hotkey::PrimaryHotkey) {
-        self.sync_modifier(modifier);
-        if modifier.matches(key) {
-            if self.modifier_down {
-                return;
-            }
-            self.modifier_down = true;
-            self.chorded = false;
-            let double_tap = self
-                .last_tap_ms
-                .is_some_and(|last| now.saturating_sub(last) <= DOUBLE_TAP_MS);
-            if double_tap {
-                self.last_tap_ms = None;
-                self.pending_trigger = true;
-            }
-            return;
-        }
-
-        if self.modifier_down {
-            self.chorded = true;
-            self.last_tap_ms = None;
-            self.pending_trigger = false;
-        }
-    }
-
-    fn key_release(
-        &mut self,
-        key: Key,
-        now: u64,
-        modifier: crate::services::hotkey::PrimaryHotkey,
-    ) -> bool {
-        self.sync_modifier(modifier);
-        if !modifier.matches(key) || !self.modifier_down {
-            return false;
-        }
-
-        self.modifier_down = false;
-        if self.chorded {
-            self.chorded = false;
-            self.last_tap_ms = None;
-            self.pending_trigger = false;
-            return false;
-        }
-
-        if self.pending_trigger {
-            self.pending_trigger = false;
-            self.last_tap_ms = None;
-            return true;
-        }
-
-        self.last_tap_ms = Some(now);
-        false
-    }
-}
-
 fn trigger_overlay(app: &AppHandle) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
@@ -134,7 +56,7 @@ fn trigger_overlay(app: &AppHandle) {
 
 fn start_hotkey_listener(app: AppHandle) {
     std::thread::spawn(move || {
-        let mut primary_detector = DoubleModifierDetector::default();
+        let mut primary_detector = crate::services::hotkey::DoubleModifierDetector::default();
         let mut secondary = crate::services::hotkey::SecondaryHotkeyDetector::default();
         let callback = move |event: Event| {
             let primary = crate::services::hotkey::current_primary_hotkey();
@@ -221,6 +143,8 @@ pub fn run() {
                 .app_config_dir()
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
             crate::core::chat::telemetry::init_logging(&config_dir);
+            // Stable root for mcp-remote OAuth tokens (package still appends mcp-remote-{ver}/).
+            crate::core::mcp::init_mcp_remote_config_dir(config_dir.join("mcp-auth"));
             let settings = load_settings(app.handle());
             apply_runtime_settings(&settings);
             crate::services::pin_badge::start(app.handle().clone());
@@ -316,10 +240,18 @@ pub fn run() {
             gemini::gemini_import_client_secrets,
             skills::list_skills,
             skills::install_skill,
+            skills::install_skill_markdown,
+            skills::write_skill_meta,
             skills::uninstall_skill,
             skills::get_skills_dir,
             skills::open_skills_dir,
             mcp::get_mcp_runtime_support,
+            mcp::list_mcp_server_statuses,
+            mcp::connect_mcp_server,
+            mcp::reauthenticate_mcp_server,
+            icons::cache_install_icon,
+            icons::lookup_install_icon,
+            icons::clear_install_icon,
             app::get_app_info,
             diff::build_code_diff,
             chat::chat,

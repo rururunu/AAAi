@@ -305,6 +305,7 @@ mod tests {
                 role: Role::System,
                 content: "workspace context".into(),
                 reasoning: None,
+                work_timeline: None,
                 tool_activities: None,
                 tool_calls: None,
                 tool_call_id: None,

@@ -1,7 +1,9 @@
 /**
  * Format session preview / titlebar text so @/# tokens read like composer chips
- * (basename / short id) instead of raw paths leaking into chrome.
+ * (basename / short label) instead of raw paths leaking into chrome.
  */
+
+import { prettyHashInstallId } from "@/services/chat/hashMentionDisplay";
 
 const INLINE_TOKEN_RE = /@(?:"([^"]+)"|([^\s@#]+))|#(?:skill|mcp):([A-Za-z0-9_.-]+)/g;
 const LEADING_CHIP_RE =
@@ -15,7 +17,7 @@ function prettifyTokens(text: string): string {
   return text.replace(
     INLINE_TOKEN_RE,
     (_match, quoted: string | undefined, bare: string | undefined, hashId: string | undefined) => {
-      if (hashId) return `#${hashId}`;
+      if (hashId) return prettyHashInstallId(hashId);
       return `@${fileBaseName(quoted || bare || "")}`;
     },
   );
@@ -31,7 +33,8 @@ export function formatSessionPreview(preview: string, maxLen = 48): string {
   const normalized = preview.replace(/\s+/g, " ").trim();
   if (!normalized) return "";
 
-  const pretty = prettifyTokens(normalized);
-  const prose = pretty.replace(LEADING_CHIP_RE, "").trim();
-  return truncateChars(prose || pretty, maxLen);
+  // Strip leading wire tokens first so prose wins; then prettify any remaining chips.
+  const prose = normalized.replace(LEADING_CHIP_RE, "").trim();
+  if (prose) return truncateChars(prettifyTokens(prose), maxLen);
+  return truncateChars(prettifyTokens(normalized), maxLen);
 }

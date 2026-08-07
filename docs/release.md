@@ -48,12 +48,12 @@ pnpm tauri:build
 3. Generate **`release/latest.json`**:
 
 ```powershell
-pnpm release:json -- --tag v0.2.0 --notes "Optional release notes"
+pnpm release:json -- --tag v0.2.1 --notes "Optional release notes"
 ```
 
-4. On GitHub → [Releases](https://github.com/rururunu/AAAi/releases), create tag `v0.2.0` and upload:
-   - `AAAi_0.2.0_x64.msi`
-   - `AAAi_0.2.0_x64.msi.sig`
+4. On GitHub → [Releases](https://github.com/rururunu/AAAi/releases), create tag `v0.2.1` and upload:
+   - `AAAi_0.2.1_x64.msi`
+   - `AAAi_0.2.1_x64.msi.sig`
    - `latest.json` (from `release/latest.json`)
 
 5. Verify `https://github.com/rururunu/AAAi/releases/latest/download/latest.json` and check for updates in the app.
@@ -65,3 +65,5 @@ pnpm release:json -- --tag v0.2.0 --notes "Optional release notes"
 Push a `v*` tag to run `.github/workflows/release.yml` (build, sign, upload Release + `latest.json`).
 
 See [简体中文](./release.zh-CN.md) for the full walkthrough and troubleshooting.
+
+**Related:** [Architecture](./architecture-overview.md) · [Maintenance](./maintenance.md) · [Docs index](./README.md)

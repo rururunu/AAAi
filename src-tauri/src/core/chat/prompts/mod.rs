@@ -66,10 +66,42 @@ mod tests {
     }
 
     #[test]
-    fn stable_prompt_stays_structured_and_compact() {
-        assert!(SYSTEM_PROMPT.len() < 12_000);
+    fn stable_prompt_stays_structured_and_bounded() {
+        // Sections now carry worked examples (When to use / worked <example> blocks)
+        // instead of terse fragments, so the budget is generous rather than tight —
+        // this guards against runaway growth, not against detailed writing.
+        assert!(SYSTEM_PROMPT.len() < 60_000);
         assert!(!SYSTEM_PROMPT.contains("Manual acceptance checklist"));
         assert!(!SYSTEM_PROMPT.contains("Status legend"));
+    }
+
+    #[test]
+    fn stable_prompt_documents_key_decisions_with_examples() {
+        assert!(SYSTEM_PROMPT.contains("<example>"));
+        assert!(SYSTEM_PROMPT.contains("Executing actions with care"));
+        assert!(SYSTEM_PROMPT.contains("Skill selection"));
+    }
+
+    /// The stable system prompt is sent on every request regardless of which
+    /// skills are installed or relevant; skill-specific routing, tool names,
+    /// and workflow details belong in each skill's own file (loaded only when
+    /// that skill actually runs), not baked into the always-on prompt.
+    #[test]
+    fn stable_prompt_stays_isolated_from_skill_specifics() {
+        let lower = SYSTEM_PROMPT.to_ascii_lowercase();
+        for needle in [
+            "generate_bid_tech",
+            "generate_word",
+            "review_bid_tech",
+            "docx-js",
+            "python-docx",
+            "pandoc",
+        ] {
+            assert!(
+                !lower.contains(needle),
+                "stable system prompt should not reference skill-specific detail: {needle}"
+            );
+        }
     }
 
     #[test]

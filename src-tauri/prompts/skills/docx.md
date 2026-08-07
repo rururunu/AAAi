@@ -5,17 +5,31 @@ description: Create, read, edit Word .docx/.dotx with docx-js, OOXML unzip/edit,
 
 # DOCX creation, editing, and analysis
 
-Playbook adapted from [Anthropic docx skill](https://github.com/anthropics/skills). Helper scripts are materialized to `.aaai/docx/scripts/` at skill run time.
+Playbook adapted from an open-source docx skill package. Helper scripts are materialized to `.aaai/docx/scripts/` at skill run time.
 
-## When to use which skill
+## When to use this skill
 
-| Need | Skill |
+Use `docx` when the task touches the **existing binary structure** of a Word file: tracked changes, comments, raw OOXML edits, or a new document that needs precise layout control (letterhead, TOC, custom styles) beyond what a simple script produces.
+
+## When NOT to use this skill
+
+| Need | Use instead |
 |---|---|
-| **Edit existing .docx** (tracked changes, comments, OOXML surgery) | **this skill (`docx`)** |
-| **Professional new doc** with TOC, letterhead, docx-js layout | **this skill (`docx`)** |
-| **Markdown → Word/PDF/HTML** format conversion | **`pandoc`** |
-| **Simple new doc** via python-docx script | **`generate_word`** |
-| **技术标 / 评分表 / 表驱动投标** | **`generate_bid_tech`** |
+| Markdown → Word/PDF/HTML format conversion | `pandoc` |
+| Simple new doc, script-generated, no special layout | `generate_word` |
+| 技术标 / 评分表 / 表驱动投标 | `generate_bid_tech` |
+
+<example>
+User: "把这份季度报告转成 Word，保留标题层级。"
+Reasoning: the source is Markdown and the destination is a format conversion, not an edit of an existing binary docx or a layout-heavy new document.
+Correct: use `pandoc`, not `docx` — reaching for OOXML surgery here would be solving a conversion problem with editing tools.
+</example>
+
+<example>
+User: "这份合同第 3 条要加一条批注，说明需要法务确认。"
+Reasoning: adding a comment to an existing .docx is exactly OOXML-level editing.
+Correct: use `docx` (the comment scripts below), not `generate_word`, which only creates new documents from scratch.
+</example>
 
 > All `scripts/…` paths below mean `{SCRIPTS}` from the runtime preamble (`.aaai/docx/scripts`).
 

@@ -85,7 +85,13 @@ pub fn load_settings(app: &AppHandle) -> AppSettings {
     };
 
     let settings: AppSettings = serde_json::from_str(&raw).unwrap_or_default();
-    normalize_settings(settings)
+    let before_pins = settings.mcp_servers.clone();
+    let settings = normalize_settings(settings);
+    // Persist package-pin migrations so disk matches the runtime spawn args.
+    if settings.mcp_servers != before_pins {
+        let _ = persist_settings(app, &settings);
+    }
+    settings
 }
 
 fn normalize_settings(mut settings: AppSettings) -> AppSettings {
@@ -95,6 +101,8 @@ fn normalize_settings(mut settings: AppSettings) -> AppSettings {
         crate::services::hotkey::normalize_hotkey(&settings.secondary_hotkey);
     // OAuth client secrets now live in ignored local files, never in app settings.
     settings.gemini_oauth.client_secret.clear();
+    // Pin mcp-remote package versions so OAuth token dirs stay stable across launches.
+    let _ = crate::core::mcp::normalize_mcp_servers(&mut settings.mcp_servers);
     settings
 }
 
@@ -154,6 +162,7 @@ pub fn apply_runtime_settings(settings: &AppSettings) {
     );
     crate::core::lsp::shared_lsp_manager().configure(settings);
     crate::core::mcp::shared_mcp_manager().configure(settings);
+    crate::core::tools::skills::configure_enabled_builtin_skills(&settings.enabled_builtin_skills);
     crate::services::pin_badge::configure_from_settings(settings);
 }
 

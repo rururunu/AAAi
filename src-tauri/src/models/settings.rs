@@ -124,6 +124,20 @@ pub struct McpServerConfig {
     pub env: Vec<(String, String)>,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Remote icon URL captured at install time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
+    /// Stable registry identity (e.g. Smithery qualifiedName).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualified_name: Option<String>,
+    /// Upstream registry record id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
+    /// `smithery` | `catalog` | `manual`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -225,6 +239,13 @@ pub struct AppSettings {
     pub lsp_servers: Vec<LspServerConfig>,
     #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
+    /// Smithery API key — preferred auth for hosted Smithery MCP (avoids broken local OAuth).
+    #[serde(default)]
+    pub smithery_api_key: String,
+    /// Built-in skill names that are enabled for the agent (`load_skill` / shortcut tools).
+    /// Empty by default — users opt in from Settings → Skills → Built-in.
+    #[serde(default)]
+    pub enabled_builtin_skills: Vec<String>,
     #[serde(default = "default_opacity")]
     pub opacity: u32,
     #[serde(default = "default_chat_model")]
@@ -359,6 +380,8 @@ pub struct AppSettingsPatch {
     pub lsp_enabled: Option<bool>,
     pub lsp_servers: Option<Vec<LspServerConfig>>,
     pub mcp_servers: Option<Vec<McpServerConfig>>,
+    pub smithery_api_key: Option<String>,
+    pub enabled_builtin_skills: Option<Vec<String>>,
     pub opacity: Option<u32>,
     pub chat_model: Option<String>,
     pub chat_model_provider: Option<String>,
@@ -407,6 +430,8 @@ impl Default for AppSettings {
             lsp_enabled: false,
             lsp_servers: default_lsp_servers(),
             mcp_servers: Vec::new(),
+            smithery_api_key: String::new(),
+            enabled_builtin_skills: Vec::new(),
             opacity: 100,
             chat_model: default_chat_model(),
             chat_model_provider: String::new(),
@@ -501,6 +526,12 @@ impl AppSettings {
             mcp_servers: patch
                 .mcp_servers
                 .unwrap_or_else(|| self.mcp_servers.clone()),
+            smithery_api_key: patch
+                .smithery_api_key
+                .unwrap_or_else(|| self.smithery_api_key.clone()),
+            enabled_builtin_skills: patch
+                .enabled_builtin_skills
+                .unwrap_or_else(|| self.enabled_builtin_skills.clone()),
             opacity: patch.opacity.unwrap_or(self.opacity),
             chat_model: patch.chat_model.unwrap_or_else(|| self.chat_model.clone()),
             chat_model_provider: patch

@@ -17,8 +17,7 @@ describe("formatSessionPreview", () => {
   });
 
   it("falls back to prettified chips when there is no prose", () => {
-    expect(formatSessionPreview("@docs/a.docx #skill:generate_word")).toBe(
-      "@a.docx #generate_word",
-    );
+    expect(formatSessionPreview("@docs/a.docx #skill:generate_word")).toBe("@a.docx generate_word");
+    expect(formatSessionPreview("#mcp:sm-gmail")).toBe("gmail");
   });
 });

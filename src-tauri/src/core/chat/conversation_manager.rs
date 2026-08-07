@@ -4,8 +4,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::chat::error::ChatError;
 use crate::core::chat::limits::estimate_message_tokens;
-use crate::core::runtime::{ChatMessage, MessageStatus, Role, ToolActivity};
+use crate::core::runtime::{ChatMessage, MessageStatus, Role, ToolActivity, WorkTimelineItem};
 use crate::models::chat::ChatSessionSummary;
+
+/// Which run of text a streamed chunk belongs to, so it can be merged into the
+/// trailing `WorkTimelineItem` of the same kind instead of starting a new one
+/// for every delta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimelineTextKind {
+    Reasoning,
+    Content,
+}
 
 fn block_on_compat<F>(future: F) -> F::Output
 where
@@ -331,6 +340,76 @@ impl ConversationManager {
         Some(updated)
     }
 
+    /// Append a streamed chunk to the message's chronological work timeline,
+    /// merging into the trailing entry when it is the same kind so reasoning
+    /// and reply text each collapse into one run instead of one item per
+    /// delta. This only updates the in-memory copy — like the raw
+    /// `content`/`reasoning` accumulators, the timeline is flushed to SQLite
+    /// by the terminal `update_message` call once the turn settles, and
+    /// recovered from the journal on crash in the meantime.
+    pub fn append_work_timeline_text(
+        &self,
+        session_id: &str,
+        message_id: &str,
+        kind: TimelineTextKind,
+        chunk: &str,
+    ) {
+        if chunk.is_empty() {
+            return;
+        }
+        let Ok(mut sessions) = self.sessions.lock() else {
+            return;
+        };
+        let Some(message) = sessions
+            .get_mut(session_id)
+            .and_then(|messages| messages.iter_mut().find(|item| item.id == message_id))
+        else {
+            return;
+        };
+        let timeline = message.work_timeline.get_or_insert_with(Vec::new);
+        let next_index = timeline.len();
+        if let Some(last) = timeline.last_mut() {
+            let merged = match (last, kind) {
+                (WorkTimelineItem::Reasoning { content, .. }, TimelineTextKind::Reasoning) => {
+                    content.push_str(chunk);
+                    true
+                }
+                (WorkTimelineItem::Content { content, .. }, TimelineTextKind::Content) => {
+                    content.push_str(chunk);
+                    true
+                }
+                _ => false,
+            };
+            if merged {
+                return;
+            }
+        }
+        let item = match kind {
+            TimelineTextKind::Reasoning => WorkTimelineItem::Reasoning {
+                id: format!("{message_id}-reasoning-{next_index}"),
+                content: chunk.to_string(),
+            },
+            TimelineTextKind::Content => WorkTimelineItem::Content {
+                id: format!("{message_id}-content-{next_index}"),
+                content: chunk.to_string(),
+            },
+        };
+        timeline.push(item);
+    }
+
+    /// Drop the in-progress timeline for a message, used when a stream is
+    /// retried from scratch and its partial content/reasoning are discarded.
+    pub fn reset_work_timeline(&self, session_id: &str, message_id: &str) {
+        if let Ok(mut sessions) = self.sessions.lock() {
+            if let Some(message) = sessions
+                .get_mut(session_id)
+                .and_then(|messages| messages.iter_mut().find(|item| item.id == message_id))
+            {
+                message.work_timeline = None;
+            }
+        }
+    }
+
     pub fn upsert_tool_activity(
         &self,
         session_id: &str,
@@ -347,7 +426,18 @@ impl ConversationManager {
         if let Some(existing) = activities.iter_mut().find(|item| item.id == activity.id) {
             *existing = activity;
         } else {
+            // Anchor the tool card at the point it actually started, right
+            // after whatever narration preceded it, instead of grouping all
+            // tool activity separately from the text that led up to it.
+            let timeline_entry = WorkTimelineItem::Tool {
+                id: format!("{}-tool-{}", message_id, activity.id),
+                tool_activity_id: activity.id.clone(),
+            };
             activities.push(activity);
+            message
+                .work_timeline
+                .get_or_insert_with(Vec::new)
+                .push(timeline_entry);
         }
         if !should_persist {
             message.estimated_tokens = None;
@@ -599,6 +689,7 @@ pub fn create_message(
         role,
         content,
         reasoning: None,
+        work_timeline: None,
         tool_activities: None,
         tool_calls: None,
         tool_call_id: None,
@@ -700,5 +791,152 @@ mod rewind_tests {
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_file(db_path.with_extension("db-shm"));
         let _ = std::fs::remove_file(db_path.with_extension("db-wal"));
+    }
+}
+
+#[cfg(test)]
+mod work_timeline_tests {
+    use super::{create_message, ConversationManager, TimelineTextKind};
+    use crate::core::runtime::{MessageStatus, Role, ToolActivity, WorkTimelineItem};
+
+    fn temp_manager() -> (ConversationManager, std::path::PathBuf) {
+        let db_path = std::env::temp_dir().join(format!(
+            "aaai-work-timeline-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        (ConversationManager::new(db_path.clone()), db_path)
+    }
+
+    fn cleanup(db_path: std::path::PathBuf) {
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("db-shm"));
+        let _ = std::fs::remove_file(db_path.with_extension("db-wal"));
+    }
+
+    /// Reasoning text, then a tool call, then reply text must land in that
+    /// exact order in the timeline — this is the ordering the UI renders
+    /// directly, so a regression here reproduces the "all thinking, then all
+    /// tools" bug the timeline was built to fix.
+    #[test]
+    fn interleaves_reasoning_tool_and_content_in_call_order() {
+        let (manager, db_path) = temp_manager();
+        let session_id = "session";
+        let message = create_message(session_id, Role::Assistant, String::new(), MessageStatus::Streaming);
+        let message_id = message.id.clone();
+        manager
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.into(), vec![message]);
+
+        manager.append_work_timeline_text(
+            session_id,
+            &message_id,
+            TimelineTextKind::Reasoning,
+            "let me check the file",
+        );
+        manager.upsert_tool_activity(
+            session_id,
+            &message_id,
+            ToolActivity {
+                id: "activity-1".into(),
+                subagent_id: None,
+                parent_activity_id: None,
+                tool_name: "read_file".into(),
+                title: "Read file".into(),
+                kind: "read".into(),
+                detail: None,
+                arguments: None,
+                result: None,
+                preview: None,
+                success: true,
+                status: "running".into(),
+            },
+        );
+        manager.append_work_timeline_text(
+            session_id,
+            &message_id,
+            TimelineTextKind::Content,
+            "the file looks fine",
+        );
+
+        let messages = manager.messages(session_id);
+        let timeline = messages[0].work_timeline.clone().expect("timeline");
+        assert_eq!(timeline.len(), 3);
+        assert!(matches!(&timeline[0], WorkTimelineItem::Reasoning { content, .. } if content == "let me check the file"));
+        assert!(
+            matches!(&timeline[1], WorkTimelineItem::Tool { tool_activity_id, .. } if tool_activity_id == "activity-1")
+        );
+        assert!(matches!(&timeline[2], WorkTimelineItem::Content { content, .. } if content == "the file looks fine"));
+
+        cleanup(db_path);
+    }
+
+    /// Consecutive deltas of the same kind must merge into one run instead of
+    /// fragmenting into one timeline item per chunk.
+    #[test]
+    fn merges_consecutive_deltas_of_the_same_kind() {
+        let (manager, db_path) = temp_manager();
+        let session_id = "session";
+        let message = create_message(session_id, Role::Assistant, String::new(), MessageStatus::Streaming);
+        let message_id = message.id.clone();
+        manager
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.into(), vec![message]);
+
+        manager.append_work_timeline_text(session_id, &message_id, TimelineTextKind::Reasoning, "step one, ");
+        manager.append_work_timeline_text(session_id, &message_id, TimelineTextKind::Reasoning, "step two");
+
+        let messages = manager.messages(session_id);
+        let timeline = messages[0].work_timeline.clone().expect("timeline");
+        assert_eq!(timeline.len(), 1);
+        assert!(
+            matches!(&timeline[0], WorkTimelineItem::Reasoning { content, .. } if content == "step one, step two")
+        );
+
+        cleanup(db_path);
+    }
+
+    /// A tool activity that transitions running -> done must update the same
+    /// timeline entry rather than appending a duplicate.
+    #[test]
+    fn tool_activity_updates_do_not_duplicate_timeline_entries() {
+        let (manager, db_path) = temp_manager();
+        let session_id = "session";
+        let message = create_message(session_id, Role::Assistant, String::new(), MessageStatus::Streaming);
+        let message_id = message.id.clone();
+        manager
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.into(), vec![message]);
+
+        let running = ToolActivity {
+            id: "activity-1".into(),
+            subagent_id: None,
+            parent_activity_id: None,
+            tool_name: "read_file".into(),
+            title: "Read file".into(),
+            kind: "read".into(),
+            detail: None,
+            arguments: None,
+            result: None,
+            preview: None,
+            success: true,
+            status: "running".into(),
+        };
+        let mut done = running.clone();
+        done.status = "done".into();
+
+        manager.upsert_tool_activity(session_id, &message_id, running);
+        manager.upsert_tool_activity(session_id, &message_id, done);
+
+        let messages = manager.messages(session_id);
+        let timeline = messages[0].work_timeline.clone().expect("timeline");
+        assert_eq!(timeline.len(), 1);
+
+        cleanup(db_path);
     }
 }

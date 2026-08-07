@@ -4,6 +4,7 @@ pub mod chat;
 pub mod diff;
 pub mod gemini;
 pub mod harness;
+pub mod icons;
 pub mod mcp;
 pub mod permission;
 pub mod settings;

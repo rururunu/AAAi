@@ -1,46 +1,42 @@
 <template>
-  <div class="catalog-toolbar">
-    <div class="relative flex-1">
-      <Search class="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
-      <Input
-        v-model="query"
-        class="h-8 pl-8"
-        :placeholder="copy.catalogSearch"
-        @keydown.enter.prevent="$emit('search')"
-      />
-    </div>
-    <Button size="sm" class="h-8" :disabled="loading" @click="$emit('search')">
-      {{ loading ? copy.searching : copy.search }}
-    </Button>
-  </div>
-  <p class="catalog-hint">{{ copy.catalogHint }}</p>
+  <SettingsSearchField
+    v-model="query"
+    :placeholder="copy.catalogSearch"
+    :loading="loading"
+    :submit-label="copy.search"
+    @submit="$emit('search')"
+  />
   <p v-if="runtimeHint" class="catalog-hint">{{ runtimeHint }}</p>
   <p v-if="error" class="form-error">{{ error }}</p>
 
   <div v-if="showCurated" class="catalog-section">
     <h3>{{ copy.curatedTitle }}</h3>
     <div class="server-list">
-      <article v-for="entry in curatedEntries" :key="`curated-${entry.name}`" class="server-card catalog-card">
-        <div class="server-main">
-          <div class="server-title-row">
-            <strong>{{ entry.title }}</strong>
-            <span class="badge on">{{ copy.curatedBadge }}</span>
-            <span v-if="isInstalled(entry.install.id)" class="badge">{{ copy.added }}</span>
-          </div>
-          <p class="catalog-desc">{{ entry.description }}</p>
-          <p class="command-line"><code>{{ formatCommand(entry.install) }}</code></p>
-        </div>
-        <div class="server-actions">
-          <Button
-            size="sm"
-            class="h-8"
-            :disabled="saving || isInstalled(entry.install.id)"
+      <CatalogItemCard
+        v-for="entry in curatedEntries"
+        :key="`curated-${entry.name}`"
+        :title="entry.title"
+        :meta="metaLine(entry)"
+        :description="entry.description"
+        :icon-fallback="entry.title"
+        :pills="curatedPills(entry)"
+        :expand-label="copy.expand"
+        :collapse-label="copy.collapse"
+      >
+        <template #action>
+          <CatalogRoundAction
+            :done="isInstalled(entry.install.id)"
+            :disabled="saving"
+            :label="isInstalled(entry.install.id) ? copy.added : copy.install"
             @click="$emit('install', entry)"
-          >
-            {{ isInstalled(entry.install.id) ? copy.added : copy.install }}
-          </Button>
-        </div>
-      </article>
+          />
+        </template>
+        <template v-if="entry.requiredEnv.length" #footer>
+          <p class="env-line">
+            {{ copy.needsEnv(entry.requiredEnv.map((item) => item.name).join(", ")) }}
+          </p>
+        </template>
+      </CatalogItemCard>
     </div>
   </div>
 
@@ -53,50 +49,47 @@
       {{ copy.catalogEmpty }}
     </p>
     <div class="server-list">
-      <article v-for="entry in registryEntries" :key="entry.name" class="server-card catalog-card">
-        <div class="server-main">
-          <div class="server-title-row">
-            <strong>{{ entry.title }}</strong>
-            <span v-if="entry.package.registryType" class="badge">{{ entry.package.registryType }}</span>
-            <span v-if="isInstalled(entry.install.id)" class="badge">{{ copy.added }}</span>
-          </div>
-          <p class="catalog-desc">{{ entry.description }}</p>
-          <p class="command-line"><code>{{ formatCommand(entry.install) }}</code></p>
-          <p v-if="entry.requiredEnv.length" class="env-line">
+      <CatalogItemCard
+        v-for="entry in registryEntries"
+        :key="entry.name"
+        :title="entry.title"
+        :meta="metaLine(entry)"
+        :description="entry.description"
+        :icon-fallback="entry.title"
+        :pills="registryPills(entry)"
+        :expand-label="copy.expand"
+        :collapse-label="copy.collapse"
+      >
+        <template #action>
+          <CatalogRoundAction
+            :done="isInstalled(entry.install.id)"
+            :disabled="saving"
+            :label="isInstalled(entry.install.id) ? copy.added : copy.install"
+            @click="$emit('install', entry)"
+          />
+        </template>
+        <template v-if="entry.requiredEnv.length" #footer>
+          <p class="env-line">
             {{ copy.needsEnv(entry.requiredEnv.map((item) => item.name).join(", ")) }}
           </p>
-        </div>
-        <div class="server-actions">
-          <Button
-            size="sm"
-            class="h-8"
-            :disabled="saving || isInstalled(entry.install.id)"
-            @click="$emit('install', entry)"
-          >
-            {{ isInstalled(entry.install.id) ? copy.added : copy.install }}
-          </Button>
-        </div>
-      </article>
+        </template>
+      </CatalogItemCard>
     </div>
-    <div v-if="nextCursor || loading" class="load-more">
-      <Button
-        variant="ghost"
-        size="sm"
-        class="h-8"
-        :disabled="loading || !nextCursor"
-        @click="$emit('load-more')"
-      >
-        {{ loading ? copy.searching : copy.loadMore }}
-      </Button>
-    </div>
+    <InfiniteScrollSentinel
+      v-if="nextCursor || loading"
+      :has-more="Boolean(nextCursor)"
+      :loading="loading"
+      @load="$emit('load-more')"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { Search } from "@lucide/vue";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import SettingsSearchField from "@/components/settings/SettingsSearchField.vue";
+import InfiniteScrollSentinel from "@/components/settings/InfiniteScrollSentinel.vue";
+import CatalogItemCard from "@/components/settings/CatalogItemCard.vue";
+import CatalogRoundAction from "@/components/settings/CatalogRoundAction.vue";
 import type { CatalogEntry } from "@/services/mcp/registry";
 import type { McpServerConfig } from "@/types/setting";
 
@@ -116,7 +109,6 @@ const props = defineProps<{
     catalogSearch: string;
     search: string;
     searching: string;
-    catalogHint: string;
     curatedTitle: string;
     curatedBadge: string;
     registryTitle: string;
@@ -124,7 +116,8 @@ const props = defineProps<{
     install: string;
     added: string;
     needsEnv: (names: string) => string;
-    loadMore: string;
+    expand: string;
+    collapse: string;
   };
 }>();
 
@@ -143,15 +136,25 @@ const query = computed({
 function formatCommand(server: McpServerConfig) {
   return [server.command, ...(server.args ?? [])].filter(Boolean).join(" ");
 }
+
+function metaLine(entry: CatalogEntry) {
+  const cmd = formatCommand(entry.install);
+  const type = entry.package.registryType?.trim();
+  return type ? `${type} · ${cmd}` : cmd;
+}
+
+function curatedPills(entry: CatalogEntry) {
+  const pills = [props.copy.curatedBadge];
+  if (props.isInstalled(entry.install.id)) pills.push(props.copy.added);
+  return pills;
+}
+
+function registryPills(entry: CatalogEntry) {
+  return props.isInstalled(entry.install.id) ? [props.copy.added] : [];
+}
 </script>
 
 <style scoped>
-.catalog-toolbar {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
 .catalog-hint,
 .empty {
   margin: 0;
@@ -167,8 +170,14 @@ function formatCommand(server: McpServerConfig) {
   line-height: 1.5;
 }
 
+.catalog-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .catalog-section h3 {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.04em;
@@ -181,11 +190,6 @@ function formatCommand(server: McpServerConfig) {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 8px;
-}
-
-.section-head h3 {
-  margin: 0;
 }
 
 .section-meta {
@@ -193,90 +197,15 @@ function formatCommand(server: McpServerConfig) {
   font-size: 11px;
 }
 
-.load-more {
-  display: flex;
-  justify-content: center;
-  padding: 8px 0 4px;
-}
-
-.catalog-desc {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--muted-foreground);
-}
-
 .server-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.server-card {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--sidebar) 55%, transparent);
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
-}
-
-.server-main {
-  min-width: 0;
-  flex: 1;
-}
-
-.server-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.server-title-row strong {
-  font-size: 13px;
-}
-
-.badge {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--muted-foreground) 16%, transparent);
-  color: var(--muted-foreground);
-}
-
-.badge.on {
-  background: color-mix(in srgb, var(--primary) 18%, transparent);
-  color: var(--primary);
-}
-
-.command-line {
-  margin: 6px 0 0;
-  font-size: 11px;
-  overflow: hidden;
-}
-
-.command-line code {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--muted-foreground);
+  gap: 10px;
 }
 
 .env-line {
-  margin: 4px 0 0;
+  margin: 0;
   font-size: 11px;
   color: var(--muted-foreground);
-}
-
-.server-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
 }
 </style>

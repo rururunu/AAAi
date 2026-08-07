@@ -34,6 +34,8 @@ const defaultSettings: AppSettings = {
   lspEnabled: false,
   lspServers: [],
   mcpServers: [],
+  smitheryApiKey: "",
+  enabledBuiltinSkills: [],
   opacity: 100,
   chatModel: DEFAULT_CHAT_MODEL,
   chatModelProvider: "",
@@ -144,6 +146,7 @@ function applyCommonSettings(target: AppSettings, settings: AppSettings) {
   target.lspEnabled = settings.lspEnabled ?? false;
   target.lspServers = settings.lspServers ?? [];
   target.mcpServers = settings.mcpServers ?? [];
+  target.enabledBuiltinSkills = settings.enabledBuiltinSkills ?? [];
   target.zoom = normalizeZoomValue(settings);
   target.hardwareAccelerationEnabled = settings.hardwareAccelerationEnabled ?? true;
   target.primaryHotkey = settings.primaryHotkey ?? "Alt";
@@ -160,6 +163,7 @@ function applySecretSettings(target: AppSettings, settings: AppSettings) {
   target.mem0ApiKey = settings.mem0ApiKey ?? "";
   target.serperApiKey = settings.serperApiKey ?? "";
   target.tavilyApiKey = settings.tavilyApiKey ?? "";
+  target.smitheryApiKey = settings.smitheryApiKey ?? "";
 }
 
 export const useSettingStore = defineStore("setting", {

@@ -234,6 +234,7 @@ fn workspace_context_precedes_history_and_current_user() {
         role,
         content: content.to_string(),
         reasoning: None,
+        work_timeline: None,
         tool_activities: None,
         tool_calls: None,
         tool_call_id: None,

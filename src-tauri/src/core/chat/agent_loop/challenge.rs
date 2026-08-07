@@ -351,6 +351,7 @@ fn push_challenge_message(
         role: Role::User,
         content: feedback.to_string(),
         reasoning: None,
+        work_timeline: None,
         tool_activities: None,
         tool_calls: None,
         tool_call_id: None,
@@ -374,6 +375,7 @@ fn push_completion_feedback(
         role: Role::Assistant,
         content,
         reasoning: non_empty(reasoning),
+        work_timeline: None,
         tool_activities: None,
         tool_calls: None,
         tool_call_id: None,
@@ -559,6 +561,7 @@ mod tests {
         let mut gate = CompletionGate::new();
         let outcome = ToolOutcome {
             call_id: "1".into(),
+            activity_id: "tool-1".into(),
             tool_name: "read_file".into(),
             arguments: r#"{"path":"a.rs"}"#.into(),
             result: "ok".into(),

@@ -160,6 +160,7 @@ mod tests {
             role: Role::Assistant,
             content: "12345678".into(),
             reasoning: Some("1234".into()),
+            work_timeline: None,
             tool_activities: None,
             tool_calls: None,
             tool_call_id: None,
