@@ -486,6 +486,19 @@ pub fn current_secondary_hotkey() -> ParsedChord {
     *lock_recover(shared_secondary_hotkey())
 }
 
+pub fn shared_secondary_hotkey_enabled() -> &'static Mutex<bool> {
+    static ENABLED: OnceLock<Mutex<bool>> = OnceLock::new();
+    ENABLED.get_or_init(|| Mutex::new(true))
+}
+
+pub fn configure_secondary_hotkey_enabled(enabled: bool) {
+    *lock_recover(shared_secondary_hotkey_enabled()) = enabled;
+}
+
+pub fn secondary_hotkey_enabled() -> bool {
+    *lock_recover(shared_secondary_hotkey_enabled())
+}
+
 pub fn shared_primary_hotkey() -> &'static Mutex<PrimaryHotkey> {
     static HOTKEY: OnceLock<Mutex<PrimaryHotkey>> = OnceLock::new();
     HOTKEY.get_or_init(|| Mutex::new(PrimaryHotkey::default()))
@@ -498,6 +511,19 @@ pub fn configure_primary_hotkey(raw: &str) {
 
 pub fn current_primary_hotkey() -> PrimaryHotkey {
     *lock_recover(shared_primary_hotkey())
+}
+
+pub fn shared_primary_hotkey_enabled() -> &'static Mutex<bool> {
+    static ENABLED: OnceLock<Mutex<bool>> = OnceLock::new();
+    ENABLED.get_or_init(|| Mutex::new(true))
+}
+
+pub fn configure_primary_hotkey_enabled(enabled: bool) {
+    *lock_recover(shared_primary_hotkey_enabled()) = enabled;
+}
+
+pub fn primary_hotkey_enabled() -> bool {
+    *lock_recover(shared_primary_hotkey_enabled())
 }
 
 /// Max gap between first tap release and second tap press (must feel intentional).

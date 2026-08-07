@@ -215,6 +215,37 @@ function reconcileTrailingText(
   }
 }
 
+/**
+ * Once the turn is finished, fold every interleaved reasoning chunk into a
+ * single collapsed "思考过程" entry so the finished message stays short.
+ * Live turns keep chronological interleaving for follow-along.
+ */
+function coalesceCompletedReasoning(out: TimelineSegment[]): TimelineSegment[] {
+  if (streaming.value) return out;
+  const fromMessage = props.message.reasoning?.trim() ?? "";
+  const fromSegments = out
+    .filter((segment): segment is Extract<TimelineSegment, { type: "reasoning" }> => {
+      return segment.type === "reasoning";
+    })
+    .map((segment) => segment.content)
+    .join("");
+  const combined = fromMessage || fromSegments;
+  const withoutReasoning = out.filter((segment) => segment.type !== "reasoning");
+  if (!combined || props.showReasoning === false) return withoutReasoning;
+
+  const firstIdx = out.findIndex((segment) => segment.type === "reasoning");
+  const block: TimelineSegment = {
+    type: "reasoning",
+    id: `${props.message.id}-reasoning-completed`,
+    content: combined,
+  };
+  if (firstIdx <= 0) return [block, ...withoutReasoning];
+
+  const before = out.slice(0, firstIdx).filter((segment) => segment.type !== "reasoning");
+  const after = out.slice(firstIdx).filter((segment) => segment.type !== "reasoning");
+  return [...before, block, ...after];
+}
+
 /** Single chronological stream with process-detail chunks interleaved. */
 const segments = computed<TimelineSegment[]>(() => {
   let out: TimelineSegment[] = [];
@@ -250,7 +281,7 @@ const segments = computed<TimelineSegment[]>(() => {
     if (seen.has(activity.id)) continue;
     pushActivity(out, activity);
   }
-  return out;
+  return coalesceCompletedReasoning(out);
 });
 
 const lastSegmentId = computed(() => segments.value[segments.value.length - 1]?.id);

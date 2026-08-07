@@ -90,32 +90,48 @@ fn resolve_subagent_provider(
     ctx: &ToolContext,
     requested_model: Option<&str>,
 ) -> Result<Arc<dyn AIProvider>, ToolError> {
+    let parent = || {
+        ctx.provider
+            .clone()
+            .ok_or_else(|| ToolError::new("provider unavailable"))
+    };
+
     let Some(model) = requested_model
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
-        return ctx
-            .provider
-            .clone()
-            .ok_or_else(|| ToolError::new("provider unavailable"));
+        return parent();
     };
-    let app = ctx
-        .app_handle
-        .clone()
-        .ok_or_else(|| ToolError::new("model collaboration unavailable"))?;
+
+    // Without app settings we cannot validate collaboration routing — keep the parent.
+    let Some(app) = ctx.app_handle.clone() else {
+        return parent();
+    };
+
     let settings = crate::services::settings_store::get_settings(&app).map_err(|error| {
         ToolError::new(format!("failed to load collaboration settings: {error}"))
     })?;
-    if !settings.multi_model_collaboration
-        || !settings
-            .collaboration_models
-            .iter()
-            .any(|allowed| allowed == model)
+
+    // Coordinators often still pass `model` when collaboration is off; ignore the override.
+    if !settings.multi_model_collaboration {
+        return parent();
+    }
+
+    if !settings
+        .collaboration_models
+        .iter()
+        .any(|allowed| allowed == model)
     {
+        let enabled = if settings.collaboration_models.is_empty() {
+            "(none)".to_string()
+        } else {
+            settings.collaboration_models.join(", ")
+        };
         return Err(ToolError::new(format!(
-            "model `{model}` is not enabled for collaboration"
+            "model `{model}` is not enabled for collaboration; enabled: {enabled}"
         )));
     }
+
     let provider =
         crate::core::ai::registry::resolve_provider_for_model(app.clone(), model.to_string());
     Ok(Arc::new(AccountingProvider::new(
@@ -138,6 +154,11 @@ pub async fn run_parallel_subagents(
         )));
     }
 
+    let registry = ctx
+        .registry
+        .clone()
+        .ok_or_else(|| ToolError::new("registry unavailable"))?;
+
     let mut jobs = Vec::with_capacity(tasks.len());
     let parent_subagent_id = ctx.subagent_id.clone();
     for (idx, task) in tasks.into_iter().enumerate() {
@@ -147,24 +168,26 @@ pub async fn run_parallel_subagents(
         let prompt = task["prompt"].as_str().unwrap_or("").to_string();
         let model = task["model"].as_str().map(str::to_string);
         let child = ctx.child_subagent(&prompt);
-        let provider = resolve_subagent_provider(ctx, model.as_deref()).ok();
-        let registry = ctx.registry.clone();
+        // Keep the real resolve error — do not collapse to "runtime unavailable".
+        let provider = resolve_subagent_provider(ctx, model.as_deref());
+        let registry = Arc::clone(&registry);
         let parent_subagent_id = parent_subagent_id.clone();
         jobs.push(async move {
-            let result = if let (Some(provider), Some(registry)) = (provider, registry) {
-                let full = format!("{SUBAGENT_PROMPT}\n\n## Assignment\n{prompt}");
-                execute_child(
-                    provider,
-                    registry,
-                    child,
-                    full,
-                    &prompt,
-                    true,
-                    parent_subagent_id,
-                )
-                .await
-            } else {
-                Err(ToolError::new("subagent runtime unavailable"))
+            let result = match provider {
+                Ok(provider) => {
+                    let full = format!("{SUBAGENT_PROMPT}\n\n## Assignment\n{prompt}");
+                    execute_child(
+                        provider,
+                        registry,
+                        child,
+                        full,
+                        &prompt,
+                        true,
+                        parent_subagent_id,
+                    )
+                    .await
+                }
+                Err(error) => Err(error),
             };
             (idx, result)
         });
@@ -460,5 +483,89 @@ impl Tool for RunParallelSubagentsTool {
     fn execute(&self, ctx: &ToolContext, args: Value) -> Result<String, ToolError> {
         let tasks = args["tasks"].as_array().cloned().unwrap_or_default();
         block_on_tool_future(run_parallel_subagents(ctx, tasks))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ai::provider::ProviderError;
+    use crate::core::chat::conversation_manager::ConversationManager;
+    use crate::core::event::EventBus;
+    use crate::core::runtime::{ChatRequest, StreamEvent};
+    use crate::core::tools::context::{AskStore, PathPermissionStore, TaskItem};
+    use async_trait::async_trait;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Mutex;
+    use tokio::sync::mpsc;
+
+    struct StubProvider;
+
+    #[async_trait]
+    impl AIProvider for StubProvider {
+        fn id(&self) -> &'static str {
+            "stub"
+        }
+
+        async fn stream(
+            &self,
+            _request: ChatRequest,
+            _tx: mpsc::Sender<StreamEvent>,
+        ) -> Result<(), ProviderError> {
+            Ok(())
+        }
+    }
+
+    struct NullBus;
+    impl EventBus for NullBus {
+        fn emit(&self, _event: crate::core::event::BusEvent) {}
+    }
+
+    fn test_ctx(provider: Option<Arc<dyn AIProvider>>) -> (ToolContext, std::path::PathBuf) {
+        let db_path =
+            std::env::temp_dir().join(format!("peek-subagent-resolve-{}.db", uuid::Uuid::new_v4()));
+        let ctx = ToolContext {
+            workspace_root: std::env::temp_dir(),
+            request_context: Default::default(),
+            session_id: "s1".into(),
+            assistant_message_id: "a1".into(),
+            conversation: Arc::new(ConversationManager::new(db_path.clone())),
+            event_bus: Arc::new(NullBus),
+            tasks: Arc::new(Mutex::new(Vec::<TaskItem>::new())),
+            ask_store: Arc::new(AskStore::new()),
+            path_permission_store: Arc::new(PathPermissionStore::new()),
+            registry: Some(Arc::new(ToolRegistry::new())),
+            provider,
+            subagent_depth: 0,
+            max_subagent_depth: 1,
+            subagent_id: None,
+            parent_activity_id: None,
+            app_handle: None,
+            cancelled: Arc::new(AtomicBool::new(false)),
+        };
+        (ctx, db_path)
+    }
+
+    #[test]
+    fn requested_model_without_app_falls_back_to_parent_provider() {
+        let parent: Arc<dyn AIProvider> = Arc::new(StubProvider);
+        let (ctx, db_path) = test_ctx(Some(Arc::clone(&parent)));
+        let resolved = resolve_subagent_provider(&ctx, Some("some-other-model"))
+            .expect("should fall back to parent provider");
+        assert_eq!(resolved.id(), "stub");
+        drop(ctx);
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn missing_provider_still_errors() {
+        let (ctx, db_path) = test_ctx(None);
+        let err = match resolve_subagent_provider(&ctx, Some("m")) {
+            Ok(_) => panic!("expected provider unavailable"),
+            Err(error) => error,
+        };
+        assert!(err.to_string().contains("provider unavailable"));
+        drop(ctx);
+        let _ = std::fs::remove_file(db_path);
     }
 }

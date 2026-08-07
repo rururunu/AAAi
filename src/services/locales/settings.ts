@@ -87,6 +87,9 @@ export type SettingsI18nKey =
   | "settings.hotkey.record"
   | "settings.hotkey.recording"
   | "settings.hotkey.reset"
+  | "settings.hotkey.listenOn"
+  | "settings.hotkey.listenOff"
+  | "settings.hotkey.toggleListen"
   | "settings.provider.deepseek"
   | "settings.provider.gemini"
   | "settings.provider.geminiDescription"
@@ -134,6 +137,9 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
   "settings.hotkey.record": "Record",
   "settings.hotkey.recording": "Press shortcut…",
   "settings.hotkey.reset": "Restore default",
+  "settings.hotkey.listenOn": "Listening",
+  "settings.hotkey.listenOff": "Not listening",
+  "settings.hotkey.toggleListen": "Toggle global shortcut listening",
 
   "settings.provider.deepseek": "DeepSeek Provider",
   "settings.provider.gemini": "Gemini Provider",
@@ -205,10 +211,10 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
     "Adjust window opacity and enable frosted glass background.",
   "settings.fields.primaryHotkey.title": "Primary shortcut",
   "settings.fields.primaryHotkey.description":
-    "Record the modifier to open AAAi with two quick taps (short presses). Default: double Alt.",
+    "Record the modifier to open AAAi with two quick taps (short presses). Turn off the switch to stop listening for this global shortcut. Default: double Alt.",
   "settings.fields.secondaryHotkey.title": "Secondary shortcut",
   "settings.fields.secondaryHotkey.description":
-    "Record a backup shortcut for apps that steal double-Alt (e.g. IDEA). Default: Ctrl+Alt+Space.",
+    "Record a backup shortcut for apps that steal double-Alt (e.g. IDEA). Turn off the switch to stop listening for this global shortcut. Default: Ctrl+Alt+Space.",
   "settings.fields.deepseekApiKey.title": "API Key",
   "settings.fields.deepseekApiKey.description":
     "Used for DeepSeek chat requests. Stored locally only.",
@@ -223,7 +229,7 @@ export const settingsEn: Record<SettingsI18nKey, string> = {
     "For text-only primary models: the multimodal model describes the image, then the primary model answers and runs tools. Not used when the primary model already supports vision (e.g. Gemini).",
   "settings.fields.largeContextEnabled.title": "1M context window",
   "settings.fields.largeContextEnabled.description":
-    "When enabled, use a 1,000,000-token context window for history compaction and turn budgets. When disabled, fall back to 64k.",
+    "Raise the compaction / turn budget ceiling to 1,000,000 tokens. The effective window is still capped by the selected model's native limit (unknown models stay at 256k).",
   "settings.fields.reasoningEffort.title": "Reasoning Effort",
   "settings.fields.reasoningEffort.description":
     "Controls DeepSeek thinking depth; disabled omits reasoning_effort.",
@@ -324,6 +330,9 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.hotkey.record": "录制",
     "settings.hotkey.recording": "请按下快捷键…",
     "settings.hotkey.reset": "恢复默认",
+    "settings.hotkey.listenOn": "正在监听",
+    "settings.hotkey.listenOff": "未监听",
+    "settings.hotkey.toggleListen": "开关全局快捷键监听",
 
     "settings.categories.appearance": "外观",
     "settings.categories.ai": "模型",
@@ -393,10 +402,10 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
     "settings.fields.opacity.description": "调整窗口背景透明度与毛玻璃效果。",
     "settings.fields.primaryHotkey.title": "主快捷键",
     "settings.fields.primaryHotkey.description":
-      "录制用于打开 AAAi 的修饰键：需快速连按两下短按才会弹出，减少误触。默认：双击 Alt。",
+      "录制用于打开 AAAi 的修饰键：需快速连按两下短按才会弹出。关闭开关后不再监听该全局快捷键。默认：双击 Alt。",
     "settings.fields.secondaryHotkey.title": "副快捷键",
     "settings.fields.secondaryHotkey.description":
-      "为会抢走双击 Alt 的应用（如 IDEA）录制备用快捷键。默认：Ctrl+Alt+Space。",
+      "为会抢走双击 Alt 的应用（如 IDEA）录制备用快捷键。关闭开关后不再监听该全局快捷键。默认：Ctrl+Alt+Space。",
     "settings.fields.deepseekApiKey.title": "API Key",
     "settings.fields.deepseekApiKey.description": "DeepSeek API Key",
     "settings.fields.defaultModel.title": "默认模型",
@@ -410,7 +419,7 @@ export const settingsLocales: Record<AppLanguage, Partial<Record<SettingsI18nKey
       "面向无视觉能力的主模型：多模态模型先描述图片，再由主模型作答与调用工具。主模型已支持识图（如 Gemini）时不会启用。",
     "settings.fields.largeContextEnabled.title": "1M 上下文",
     "settings.fields.largeContextEnabled.description":
-      "开启后使用约 100 万 token 的上下文窗口（历史压缩与单轮预算）；关闭则回退到 64k。",
+      "将压缩与单轮预算上限提到约 100 万 token。实际窗口仍受当前模型原生上限约束（未知模型按 256k）。",
     "settings.fields.reasoningEffort.title": "Reasoning Effort",
     "settings.fields.reasoningEffort.description": "DeepSeek 思考深度",
     "settings.fields.reasoningLanguage.title": "Reasoning Language",

@@ -166,6 +166,7 @@ pub fn get_context_usage(
             request.session_id,
             request.draft_message,
             request.context,
+            request.model_id,
         )
         .map_err(|error| error.to_string())
 }

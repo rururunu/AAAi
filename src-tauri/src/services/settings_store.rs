@@ -152,7 +152,9 @@ pub fn set_settings(app: &AppHandle, next: AppSettings) -> Result<AppSettings, S
 pub fn apply_runtime_settings(settings: &AppSettings) {
     apply_chat_request_settings(settings);
     crate::services::hotkey::configure_primary_hotkey(&settings.primary_hotkey);
+    crate::services::hotkey::configure_primary_hotkey_enabled(settings.primary_hotkey_enabled);
     crate::services::hotkey::configure_secondary_hotkey(&settings.secondary_hotkey);
+    crate::services::hotkey::configure_secondary_hotkey_enabled(settings.secondary_hotkey_enabled);
     crate::core::tools::tool_approval::shared_tool_approval_store()
         .configure(settings.tool_approval_mode);
     crate::core::tools::sandbox::configure(

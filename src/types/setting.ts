@@ -161,7 +161,11 @@ export interface AppSettings {
   /** WebView2 hardware acceleration. A full app restart is required to apply changes. */
   hardwareAccelerationEnabled: boolean;
   primaryHotkey: string;
+  /** Listen for double-tap primary shortcut globally. */
+  primaryHotkeyEnabled: boolean;
   secondaryHotkey: string;
+  /** Listen for secondary chord shortcut globally. */
+  secondaryHotkeyEnabled: boolean;
   customProviders: CustomProviderConfig[];
   /** Show AI button on PixPin pin windows. */
   pixpinPinAiEnabled: boolean;
@@ -209,7 +213,9 @@ export interface AppSettingsPatch {
   zoom?: number;
   hardwareAccelerationEnabled?: boolean;
   primaryHotkey?: string;
+  primaryHotkeyEnabled?: boolean;
   secondaryHotkey?: string;
+  secondaryHotkeyEnabled?: boolean;
   customProviders?: CustomProviderConfig[];
   pixpinPinAiEnabled?: boolean;
   snipastePinAiEnabled?: boolean;

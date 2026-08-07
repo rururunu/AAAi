@@ -146,6 +146,9 @@ pub struct ContextUsageRequest {
     pub draft_message: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<crate::core::runtime::RequestContext>,
+    /// Active chat model — used to cap the context window (1M toggle ≠ every model).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

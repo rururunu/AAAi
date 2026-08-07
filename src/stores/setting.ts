@@ -54,7 +54,9 @@ const defaultSettings: AppSettings = {
   zoom: 100,
   hardwareAccelerationEnabled: true,
   primaryHotkey: "Alt",
+  primaryHotkeyEnabled: true,
   secondaryHotkey: "Ctrl+Alt+Space",
+  secondaryHotkeyEnabled: true,
   customProviders: [],
   pixpinPinAiEnabled: true,
   snipastePinAiEnabled: true,
@@ -150,7 +152,9 @@ function applyCommonSettings(target: AppSettings, settings: AppSettings) {
   target.zoom = normalizeZoomValue(settings);
   target.hardwareAccelerationEnabled = settings.hardwareAccelerationEnabled ?? true;
   target.primaryHotkey = settings.primaryHotkey ?? "Alt";
+  target.primaryHotkeyEnabled = settings.primaryHotkeyEnabled ?? true;
   target.secondaryHotkey = settings.secondaryHotkey ?? "Ctrl+Alt+Space";
+  target.secondaryHotkeyEnabled = settings.secondaryHotkeyEnabled ?? true;
   target.customProviders = settings.customProviders ?? [];
   target.pixpinPinAiEnabled = settings.pixpinPinAiEnabled ?? true;
   target.snipastePinAiEnabled = settings.snipastePinAiEnabled ?? true;

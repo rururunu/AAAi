@@ -1,10 +1,5 @@
 <template>
-  <details
-    class="reasoning-block"
-    :class="{ embedded }"
-    :open="isOpen"
-    @toggle="handleToggle"
-  >
+  <details class="reasoning-block" :class="{ embedded }" :open="isOpen" @toggle="handleToggle">
     <summary class="reasoning-summary">
       <ChevronRight class="reasoning-chevron" :class="{ open: isOpen }" :size="12" />
       <span>{{ summaryLabel }}</span>
@@ -25,11 +20,13 @@ const props = defineProps<{
   reasoning: string;
   streaming?: boolean;
   language?: AppLanguage;
-  /** 嵌套在执行过程面板内时，不单独折叠 */
+  /** Nested under the agent work stream: lighter chrome, same collapse rules. */
   embedded?: boolean;
 }>();
 
 const isOpen = ref(false);
+/** After the turn finishes, honor manual expand/collapse until streaming resumes. */
+const userPinned = ref(false);
 
 const summaryLabel = computed(() => tr(props.language, "thinkingProcess"));
 
@@ -46,12 +43,16 @@ const displayText = computed(() =>
 
 watch(
   () => props.streaming,
-  (streaming, wasStreaming) => {
+  (streaming) => {
     if (streaming) {
+      userPinned.value = false;
       isOpen.value = true;
       return;
     }
-    if (wasStreaming) {
+    // Always collapse when the segment is no longer actively streaming.
+    // (Previously only collapsed on a true→false transition, so remounts /
+    // missed transitions could leave the full thinking body open after done.)
+    if (!userPinned.value) {
       isOpen.value = false;
     }
   },
@@ -64,6 +65,9 @@ function handleToggle(event: Event) {
     return;
   }
   isOpen.value = target.open;
+  if (!props.streaming) {
+    userPinned.value = target.open;
+  }
 }
 
 const bodyRef = ref<HTMLElement | null>(null);
@@ -79,7 +83,7 @@ watch(
         }
       });
     }
-  }
+  },
 );
 </script>
 

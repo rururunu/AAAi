@@ -59,17 +59,29 @@ fn start_hotkey_listener(app: AppHandle) {
         let mut primary_detector = crate::services::hotkey::DoubleModifierDetector::default();
         let mut secondary = crate::services::hotkey::SecondaryHotkeyDetector::default();
         let callback = move |event: Event| {
+            let primary_enabled = crate::services::hotkey::primary_hotkey_enabled();
+            let secondary_enabled = crate::services::hotkey::secondary_hotkey_enabled();
             let primary = crate::services::hotkey::current_primary_hotkey();
             let chord = crate::services::hotkey::current_secondary_hotkey();
             let triggered = match event.event_type {
                 EventType::KeyPress(key) => {
-                    primary_detector.key_press(key, now_millis(), primary);
-                    secondary.key_press(key, &chord);
+                    if primary_enabled {
+                        primary_detector.key_press(key, now_millis(), primary);
+                    } else {
+                        primary_detector = crate::services::hotkey::DoubleModifierDetector::default();
+                    }
+                    if secondary_enabled {
+                        secondary.key_press(key, &chord);
+                    } else {
+                        secondary = crate::services::hotkey::SecondaryHotkeyDetector::default();
+                    }
                     false
                 }
                 EventType::KeyRelease(key) => {
-                    let primary_hit = primary_detector.key_release(key, now_millis(), primary);
-                    let chord_hit = secondary.key_release(key, &chord);
+                    let primary_hit = primary_enabled
+                        && primary_detector.key_release(key, now_millis(), primary);
+                    let chord_hit =
+                        secondary_enabled && secondary.key_release(key, &chord);
                     primary_hit || chord_hit
                 }
                 _ => false,

@@ -24,6 +24,15 @@ export type HashMentionItem = {
   vendor?: string;
 };
 
+export type ActiveMention = {
+  /** Text after the trigger character up to the caret (filter needle). */
+  query: string;
+  /** Index of `#` / `@` in the message. */
+  start: number;
+  /** Index just past the unfinished token (for replacement). */
+  end: number;
+};
+
 /** Token written into the user message. */
 export function formatHashMention(kind: HashResourceKind, id: string): string {
   const cleaned = id.trim().replace(/\s+/g, "-");
@@ -45,13 +54,46 @@ export function parseHashMentions(text: string): Array<{ kind: HashResourceKind;
   return out;
 }
 
-/** Active `#…` query at the caret end of the live input (mirrors `@` file mentions). */
-export function activeHashMention(message: string): { query: string; start: number } | null {
-  // Allow `#`, `#sk`, `#skill:`, `#mcp:foo`
-  const match = message.match(/(?:^|\s)#([^\s]*)$/);
+/**
+ * Active `#…` query relative to the caret.
+ * Supports typing at the start, middle, or end of already-entered text
+ * (mention must start at beginning-of-string or after whitespace).
+ */
+export function activeHashMention(
+  message: string,
+  caret: number = message.length,
+): ActiveMention | null {
+  return activeTriggerMention(message, caret, "#");
+}
+
+/**
+ * Active `@…` file query relative to the caret (same rules as `#`).
+ */
+export function activeFilePathMention(
+  message: string,
+  caret: number = message.length,
+): ActiveMention | null {
+  return activeTriggerMention(message, caret, "@");
+}
+
+function activeTriggerMention(
+  message: string,
+  caret: number,
+  trigger: "#" | "@",
+): ActiveMention | null {
+  if (!message) return null;
+  const safeCaret = Math.max(0, Math.min(caret, message.length));
+  const before = message.slice(0, safeCaret);
+  const escaped = trigger === "#" ? "#" : "@";
+  const match = before.match(new RegExp(`(?:^|[\\s\\n])${escaped}([^\\s${escaped}]*)$`));
   if (!match || match.index === undefined) return null;
-  const hashIndex = match.index + match[0].indexOf("#");
-  return { query: match[1] ?? "", start: hashIndex };
+
+  const start = match.index + match[0].indexOf(trigger);
+  // Replace only through the caret so inserting `#` / `@` in front of existing
+  // CJK or prose never treats that prose as part of the mention token.
+  const end = safeCaret;
+  const query = message.slice(start + 1, end);
+  return { query, start, end };
 }
 
 /**

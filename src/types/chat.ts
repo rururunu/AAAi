@@ -320,6 +320,8 @@ export interface ContextUsageRequest {
   sessionId?: string;
   draftMessage?: string;
   context?: CapturedContext;
+  /** Active chat model — caps the context window (1M toggle ≠ every model). */
+  modelId?: string;
 }
 
 export interface ContextUsageResponse {

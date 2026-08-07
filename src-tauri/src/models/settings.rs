@@ -301,9 +301,15 @@ pub struct AppSettings {
     /// Primary overlay shortcut modifier, activated by a double tap.
     #[serde(default = "default_primary_hotkey")]
     pub primary_hotkey: String,
+    /// When false, double-tap primary shortcut is not listened for globally.
+    #[serde(default = "default_true")]
+    pub primary_hotkey_enabled: bool,
     /// Secondary overlay shortcut, e.g. `Ctrl+Alt+Space` (recorded in Settings).
     #[serde(default = "default_secondary_hotkey")]
     pub secondary_hotkey: String,
+    /// When false, the secondary chord is not listened for globally.
+    #[serde(default = "default_true")]
+    pub secondary_hotkey_enabled: bool,
     #[serde(default)]
     pub custom_providers: Vec<CustomProviderConfig>,
     /// Show an AI button on PixPin pin windows (bottom-right).
@@ -403,7 +409,9 @@ pub struct AppSettingsPatch {
     pub zoom: Option<u32>,
     pub hardware_acceleration_enabled: Option<bool>,
     pub primary_hotkey: Option<String>,
+    pub primary_hotkey_enabled: Option<bool>,
     pub secondary_hotkey: Option<String>,
+    pub secondary_hotkey_enabled: Option<bool>,
     pub custom_providers: Option<Vec<CustomProviderConfig>>,
     pub pixpin_pin_ai_enabled: Option<bool>,
     pub snipaste_pin_ai_enabled: Option<bool>,
@@ -453,7 +461,9 @@ impl Default for AppSettings {
             zoom: 100,
             hardware_acceleration_enabled: true,
             primary_hotkey: default_primary_hotkey(),
+            primary_hotkey_enabled: true,
             secondary_hotkey: default_secondary_hotkey(),
+            secondary_hotkey_enabled: true,
             custom_providers: Vec::new(),
             pixpin_pin_ai_enabled: true,
             snipaste_pin_ai_enabled: true,
@@ -579,10 +589,16 @@ impl AppSettings {
                 .primary_hotkey
                 .map(|value| crate::services::hotkey::normalize_primary_hotkey(&value))
                 .unwrap_or_else(|| self.primary_hotkey.clone()),
+            primary_hotkey_enabled: patch
+                .primary_hotkey_enabled
+                .unwrap_or(self.primary_hotkey_enabled),
             secondary_hotkey: patch
                 .secondary_hotkey
                 .map(|value| crate::services::hotkey::normalize_hotkey(&value))
                 .unwrap_or_else(|| self.secondary_hotkey.clone()),
+            secondary_hotkey_enabled: patch
+                .secondary_hotkey_enabled
+                .unwrap_or(self.secondary_hotkey_enabled),
             custom_providers: patch
                 .custom_providers
                 .unwrap_or_else(|| self.custom_providers.clone()),

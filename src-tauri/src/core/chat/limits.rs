@@ -33,6 +33,8 @@ pub const DEFAULT_MAX_TURN_TOKENS: usize = 64_000;
 pub const LARGE_MAX_TURN_TOKENS: usize = 1_000_000;
 
 /// Context window used as the mid-turn auto-compact basis (not a hard stop).
+/// Prefer [`crate::core::chat::model_context::effective_context_window`] with a model id.
+#[allow(dead_code)]
 pub fn max_turn_tokens_for(large_context_enabled: bool) -> usize {
     if large_context_enabled {
         LARGE_MAX_TURN_TOKENS

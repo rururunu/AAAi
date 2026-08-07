@@ -7,9 +7,8 @@ export function estimateTextTokens(text: string | undefined): number {
   if (!text) return 0;
 
   const imageCount = text.match(/data:image\//g)?.length ?? 0;
-  const countableText = imageCount > 0
-    ? text.replace(/data:image\/[^)]+/g, "image_placeholder")
-    : text;
+  const countableText =
+    imageCount > 0 ? text.replace(/data:image\/[^)]+/g, "image_placeholder") : text;
   const characters = [...countableText].length;
   const textTokens = characters > 0 ? Math.max(1, Math.floor(characters / CHARS_PER_TOKEN)) : 0;
   return textTokens + imageCount * IMAGE_TOKEN_ESTIMATE;
@@ -33,9 +32,22 @@ export function estimateMessageTokens(message: ChatMessage): number {
   return total + 4;
 }
 
-export function formatTokenCount(tokens: number, language?: string): string {
-  return new Intl.NumberFormat(language, {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(tokens);
+/** Trim to at most one decimal, dropping trailing `.0`. */
+function compactNumber(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+/**
+ * Always use Latin compact units (k / M), never locale 「万」.
+ * Under 1,000,000 → k; 1,000,000+ → M.
+ */
+export function formatTokenCount(tokens: number, _language?: string): string {
+  const n = Math.max(0, Math.round(Number.isFinite(tokens) ? tokens : 0));
+  if (n < 1_000) return String(n);
+  if (n < 1_000_000) {
+    // Keep the k band strictly below 1000k (avoid rounding 999,999 → "1000k").
+    return `${compactNumber(Math.min(n / 1_000, 999.9))}k`;
+  }
+  return `${compactNumber(n / 1_000_000)}M`;
 }

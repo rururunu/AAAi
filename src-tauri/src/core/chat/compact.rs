@@ -21,6 +21,9 @@ pub const DEFAULT_CONTEXT_WINDOW: usize = crate::core::chat::limits::DEFAULT_MAX
 pub const LARGE_CONTEXT_WINDOW: usize = crate::core::chat::limits::LARGE_MAX_TURN_TOKENS;
 
 /// Resolve the active context window from the large-context toggle.
+/// Prefer [`crate::core::chat::model_context::effective_context_window`] when a
+/// model id is known — the 1M ceiling must not exceed the model's native limit.
+#[allow(dead_code)]
 pub fn context_window_tokens(large_context_enabled: bool) -> usize {
     if large_context_enabled {
         LARGE_CONTEXT_WINDOW

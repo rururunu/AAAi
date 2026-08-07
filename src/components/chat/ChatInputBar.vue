@@ -284,7 +284,7 @@
           </span>
           <span
             v-else-if="seg.kind === 'mention'"
-            class="selection-tag file-mention-tag"
+            class="file-mention-tag"
             data-tauri-drag-region="false"
             :title="seg.path"
           >
@@ -295,11 +295,11 @@
               alt=""
             />
             <File v-else :size="12" />
-            <span class="file-mention-name">@{{ fileName(seg.path) }}</span>
+            <span class="file-mention-name">{{ fileName(seg.path) }}</span>
           </span>
           <span
             v-else-if="seg.kind === 'skill'"
-            class="selection-tag hash-mention-tag hash-skill-tag"
+            class="file-mention-tag hash-mention-tag hash-skill-tag"
             data-tauri-drag-region="false"
             :title="hashChipTitle('skill', seg.id)"
           >
@@ -315,7 +315,7 @@
           </span>
           <span
             v-else-if="seg.kind === 'mcp'"
-            class="selection-tag hash-mention-tag hash-mcp-tag"
+            class="file-mention-tag hash-mention-tag hash-mcp-tag"
             data-tauri-drag-region="false"
             :title="hashChipTitle('mcp', seg.id)"
           >
@@ -345,8 +345,11 @@
           aria-autocomplete="list"
           :aria-expanded="showSuggestions || interactivePickerOpen"
           :readonly="inputLockedForTyping"
-          @input="resizeWorkbenchInput"
+          @input="onComposerInput"
           @keydown="handleKeydown"
+          @keyup="syncComposerCaret"
+          @click="syncComposerCaret"
+          @select="syncComposerCaret"
           @paste="handlePaste"
         />
         <input
@@ -363,7 +366,11 @@
           aria-autocomplete="list"
           :aria-expanded="showSuggestions || interactivePickerOpen"
           :readonly="inputLockedForTyping"
+          @input="syncComposerCaret"
           @keydown="handleKeydown"
+          @keyup="syncComposerCaret"
+          @click="syncComposerCaret"
+          @select="syncComposerCaret"
           @paste="handlePaste"
         />
       </div>
@@ -523,6 +530,12 @@
             ≈ {{ formatTokenCount(conversationTokenCount, language) }} tokens
           </span>
 
+          <ContextUsageRing
+            v-if="contextUsage.contextWindowTokens > 0"
+            :ratio="contextUsage.usageRatio"
+            :tooltip="contextUsageTooltip"
+          />
+
           <button
             v-if="sending && canSend"
             type="button"
@@ -603,6 +616,7 @@ import FileMentionPicker from "./input/FileMentionPicker.vue";
 import HashMentionPicker from "./input/HashMentionPicker.vue";
 import CommandSuggestions from "./input/CommandSuggestions.vue";
 import WorkspacePickerPanel from "./input/WorkspacePickerPanel.vue";
+import ContextUsageRing from "./ContextUsageRing.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { executeSlashCommand, fetchEnvironmentContext, slashCommands } from "@/commands/slash";
 import { listSkills } from "@/commands/skills";
@@ -624,6 +638,7 @@ import {
   type ComposerSegment,
 } from "@/services/chat/composerSegments";
 import {
+  activeFilePathMention,
   activeHashMention,
   filterHashMentionItems,
   type HashMentionItem,
@@ -948,14 +963,21 @@ const conversationTokenTitle = computed(() =>
 const contextUsage = ref<ContextUsageSnapshot>({
   usageRatio: 0,
   estimatedTokens: 0,
-  contextWindowTokens: settingStore.largeContextEnabled ? 1_000_000 : 64_000,
+  contextWindowTokens: 64_000,
+});
+
+const contextUsageTooltip = computed(() => {
+  const percent = Math.round(Math.max(0, Math.min(contextUsage.value.usageRatio, 1)) * 100);
+  const used = formatTokenCount(contextUsage.value.estimatedTokens, language.value);
+  const total = formatTokenCount(contextUsage.value.contextWindowTokens, language.value);
+  return `${tr(language.value, "contextUsedPercent", { percent })} · ${tr(language.value, "contextUsageHint", { used, total })}`;
 });
 
 function emptyContextUsage(): ContextUsageSnapshot {
   return {
     usageRatio: 0,
     estimatedTokens: 0,
-    contextWindowTokens: settingStore.largeContextEnabled ? 1_000_000 : 64_000,
+    contextWindowTokens: 64_000,
   };
 }
 
@@ -985,6 +1007,7 @@ const loadContextUsage = useDebounceFn(async (requestId: number) => {
       sessionId: sessionId || undefined,
       draftMessage: draftMessage || undefined,
       context: props.capturedContext ?? undefined,
+      modelId: chatModel.value.trim() || undefined,
     });
     if (requestId !== contextUsageRequestId || sessionId !== props.sessionId) {
       return;
@@ -1076,6 +1099,10 @@ function formatTime(timestamp: number) {
 // without its own choice inherits the last used conversation on first open.
 const chatModel = ref("");
 const chatModelProvider = ref("");
+
+watch(chatModel, () => {
+  void refreshContextUsage();
+});
 
 function syncComposeToModel() {
   if (!props.sessionId) {
@@ -2218,40 +2245,62 @@ const showCommandSuggestions = computed(
 const workspaceFiles = ref<string[]>([]);
 const workspaceFilesLoading = ref(false);
 const workspaceFilesRoot = ref("");
+/** Caret in the live input — `#` / `@` mentions resolve against this, not only EOF. */
+const composerCaret = ref(0);
+
+function syncComposerCaret() {
+  const input = inputRef.value;
+  if (!input) return;
+  const next = input.selectionStart ?? message.value.length;
+  if (composerCaret.value !== next) {
+    composerCaret.value = next;
+  }
+}
+
+function onComposerInput() {
+  syncComposerCaret();
+  resizeWorkbenchInput();
+}
+
+watch(message, (value) => {
+  if (composerCaret.value > value.length) {
+    composerCaret.value = value.length;
+  }
+});
+
 const activeFileMention = computed(() => {
   if (!currentWorkspace.value || interactivePickerOpen.value) {
     return null;
   }
-  const match = message.value.match(/(?:^|\s)@([^\s]*)$/);
-  return match ? { query: match[1], start: match.index! + match[0].indexOf("@") } : null;
+  return activeFilePathMention(message.value, composerCaret.value);
 });
 const fileSuggestions = computed(() => {
   const mention = activeFileMention.value;
-  if (!mention || mention.query.trim().length === 0) return [];
+  if (!mention) return [];
   const query = mention.query.toLowerCase();
-  return workspaceFiles.value
-    .filter((path) => path.toLowerCase().includes(query))
+  const pool = workspaceFiles.value;
+  const filtered = query ? pool.filter((path) => path.toLowerCase().includes(query)) : pool;
+  return filtered
     .sort((left, right) => {
       const leftName = left.split("/").pop()?.toLowerCase() ?? left.toLowerCase();
       const rightName = right.split("/").pop()?.toLowerCase() ?? right.toLowerCase();
-      const leftRank = leftName.startsWith(query) ? 0 : 1;
-      const rightRank = rightName.startsWith(query) ? 0 : 1;
+      const leftRank = query && leftName.startsWith(query) ? 0 : 1;
+      const rightRank = query && rightName.startsWith(query) ? 0 : 1;
       return leftRank - rightRank || left.length - right.length || left.localeCompare(right);
     })
     .slice(0, 12);
 });
-const showFileSuggestions = computed(() => (activeFileMention.value?.query.trim().length ?? 0) > 0);
+const showFileSuggestions = computed(() => activeFileMention.value !== null);
 
 const hashCatalog = ref<HashMentionItem[]>([]);
 const hashCatalogLoading = ref(false);
 const hashCatalogReady = ref(false);
 
 const activeHashQuery = computed(() => {
-  if (interactivePickerOpen.value || showFileSuggestions.value) {
+  if (interactivePickerOpen.value || showFileSuggestions.value || isCommandMode.value) {
     return null;
   }
-  // Do not steal `#` from slash-command mode or mid-word hashes in URLs after non-space.
-  return activeHashMention(message.value);
+  return activeHashMention(message.value, composerCaret.value);
 });
 
 const hashSuggestions = computed(() => {
@@ -2341,15 +2390,19 @@ function hashChipTitle(kind: "skill" | "mcp", id: string): string {
 function selectHashMention(item: HashMentionItem) {
   const mention = activeHashQuery.value;
   if (!mention) return;
+  const suffix = message.value.slice(mention.end);
   message.value = message.value.slice(0, mention.start);
   flushMessageToSegments();
   pushComposerSegment(
     item.kind === "skill" ? { kind: "skill", id: item.id } : { kind: "mcp", id: item.id },
   );
+  // Keep text that was after the unfinished `#…` token (mid-message inserts).
+  message.value = suffix.replace(/^\s+/, "");
   selectedIndex.value = 0;
   void nextTick(() => {
     resizeWorkbenchInput();
     focusInput();
+    syncComposerCaret();
   });
 }
 
@@ -2372,13 +2425,16 @@ async function ensureWorkspaceFiles() {
 function selectWorkspaceFile(path: string) {
   const mention = activeFileMention.value;
   if (!mention) return;
+  const suffix = message.value.slice(mention.end);
   message.value = message.value.slice(0, mention.start);
   flushMessageToSegments();
   pushComposerSegment({ kind: "mention", path });
+  message.value = suffix.replace(/^\s+/, "");
   selectedIndex.value = 0;
   void nextTick(() => {
     resizeWorkbenchInput();
     focusInput();
+    syncComposerCaret();
   });
 }
 
@@ -3388,10 +3444,10 @@ watch(filteredCommands, () => {
 });
 
 watch(
-  () => activeFileMention.value?.query,
-  (query) => {
+  () => activeFileMention.value,
+  (mention) => {
     selectedIndex.value = 0;
-    if (query !== undefined) void ensureWorkspaceFiles();
+    if (mention) void ensureWorkspaceFiles();
   },
 );
 
@@ -3402,10 +3458,10 @@ watch(fileSuggestions, () => {
 });
 
 watch(
-  () => activeHashQuery.value?.query,
-  (query) => {
+  () => activeHashQuery.value,
+  (mention) => {
     selectedIndex.value = 0;
-    if (query !== undefined) void ensureHashCatalog();
+    if (mention) void ensureHashCatalog();
   },
 );
 
@@ -3661,17 +3717,22 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   align-items: center;
   gap: 4px 6px;
   width: 100%;
+  min-width: 0;
   min-height: 28px;
   line-height: 24px;
+  /* overflow-y:auto alone promotes overflow-x to auto and shows a
+     horizontal scrollbar when an unbroken token is wider than the bar. */
+  overflow-x: hidden;
 }
 
 .input-prefix {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  max-width: none;
+  display: inline-block;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   min-height: 24px;
-  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   white-space: pre-wrap;
   color: var(--peek-text);
   font-family: var(--peek-font-sans);
@@ -3716,7 +3777,8 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   flex: 1 1 8rem;
   display: block;
   width: auto;
-  min-width: 8rem;
+  /* Override flex min-width:auto so long unbroken tokens can shrink/wrap. */
+  min-width: 0;
   max-width: 100%;
   height: 24px;
   margin: 0;
@@ -3729,6 +3791,10 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   font-size: 14px;
   line-height: 24px;
   caret-color: var(--peek-accent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  overflow-x: hidden;
 }
 
 .chat-input::placeholder {
@@ -3762,6 +3828,7 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   max-height: min(168px, 34vh);
   align-items: flex-start;
   align-content: flex-start;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -3770,17 +3837,20 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   flex: 1 1 8rem;
   display: block;
   width: auto;
-  min-width: 8rem;
+  min-width: 0;
   max-width: 100%;
   min-height: 24px;
   height: auto;
   max-height: 144px;
   padding: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   resize: none;
   font-size: 14px;
   line-height: 24px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   field-sizing: content;
   align-self: flex-start;
 }
@@ -4073,17 +4143,24 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
 }
 
 .file-mention-tag {
-  gap: 5px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  align-self: center;
+  gap: 6px;
   max-width: min(220px, 100%);
-  height: 24px;
+  height: 26px;
   margin: 0;
   padding: 0 8px;
-  border-radius: 6px;
+  border: 1px solid var(--peek-border);
+  border-radius: 7px;
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 500;
+  line-height: 1;
   color: var(--peek-text);
-  border-color: color-mix(in srgb, var(--peek-border) 88%, transparent);
-  background: color-mix(in srgb, var(--peek-input-bg) 78%, var(--peek-surface));
+  background: color-mix(in srgb, var(--peek-input-bg) 72%, var(--peek-surface));
+  white-space: nowrap;
+  vertical-align: middle;
 }
 
 .file-mention-name {
@@ -4091,22 +4168,23 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 24px;
+  line-height: 1;
 }
 
-/* Match file mention chips: neutral surface, truncated label, accent only on border. */
+/* Same visual language as attached-file chips in the composer. */
 .hash-mention-tag {
-  gap: 5px;
+  gap: 6px;
   max-width: min(220px, 100%);
-  height: 24px;
+  height: 26px;
   margin: 0;
   padding: 0 8px;
-  border-radius: 6px;
+  border: 1px solid var(--peek-border);
+  border-radius: 7px;
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 500;
+  line-height: 1;
   color: var(--peek-text);
-  border-color: color-mix(in srgb, var(--peek-border) 88%, transparent);
-  background: color-mix(in srgb, var(--peek-input-bg) 78%, var(--peek-surface));
+  background: color-mix(in srgb, var(--peek-input-bg) 72%, var(--peek-surface));
 }
 
 .hash-mention-tag :is(svg) {
@@ -4115,11 +4193,11 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
 }
 
 .hash-skill-tag {
-  border-color: color-mix(in srgb, var(--peek-accent) 42%, transparent);
+  border-color: color-mix(in srgb, var(--peek-accent) 42%, var(--peek-border));
 }
 
 .hash-mcp-tag {
-  border-color: color-mix(in srgb, #3b82f6 48%, transparent);
+  border-color: color-mix(in srgb, #3b82f6 48%, var(--peek-border));
 }
 
 .input-bar.drag-over {

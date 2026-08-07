@@ -15,6 +15,7 @@ pub mod error;
 pub mod eval_harness;
 pub mod journal;
 pub mod limits;
+pub mod model_context;
 pub mod preferences;
 pub mod prompt;
 pub mod prompts;

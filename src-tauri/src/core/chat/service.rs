@@ -3,10 +3,9 @@ use std::sync::{Arc, Mutex};
 
 use crate::core::agent::{AgentDebugEvent, AgentRuntime, AgentSpawnInput};
 use crate::core::ai::provider::AIProvider;
-use crate::core::chat::compact::{self, context_window_tokens};
+use crate::core::chat::compact;
 use crate::core::chat::conversation_manager::{create_message, ConversationManager};
 use crate::core::chat::error::ChatError;
-use crate::core::chat::limits::max_turn_tokens_for;
 use crate::core::chat::preferences::SendPreferences;
 use crate::core::chat::prompt::{PromptBuildInput, PromptBuilder, PromptPreferences};
 use crate::core::context::ContextResolver;
@@ -224,16 +223,25 @@ impl ChatService {
         let _memory_decision = task_rules.memory_decision;
 
         let history = self.conversation.messages(&session_id);
-        let large_context = self
+        let settings = self
             .app_handle
             .as_ref()
-            .and_then(|app| crate::services::settings_store::get_settings(app).ok())
+            .and_then(|app| crate::services::settings_store::get_settings(app).ok());
+        let large_context = settings
+            .as_ref()
             .map(|settings| settings.large_context_enabled)
             .unwrap_or(true);
-        let context_window = context_window_tokens(large_context);
+        let model = overrides
+            .model_id
+            .as_deref()
+            .filter(|model| !model.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| settings.as_ref().map(|settings| settings.chat_model.clone()))
+            .unwrap_or_default();
+        let context_window =
+            crate::core::chat::model_context::effective_context_window(large_context, &model);
         // Mid-turn auto-compact uses the same window; overshoot → compact & continue.
-        let max_turn_tokens = max_turn_tokens_for(large_context);
-        debug_assert_eq!(max_turn_tokens, context_window);
+        let max_turn_tokens = context_window;
         let provider = self.resolve_provider(&overrides);
         let summarizer = crate::core::chat::compact::ProviderSummarizer::new(Arc::clone(&provider));
         let compact = compact::prepare_history_for_prompt(
@@ -260,10 +268,6 @@ impl ChatService {
                 folded_messages: notice.folded_messages,
             });
         }
-        let settings = self
-            .app_handle
-            .as_ref()
-            .and_then(|app| crate::services::settings_store::get_settings(app).ok());
         let collaboration_models = settings
             .as_ref()
             .filter(|settings| settings.multi_model_collaboration)
@@ -320,19 +324,6 @@ impl ChatService {
         } else {
             Arc::clone(&self.tools)
         };
-
-        let model = overrides
-            .model_id
-            .as_deref()
-            .filter(|model| !model.trim().is_empty())
-            .map(str::to_string)
-            .or_else(|| {
-                self.app_handle
-                    .as_ref()
-                    .and_then(|app| crate::services::settings_store::get_settings(app).ok())
-                    .map(|settings| settings.chat_model)
-            })
-            .unwrap_or_default();
 
         // Per-conversation approval mode: register (or clear) the override for
         // this session so tool approvals honor each conversation's choice.
@@ -461,8 +452,10 @@ impl ChatService {
         session_id: Option<String>,
         draft_message: Option<String>,
         context: Option<crate::core::runtime::RequestContext>,
+        model_id: Option<String>,
     ) -> Result<crate::models::chat::ContextUsageResponse, ChatError> {
-        use crate::core::chat::compact::{context_window_tokens, measure_context_usage};
+        use crate::core::chat::model_context::effective_context_window;
+        use crate::core::chat::compact::measure_context_usage;
         use crate::services::settings_store::get_settings;
 
         let history = match session_id.as_deref() {
@@ -478,10 +471,19 @@ impl ChatService {
         );
         crate::core::context::provider::environment_provider::collect(&mut ctx);
 
-        let large_context = get_settings(app)
+        let settings = get_settings(app).ok();
+        let large_context = settings
+            .as_ref()
             .map(|settings| settings.large_context_enabled)
             .unwrap_or(true);
-        let context_window = context_window_tokens(large_context);
+        let model = model_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(str::to_string)
+            .or_else(|| settings.map(|settings| settings.chat_model))
+            .unwrap_or_default();
+        let context_window = effective_context_window(large_context, &model);
         let measure =
             measure_context_usage(&history, &ctx, draft_message.as_deref(), context_window);
 

@@ -363,6 +363,11 @@
           :model-value="
             item.id === 'primaryHotkey' ? settingStore.primaryHotkey : settingStore.secondaryHotkey
           "
+          :enabled="
+            item.id === 'primaryHotkey'
+              ? settingStore.primaryHotkeyEnabled
+              : settingStore.secondaryHotkeyEnabled
+          "
           :setting-key="item.id === 'primaryHotkey' ? 'primaryHotkey' : 'secondaryHotkey'"
           :mode="item.id === 'primaryHotkey' ? 'double-modifier' : 'chord'"
           :default-value="item.id === 'primaryHotkey' ? 'Alt' : 'Ctrl+Alt+Space'"
@@ -371,6 +376,12 @@
               item.id === 'primaryHotkey'
                 ? (settingStore.primaryHotkey = value)
                 : (settingStore.secondaryHotkey = value)
+          "
+          @update:enabled="
+            (value) =>
+              item.id === 'primaryHotkey'
+                ? (settingStore.primaryHotkeyEnabled = value)
+                : (settingStore.secondaryHotkeyEnabled = value)
           "
         />
 
