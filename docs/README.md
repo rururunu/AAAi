@@ -1,18 +1,21 @@
 # Anya documentation
 
-<p>
-  <a href="./README.md">English</a> ·
+<p align="center">
+  <a href="./README.md">English</a>
+  &nbsp;·&nbsp;
   <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
 Product home: [../README.md](../README.md)
 
-| Document                                            | Audience         | Contents                                                                              |
-| --------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------- |
-| [Architecture overview](./architecture-overview.md) | Contributors     | Layers, process topology, agent loop, timeline, persistence, events, extension points |
-| [Maintenance guide](./maintenance.md)               | Maintainers      | Env setup, workflows, debugging, tests, version bump, conventions                     |
-| [Releases & remote updates](./release.md)           | Release managers | Signing, `latest.json`, GitHub Releases, CI                                           |
-| Screenshots                                         | Users / README   | `image/` assets referenced from the root README                                       |
+These pages are the maintainer map — start at the root README for the product story, then open the guide that matches your task.
+
+| Document                                            | Audience         | When to open it                                                     |
+| --------------------------------------------------- | ---------------- | ------------------------------------------------------------------- |
+| [Architecture overview](./architecture-overview.md) | Contributors     | Layers, process topology, agent loop, timeline, persistence, events |
+| [Maintenance guide](./maintenance.md)               | Maintainers      | Environment, debug, tests, version bumps, conventions               |
+| [Releases & remote updates](./release.md)           | Release managers | Signing, `latest.json`, GitHub Releases, CI                         |
+| Screenshots (`image/`)                              | Users / README   | Assets linked from the root README                                  |
 
 ```mermaid
 flowchart LR
@@ -23,5 +26,4 @@ flowchart LR
   Maint --> Rel
 ```
 
-When changing behavior, update the matching row above and keep the Chinese twin
-in sync (`*.zh-CN.md`).
+When behavior changes, update the matching document and keep its Chinese twin (`*.zh-CN.md`) in sync.

@@ -1,18 +1,21 @@
 # Anya
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" alt="Anya" width="112" height="112" />
+  <img src="src-tauri/icons/icon.png" alt="Anya" width="120" height="120" />
 </p>
 
-<h2 align="center">Hand your work & questions to Anya anytime.</h2>
+<h1 align="center">Anya</h1>
+
+<p align="center"><strong>A desktop agent you can summon anytime.</strong></p>
 
 <p align="center">
-  Double-tap <kbd>Alt</kbd> for a floating overlay anywhere on your desktop.
-  When a chat needs more room, open it in the workbench with one click.
+  Press a shortcut, and Anya is there — ready to help with documents, code, and everyday work.<br />
+  DeepSeek is first-class; more providers plug in when you need them.
 </p>
 
 <p align="center">
-  <a href="./README.md">English</a> ·
+  <a href="./README.md">English</a>
+  &nbsp;·&nbsp;
   <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
@@ -23,105 +26,87 @@
   <img alt="stack" src="https://img.shields.io/badge/Tauri%202%20%2B%20Vue%203%20%2B%20Rust-black?style=flat-square" />
 </p>
 
-## Documentation
+---
 
-| Document                                                 | Description                                             |
-| -------------------------------------------------------- | ------------------------------------------------------- |
-| [Architecture overview](./docs/architecture-overview.md) | Layers, control flow, agent loop, persistence, events   |
-| [Maintenance guide](./docs/maintenance.md)               | Local setup, debug, tests, release hygiene, conventions |
-| [Releases & updates](./docs/release.md)                  | MSI signing, `latest.json`, GitHub Releases / CI        |
-| [Docs index](./docs/README.md)                           | Full documentation map (EN / 中文)                      |
+## At a glance
 
-中文文档入口：[README.zh-CN.md](./README.zh-CN.md) · [架构](./docs/architecture-overview.zh-CN.md) · [维护](./docs/maintenance.zh-CN.md) · [发布](./docs/release.zh-CN.md)
+|                 |                                                                          |
+| --------------- | ------------------------------------------------------------------------ |
+| **Overlay**     | Double-tap <kbd>Alt</kbd> from any app. Ask, attach context, keep going. |
+| **Workbench**   | Full desktop UI for pinned chats, project workspaces, and review.        |
+| **Agent**       | Read-only Ask, or Agent mode with tools, Skills, MCP, and Office.        |
+| **Local-first** | Keys, history, and settings stay on your machine by default.             |
+
+**Docs:** [Architecture](./docs/architecture-overview.md) · [Maintenance](./docs/maintenance.md) · [Releases](./docs/release.md) · [Index](./docs/README.md)
 
 ---
 
 ## Overlay — ask from anywhere
 
-Double-tap <kbd>Alt</kbd> in any app to show or hide the floating window. Ask a
-question, follow up in place, and keep Agent / model / approval controls under
-the composer.
+Double-tap <kbd>Alt</kbd> to show or hide the floating window. Ask a question, follow up in place, and switch Agent / model / approval under the composer.
 
 <p align="center">
-  <img src="./docs/image/Alt%2BAlt.png" alt="Anya floating overlay conversation" width="560" />
+  <img src="./docs/image/Alt%2BAlt.png" alt="Anya floating overlay" width="560" />
 </p>
 
-Anya tries to pick up the current text selection or Explorer selection. You can
-also paste or drag images and files into the input.
+Anya can pick up the current text selection or Explorer selection. Paste or drag images and files into the input when you need richer context.
 
 <p align="center">
-  <img src="./docs/image/select_text_recognition.webp" alt="Anya recognizing selected text context" width="800" />
+  <img src="./docs/image/select_text_recognition.webp" alt="Selected text brought into Anya" width="800" />
 </p>
 
 <p align="center">
-  <img src="./docs/image/select_image_recognition.webp" alt="Anya attaching an image from selection" width="800" />
+  <img src="./docs/image/select_image_recognition.webp" alt="Selected image attached in Anya" width="800" />
 </p>
 
-Summoning outside an IDE starts a **temporary Quick Ask** session — it is not
-bound to a workspace, so history does not land in a stale project. Bind a
-workspace only when you choose one in the overlay (or with `/work`), or when you
-trigger from an IDE that is actually in the foreground.
+Summoning outside an IDE starts a **Quick Ask** session — not bound to a workspace, so history does not land in the wrong project. Bind a folder only when you choose one in the overlay (or with `/work`), or when you trigger from an IDE that is actually in the foreground.
 
-While a conversation is running, use **Open conversation in workbench** (the
-window icon on the overlay) to move that same session into the full desktop UI
-in one click — progress, tools, and history continue there.
+Need more room? Use **Open conversation in workbench** on the overlay to move that same session into the full desktop UI — progress, tools, and history continue there.
 
 ### IDE context plugins
 
-Install the companion plugin so VS Code or IntelliJ can push active file,
-workspace, language, and selection to the local Anya app (best-effort; the
-editor keeps working if Anya is not running).
+Companion plugins push active file, workspace, language, and selection to the local Anya app (best-effort; the editor keeps working if Anya is not running).
 
 - [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=Anya.anya-ide-context)
 - [IntelliJ Platform](https://plugins.jetbrains.com/plugin/33163-anya-ide-context)
 
 ---
 
-## Workbench — manage every session
+## Workbench — every session in one place
 
-The workbench is the full desktop surface. Temporary Quick Ask chats from the
-overlay appear here alongside pinned threads and project workspaces, so you can
-talk, switch, and organize them in one place.
+The workbench is the full desktop surface: Quick Ask threads from the overlay sit beside pinned chats and project workspaces.
 
 <p align="center">
-  <img src="./docs/image/workspace.png" alt="Anya workbench with pinned chats, workspaces, and quick ask" width="900" />
+  <img src="./docs/image/workspace.png" alt="Anya workbench" width="900" />
 </p>
 
-- **Pinned** — keep important threads at the top.
-- **Workspaces** — bind chats to a project folder so Agent edits stay in context.
-- **Quick Ask** — the same temporary sessions started from the overlay; continue
-  them here, start new ones, or keep a long-running chat in the workbench while
-  you still summon the overlay elsewhere.
+| Area           | What it is for                                                                                                          |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Pinned**     | Keep important threads at the top.                                                                                      |
+| **Workspaces** | Bind chats to a project folder so Agent edits stay in context.                                                          |
+| **Quick Ask**  | Temporary overlay sessions — continue, start new, or keep a long run here while you still summon the overlay elsewhere. |
 
 ### Review changes
 
-When Agent edits files, Anya shows a per-file summary and a focused Diff view so
-you can inspect every addition and deletion before you move on.
+When Agent edits files, Anya shows a per-file summary and a focused Diff view.
 
 <p align="center">
-  <img src="./docs/image/workspace-diff.png" alt="Anya reviewing Agent file changes in the Diff panel" width="900" />
+  <img src="./docs/image/workspace-diff.png" alt="Diff review in Anya" width="900" />
 </p>
 
 - Task list and verification stay on the conversation timeline.
-- Open **Review** to browse side-by-side or unified diffs.
-- Undo is available for changes Anya applied in the current session (checkpoints).
+- Open **Review** for side-by-side or unified diffs.
+- Undo covers changes Anya applied in the current session (checkpoints).
 
 ### Settings
 
-Configure models, providers, agent behavior, and extensions from the embedded
-settings page — theme, memory, search, MCP, Skills, and more.
+Configure models, providers, agent behavior, and extensions from the embedded settings page.
 
 <p align="center">
-  <img src="./docs/image/workspace-settings.png" alt="Anya model settings for DeepSeek and multimodal options" width="900" />
+  <img src="./docs/image/workspace-settings.png" alt="Anya settings" width="900" />
 </p>
 
-Highlights:
-
-- Default chat model and optional vision / multimodal fallback.
-- Split multimodal analysis when the primary model cannot see images.
-- Reasoning effort, reasoning language, and whether to show the thinking process.
-- Tool approval mode (for example Always allow) and Agent work display density.
-- Large context window toggle (≈1M vs 64k budgets for compaction / turn limits).
+Common controls include default chat model, vision / multimodal fallback, reasoning effort and language, tool approval mode, Agent display density, and context-window budget.
 
 ---
 
@@ -129,82 +114,71 @@ Highlights:
 
 ### Ask and Agent
 
-| Mode      | Intent                              | Typical tools                                       |
-| --------- | ----------------------------------- | --------------------------------------------------- |
-| **Ask**   | Read-only investigation             | Read files, search, LSP, configured read-only tools |
-| **Agent** | Default; change the world carefully | Files, PowerShell, Git, Skills, MCP, sub-agents     |
+| Mode      | Intent                              | Typical tools                                   |
+| --------- | ----------------------------------- | ----------------------------------------------- |
+| **Ask**   | Read-only investigation             | Files, search, LSP, other read-only tools       |
+| **Agent** | Default; change the world carefully | Files, PowerShell, Git, Skills, MCP, sub-agents |
 
-Ask withholds write / shell / git capabilities. Agent enables them subject to the
-approval policy in Settings. Both modes share the same `AgentRunner` loop —
-policy is enforced at tool schema exposure and approval gates, not via a second
-orchestrator.
+Ask withholds write / shell / git. Agent enables them under your approval policy. Both modes share the same `AgentRunner` loop — policy lives in tool exposure and approval gates, not a second orchestrator.
 
-### Timeline and tool cards
+### Timeline
 
-Assistant turns interleave **reasoning**, **reply text**, and **tool activity**
-in chronological order (live stream and persisted history). Long thinking no
-longer hides the commands and edits that happened mid-thought.
+Assistant turns interleave **reasoning**, **reply text**, and **tool activity** in chronological order — live and after reload. Long thinking no longer hides the work that happened mid-thought.
 
 ### Integrations
 
-- **Microsoft Office** — when Word, Excel, or PowerPoint is running, Anya can collect document context and use `word_*` / `excel_*` / `ppt_*` tools (COM).
-- **Skills** — built-in and vendor skills (docx, pandoc, research, review, bid tech, …) loaded as playbooks; can run as sub-agents.
-- **MCP** — connect stdio / remote MCP servers (including Smithery-oriented helpers).
-- **LSP** — language server diagnostics when configured.
-- **Pinned-image badge** — optional PixPin / Snipaste badge to open a chat with that image attached.
-- **Sub-agents** — split larger work across child agents while progress stays visible in the main thread.
-- **Memory** — local memory tools; optional mem0 cloud sync.
-- **Web search** — Serper or Tavily when an API key is set.
+| Integration            | Role                                                                                               |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| **Microsoft Office**   | Context and `word_*` / `excel_*` / `ppt_*` tools when Word, Excel, or PowerPoint is running (COM)  |
+| **Skills**             | Built-in and vendor playbooks (docx, pandoc, research, review, bid tech, …); can run as sub-agents |
+| **MCP**                | Stdio and remote MCP servers                                                                       |
+| **LSP**                | Diagnostics when configured                                                                        |
+| **Pinned-image badge** | Optional PixPin / Snipaste badge to open a chat with that image                                    |
+| **Sub-agents**         | Split larger work while progress stays visible on the main thread                                  |
+| **Memory**             | Local memory tools; optional mem0 cloud sync                                                       |
+| **Web search**         | Serper or Tavily when an API key is set                                                            |
 
 ### Model providers
 
-- **DeepSeek** — API key.
-- **Gemini** — Google sign-in (Antigravity OAuth).
-- **Custom** — OpenAI-compatible Base URL, API key, and model list.
+| Provider     | How you connect                                                                              |
+| ------------ | -------------------------------------------------------------------------------------------- |
+| **DeepSeek** | API key — recommended default                                                                |
+| **Gemini**   | Google sign-in (Antigravity OAuth)                                                           |
+| **Custom**   | OpenAI-compatible Base URL + key; presets for MiMo, Zhipu GLM, Volcengine Ark, MiniMax, Kimi |
 
-For image input with a text-only primary model, set a vision model or enable
-multimodal split analysis in Settings.
-
-The composer shows session token estimates and context usage; you can pick model
-and thinking level while tools run.
+For image input with a text-only primary model, set a vision model or enable multimodal split analysis in Settings. The composer shows session token estimates and context usage; you can change model and thinking level while tools run.
 
 ---
 
 ## Install and get started
 
-1. Download and install the MSI from [Releases](../../releases).
-2. Open **Settings** from the Anya tray icon and configure a model provider.
-3. Double-tap <kbd>Alt</kbd>, type a question, press <kbd>Enter</kbd> — or open the session in the workbench when you need the full UI.
+1. Download the MSI from [Releases](../../releases) and install.
+2. Open **Settings** from the tray icon and connect a model provider.
+3. Double-tap <kbd>Alt</kbd>, ask a question, press <kbd>Enter</kbd> — or move the session to the workbench when you need the full UI.
 
-| Shortcut                                            | Action                                          |
-| --------------------------------------------------- | ----------------------------------------------- |
-| Double-tap <kbd>Alt</kbd>                           | Show or hide the overlay                        |
-| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> | Fallback summon shortcut                        |
-| <kbd>Enter</kbd>                                    | Send a message                                  |
-| <kbd>/</kbd>                                        | Slash commands                                  |
-| <kbd>Esc</kbd>                                      | Clear input; closes the window in some contexts |
+| Shortcut                                            | Action                                             |
+| --------------------------------------------------- | -------------------------------------------------- |
+| Double-tap <kbd>Alt</kbd>                           | Show or hide the overlay                           |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> | Fallback summon shortcut                           |
+| <kbd>Enter</kbd>                                    | Send                                               |
+| <kbd>/</kbd>                                        | Slash commands                                     |
+| <kbd>Esc</kbd>                                      | Clear input; may close the window in some contexts |
 
 ---
 
 ## Data and privacy
 
-API keys, OAuth tokens, settings, and chat history stay on your machine by
-default. Context capture is local; the message and attached context leave the
-device only when you send them to your configured provider.
+API keys, OAuth tokens, settings, and chat history stay on your machine by default. Context capture is local; the message and attached context leave the device only when you send them to your configured provider.
 
-Enabling web search, MCP, or mem0 cloud sync also sends data to those services —
-enable them only if you accept their policies.
+Web search, MCP, and mem0 cloud sync send data to those services — enable them only if you accept their policies.
 
-Crash recovery uses a local SQLite journal so interrupted streaming turns can be
-settled on next launch instead of leaving the UI stuck “executing”.
+Crash recovery uses a local SQLite journal so interrupted streaming turns can settle on next launch instead of leaving the UI stuck “executing”.
 
 ---
 
-## Technical architecture (summary)
+## Architecture (summary)
 
-Anya is a single-process **Tauri 2** application: WebView2 surfaces (Vue 3 + Pinia)
-for presentation, and a Rust host for OS integration, chat domain logic, model I/O,
-and tool execution.
+Anya is a single-process **Tauri 2** app: WebView2 (Vue 3 + Pinia) for presentation, and a Rust host for OS integration, chat domain logic, model I/O, and tools.
 
 ```mermaid
 flowchart TB
@@ -237,27 +211,22 @@ flowchart TB
   TOOLS -->|COM| OFFICE
 ```
 
-Primary chat path:
+Primary path:
 
 ```text
 invoke("chat")
   → ChatService::send
   → StreamManager / AgentRuntime
-  → AgentRunner::run  (agent_loop policies)
+  → AgentRunner::run
   → AIProvider::stream + ToolRegistry
-  → EventBus → chat-* / tool-* events → Pinia
+  → EventBus → UI
   → ConversationManager persists messages (+ work_timeline)
 ```
 
-`AgentRunner` owns the model↔tools loop. `AgentRuntime` owns run lifecycle
-(cancel, soft-inject, debug). Do not add a second chat loop beside `AgentRunner`.
+`AgentRunner` owns the model↔tools loop. `AgentRuntime` owns run lifecycle (cancel, soft-inject, debug). Do not add a second chat loop beside `AgentRunner`.
 
-Full diagrams (layers, sequencing, persistence, frontend batching, updates):
-[Architecture overview](./docs/architecture-overview.md) ·
-[简体中文](./docs/architecture-overview.zh-CN.md).
-
-Maintainer workflows (debug, tests, version bump, data paths):
-[Maintenance guide](./docs/maintenance.md).
+Full diagrams: [Architecture overview](./docs/architecture-overview.md) · [简体中文](./docs/architecture-overview.zh-CN.md)  
+Maintainer workflows: [Maintenance guide](./docs/maintenance.md)
 
 ---
 
@@ -276,11 +245,9 @@ cd src-tauri && cargo test --lib
 pnpm tauri:build
 ```
 
-The installer is written to `src-tauri/target/release/bundle/msi/` as
-`Anya_0.2.2_x64.msi` (no `_en-US` suffix).
+The installer lands at `src-tauri/target/release/bundle/msi/Anya_0.2.2_x64.msi`.
 
-For releases and in-app updates (`latest.json`, signing, GitHub Releases), see
-[Releases and remote updates](./docs/release.md) · [简体中文](./docs/release.zh-CN.md).
+For signing, `latest.json`, and GitHub Releases, see [Releases and remote updates](./docs/release.md).
 
 ---
 
