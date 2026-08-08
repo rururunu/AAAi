@@ -1,4 +1,6 @@
-import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
 export type UpdaterCheckResult =
@@ -11,6 +13,11 @@ export type UpdaterProgress = {
   downloadedBytes: number;
   totalBytes: number;
 };
+
+type NativeProgressEvent =
+  | { event: "Started"; data: { contentLength?: number | null } }
+  | { event: "Progress"; data: { chunkLength: number } }
+  | { event: "Finished" };
 
 let cachedUpdate: Update | null = null;
 
@@ -51,8 +58,7 @@ export async function checkForAppUpdate(): Promise<UpdaterCheckResult> {
 export async function installCachedUpdate(
   onProgress?: (progress: UpdaterProgress) => void,
 ): Promise<void> {
-  const update = cachedUpdate;
-  if (!update) {
+  if (!cachedUpdate) {
     throw new Error("No update is ready to install.");
   }
 
@@ -60,25 +66,35 @@ export async function installCachedUpdate(
 
   let downloadedBytes = 0;
   let totalBytes = 0;
+  let unlisten: UnlistenFn | undefined;
 
-  await update.downloadAndInstall((event: DownloadEvent) => {
-    switch (event.event) {
-      case "Started":
-        totalBytes = event.data.contentLength ?? 0;
-        onProgress?.({ phase: "downloading", downloadedBytes: 0, totalBytes });
-        break;
-      case "Progress":
-        downloadedBytes += event.data.chunkLength;
-        onProgress?.({ phase: "downloading", downloadedBytes, totalBytes });
-        break;
-      case "Finished":
-        onProgress?.({ phase: "installing", downloadedBytes, totalBytes });
-        break;
-    }
-  });
+  try {
+    unlisten = await listen<NativeProgressEvent>("updater://progress", (event) => {
+      switch (event.payload.event) {
+        case "Started":
+          totalBytes = event.payload.data.contentLength ?? 0;
+          downloadedBytes = 0;
+          onProgress?.({ phase: "downloading", downloadedBytes: 0, totalBytes });
+          break;
+        case "Progress":
+          downloadedBytes += event.payload.data.chunkLength;
+          onProgress?.({ phase: "downloading", downloadedBytes, totalBytes });
+          break;
+        case "Finished":
+          onProgress?.({ phase: "installing", downloadedBytes, totalBytes });
+          break;
+      }
+    });
 
-  onProgress?.({ phase: "relaunching", downloadedBytes, totalBytes });
-  await relaunch();
+    // Custom Rust command: skips plugin cleanup_before_exit which deadlocks against
+    // tray prevent_exit/prevent_close on Windows after download finishes.
+    await invoke("download_and_install_update");
+
+    onProgress?.({ phase: "relaunching", downloadedBytes, totalBytes });
+    await relaunch();
+  } finally {
+    unlisten?.();
+  }
 }
 
 export function clearCachedUpdate() {

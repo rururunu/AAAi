@@ -22,8 +22,9 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use app_state::AppState;
 use commands::{
     app, ask, chat, diff, gemini, harness, icons, mcp, permission, settings, skills, token_usage,
-    window, workspace,
+    updater, window, workspace,
 };
+use services::app_lifecycle;
 use services::overlay_native::clear_minimize_pending;
 use services::settings_store::{
     apply_runtime_settings, load_settings, register_enabled_mcp_tools, SettingsState,
@@ -177,8 +178,12 @@ pub fn run() {
 
             if label == "workbench" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window.hide();
+                    // During Windows MSI updates the installer / updater may request
+                    // close; blocking it deadlocks the install after download finishes.
+                    if !app_lifecycle::allow_exit() {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
                     return;
                 }
             }
@@ -266,6 +271,7 @@ pub fn run() {
             icons::lookup_install_icons,
             icons::clear_install_icon,
             app::get_app_info,
+            updater::download_and_install_update,
             diff::build_code_diff,
             chat::chat,
             chat::chat_cancel,
@@ -301,7 +307,9 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|_app_handle, event| {
             if let RunEvent::ExitRequested { api, code, .. } = event {
-                if code.is_none() {
+                // Tray-style: ignore window-driven exit unless an update is installing
+                // (or the process requested an explicit exit code).
+                if code.is_none() && !app_lifecycle::allow_exit() {
                     api.prevent_exit();
                 }
             }

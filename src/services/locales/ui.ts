@@ -64,7 +64,7 @@ export const uiEn = {
   "updater.checking": "Checking for updates…",
   "updater.downloading": "Downloading update…",
   "updater.installing": "Installing update…",
-  "updater.error": "Could not check for updates",
+  "updater.error": "Update failed",
   "updater.confirmTitle": "Install update {version}?",
   "updater.confirmDescription":
     "Anya will download the update, quit, install it, and restart automatically.",
@@ -227,7 +227,7 @@ const zhCN: UiLocale = {
   "updater.checking": "正在检测更新…",
   "updater.downloading": "正在下载更新…",
   "updater.installing": "正在安装更新…",
-  "updater.error": "无法检测更新",
+  "updater.error": "更新失败",
   "updater.confirmTitle": "安装更新 {version}？",
   "updater.confirmDescription": "Anya 将下载更新包，退出后自动安装并重启。",
   "updater.confirmAction": "更新",

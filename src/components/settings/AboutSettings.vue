@@ -153,10 +153,14 @@ const statusCopy = computed(() => {
 });
 
 const updateDetail = computed(() => {
+  if (updaterStore.errorMessage && !updaterStore.isBusy) {
+    return `${copy.value.error}: ${updaterStore.errorMessage}`;
+  }
+  if (updaterStore.status === "checking" || updaterStore.isBusy) {
+    return statusCopy.value;
+  }
   if (updaterStore.updateAvailable) return copy.value.updateAvailableDetail;
   if (updaterStore.status === "up-to-date") return copy.value.upToDateDetail;
-  if (updaterStore.status === "checking" || updaterStore.isBusy) return statusCopy.value;
-  if (updaterStore.errorMessage) return `${copy.value.error}: ${updaterStore.errorMessage}`;
   return copy.value.upToDateDetail;
 });
 

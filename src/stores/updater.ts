@@ -74,6 +74,7 @@ export const useUpdaterStore = defineStore("updater", {
 
       this.status = "downloading";
       this.errorMessage = "";
+      this.progress = { phase: "downloading", downloadedBytes: 0, totalBytes: 0 };
 
       try {
         await installCachedUpdate((progress) => {
@@ -81,6 +82,7 @@ export const useUpdaterStore = defineStore("updater", {
         });
       } catch (error) {
         this.status = "available";
+        this.progress = { phase: "idle", downloadedBytes: 0, totalBytes: 0 };
         this.errorMessage = error instanceof Error ? error.message : String(error);
       }
     },

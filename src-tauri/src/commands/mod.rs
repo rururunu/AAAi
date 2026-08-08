@@ -10,5 +10,6 @@ pub mod permission;
 pub mod settings;
 pub mod skills;
 pub mod token_usage;
+pub mod updater;
 pub mod window;
 pub mod workspace;

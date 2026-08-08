@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-app-commands"
-description = "Enables app info commands."
-commands.allow = ["get_app_info"]
+description = "Enables app info and updater install commands."
+commands.allow = ["get_app_info", "download_and_install_update"]
