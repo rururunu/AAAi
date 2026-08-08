@@ -24,6 +24,8 @@ pub struct PromptPreferences {
     pub collaboration_models: Vec<String>,
     /// Inject the optional minimal-coding ladder when enabled in Settings.
     pub minimal_coding: bool,
+    /// Inject plan-mode instructions while writer tools are gated.
+    pub plan_mode: bool,
 }
 
 pub struct PromptBuildInput<'a> {
@@ -95,6 +97,7 @@ impl PromptBuilder {
             session_id,
             &preferences.collaboration_models,
             preferences.minimal_coding,
+            preferences.plan_mode,
         );
 
         // [5..] History（排除 pending 的空 assistant）

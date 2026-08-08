@@ -1,6 +1,7 @@
 <template>
   <ul
     class="command-list option-picker-list peek-scrollbar"
+    :class="{ compact }"
     data-tauri-drag-region="false"
     role="listbox"
     :aria-label="ariaLabel"
@@ -27,12 +28,7 @@
         <span v-if="option.description" class="option-desc">{{ option.description }}</span>
       </span>
 
-      <Check
-        v-if="option.id === selectedId"
-        :size="13"
-        class="option-check"
-        aria-hidden="true"
-      />
+      <Check v-if="option.id === selectedId" :size="13" class="option-check" aria-hidden="true" />
     </li>
   </ul>
 </template>
@@ -53,6 +49,8 @@ defineProps<{
   selectedId: string;
   selectedIndex: number;
   ariaLabel: string;
+  /** Narrow single-line rows without icon background chips. */
+  compact?: boolean;
 }>();
 
 defineEmits<{
@@ -74,8 +72,7 @@ defineEmits<{
   flex: none;
   max-height: min(
     calc(
-      var(--command-row-height) * var(--command-list-visible-rows) +
-        var(--command-list-padding)
+      var(--command-row-height) * var(--command-list-visible-rows) + var(--command-list-padding)
     ),
     72vh
   );
@@ -120,6 +117,25 @@ defineEmits<{
   color: var(--peek-text);
 }
 
+.option-picker-list.compact .option-leading {
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--peek-muted);
+}
+
+.option-picker-list.compact .option-picker-item.active .option-leading,
+.option-picker-list.compact .option-picker-item.current .option-leading {
+  background: transparent;
+  color: var(--peek-text);
+}
+
+.option-picker-list.compact .command-item {
+  gap: 6px;
+  padding: 0 10px;
+}
+
 .option-icon {
   opacity: 0.92;
 }
@@ -131,6 +147,10 @@ defineEmits<{
   gap: 1px;
   min-width: 0;
   padding: 6px 0;
+}
+
+.option-picker-list.compact .option-text {
+  padding: 0;
 }
 
 .option-label {

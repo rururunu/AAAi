@@ -6,7 +6,7 @@ use crate::core::chat::limits::{
 use crate::core::runtime::{ChatMessage, MessageStatus, RequestContext, Role};
 
 use crate::core::chat::prompts::{
-    MINIMAL_CODING_PROMPT, MULTI_MODEL_COLLABORATION_PROMPT, SYSTEM_PROMPT,
+    MINIMAL_CODING_PROMPT, MULTI_MODEL_COLLABORATION_PROMPT, PLAN_MODE_PROMPT, SYSTEM_PROMPT,
 };
 
 /// Slot [4]: optional strategies in fixed relative order. Disabled strategies
@@ -16,6 +16,7 @@ pub(super) fn inject_optional_policy_suffix(
     session_id: &str,
     collaboration_models: &[String],
     minimal_coding: bool,
+    plan_mode: bool,
 ) {
     if !collaboration_models.is_empty() {
         let list = collaboration_models
@@ -33,6 +34,9 @@ pub(super) fn inject_optional_policy_suffix(
             "minimal-coding",
             Some(MINIMAL_CODING_PROMPT),
         );
+    }
+    if plan_mode {
+        inject_system_block(messages, session_id, "plan-mode", Some(PLAN_MODE_PROMPT));
     }
 }
 

@@ -4,47 +4,78 @@
     data-tauri-drag-region="false"
     role="listbox"
     :aria-label="ariaLabel"
+    :aria-multiselectable="multiSelect ? true : undefined"
   >
-    <li class="picker-sticky-head" aria-hidden="false">
+    <li class="picker-sticky-head">
       <div class="picker-meta">
         <span class="picker-meta-label">{{ header }}</span>
         <span v-if="questionCount > 1" class="picker-meta-progress">
           {{ questionIndex + 1 }}/{{ questionCount }}
         </span>
+        <span v-else-if="multiSelect && selectedCount > 0" class="picker-meta-progress">
+          {{ selectedCountLabel }}
+        </span>
       </div>
       <div class="picker-meta question">{{ question }}</div>
     </li>
+
     <li
       v-for="(option, index) in options"
-      :key="option.slug"
+      :key="`${option.slug}-${index}`"
       class="command-item"
       :class="{
         active: index === selectedIndex,
-        selected: isOptionSelected(option.label),
+        selected: multiSelect && !option.isSkip && isOptionSelected(option.label),
       }"
       role="option"
-      :aria-selected="index === selectedIndex"
+      :aria-selected="
+        multiSelect && !option.isSkip ? isOptionSelected(option.label) : index === selectedIndex
+      "
       @mouseenter="$emit('hover', index)"
       @mousedown.prevent="$emit('select', option)"
     >
-      <span class="command-name">/{{ option.slug }}</span>
-      <span class="command-desc">{{ option.description || option.label }}</span>
+      <span
+        v-if="multiSelect && !option.isSkip"
+        class="ask-checkbox"
+        :class="{ checked: isOptionSelected(option.label) }"
+        aria-hidden="true"
+      >
+        <Check v-if="isOptionSelected(option.label)" :size="11" :stroke-width="2.75" />
+      </span>
+      <span v-else-if="option.isSkip" class="ask-leading" aria-hidden="true">
+        <PenLine :size="13" :stroke-width="2.25" />
+      </span>
+
+      <span class="ask-body">
+        <span class="ask-label">{{ option.label }}</span>
+        <span v-if="option.description && option.description !== option.label" class="ask-desc">
+          {{ option.description }}
+        </span>
+      </span>
     </li>
+
     <li
       v-if="multiSelect"
       class="command-item confirm-item"
-      :class="{ active: selectedIndex === confirmRowIndex }"
+      :class="{ active: selectedIndex === confirmRowIndex, disabled: selectedCount === 0 }"
       role="option"
+      :aria-disabled="selectedCount === 0"
       @mouseenter="$emit('hover', confirmRowIndex)"
-      @mousedown.prevent="$emit('confirm')"
+      @mousedown.prevent="selectedCount > 0 && $emit('confirm')"
     >
-      <span class="command-name">/confirm</span>
-      <span class="command-desc">{{ confirmLabel }}</span>
+      <span class="ask-leading confirm-mark" aria-hidden="true">
+        <Check :size="13" :stroke-width="2.5" />
+      </span>
+      <span class="ask-body">
+        <span class="ask-label">{{ confirmLabel }}</span>
+        <span v-if="selectedCount > 0" class="ask-desc">{{ selectedCountLabel }}</span>
+      </span>
     </li>
   </ul>
 </template>
 
 <script setup lang="ts">
+import { Check, PenLine } from "@lucide/vue";
 import type { AskDisplayOption } from "@/types/chat";
 
 defineProps<{
@@ -56,6 +87,8 @@ defineProps<{
   multiSelect?: boolean;
   confirmRowIndex: number;
   confirmLabel: string;
+  selectedCount: number;
+  selectedCountLabel: string;
   selectedIndex: number;
   ariaLabel: string;
   isOptionSelected: (label: string) => boolean;
@@ -70,7 +103,7 @@ defineEmits<{
 
 <style scoped>
 .command-list {
-  --command-row-height: 30px;
+  --command-row-height: 36px;
   --command-list-padding: 8px;
   --picker-meta-row-height: 28px;
   --command-list-visible-rows: 8;
@@ -81,7 +114,9 @@ defineEmits<{
   background: var(--peek-list-bg);
   flex: none;
   max-height: min(
-    calc(var(--command-row-height) * var(--command-list-visible-rows) + var(--command-list-padding)),
+    calc(
+      var(--command-row-height) * var(--command-list-visible-rows) + var(--command-list-padding)
+    ),
     72vh
   );
   overflow-x: hidden;
@@ -93,10 +128,8 @@ defineEmits<{
   max-height: min(
     var(--interaction-picker-max-height, 48vh),
     calc(
-      var(--picker-meta-row-height) * 2 +
-        var(--command-row-height) * var(--command-list-visible-rows) +
-        var(--command-list-padding) +
-        48px
+      var(--picker-meta-row-height) * 2 + var(--command-row-height) *
+        var(--command-list-visible-rows) + var(--command-list-padding) + 48px
     )
   );
 }
@@ -145,53 +178,93 @@ defineEmits<{
   font-variant-numeric: tabular-nums;
 }
 
-.command-item.selected {
-  background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
-}
-
-.command-item.confirm-item .command-name {
-  color: color-mix(in srgb, var(--peek-accent) 85%, white);
-}
-
-.ask-user-list .command-item:has(.command-name) .command-name {
-  font-family: var(--font-mono);
-}
-
-.ask-user-list .command-item .command-name {
-  color: var(--peek-accent);
-}
-
-.ask-user-list .command-item:last-of-type:not(.confirm-item) .command-desc {
-  color: var(--peek-muted);
-}
-
 .command-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 12px;
-  height: var(--command-row-height);
+  padding: 6px 12px;
+  min-height: var(--command-row-height);
+  height: auto;
   cursor: default;
 }
 
 .command-item.active {
-  background: var(--peek-list-active);
+  background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
 }
 
-.command-name {
+.command-item.selected {
+  background: color-mix(in srgb, var(--peek-accent) 8%, transparent);
+}
+
+.command-item.selected.active {
+  background: color-mix(in srgb, var(--peek-accent) 14%, transparent);
+}
+
+.ask-checkbox {
   flex: none;
-  font-family: var(--font-mono);
-  font-size: 13px;
+  box-sizing: border-box;
+  width: 15px;
+  height: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid color-mix(in srgb, var(--peek-text) 28%, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: transparent;
+}
+
+.ask-checkbox.checked {
+  border-color: var(--peek-accent);
+  background: var(--peek-accent);
+  color: #fff;
+}
+
+.ask-leading {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--peek-muted);
+}
+
+.ask-leading.confirm-mark {
   color: var(--peek-accent);
 }
 
-.command-desc {
+.ask-body {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 1px;
   min-width: 0;
-  font-size: 12px;
+}
+
+.ask-label {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--peek-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ask-desc {
+  font-size: 11px;
+  line-height: 15px;
   color: var(--peek-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.confirm-item.disabled {
+  opacity: 0.4;
+}
+
+.confirm-item .ask-label {
+  color: var(--peek-accent);
 }
 </style>

@@ -264,7 +264,6 @@ export function useWorkbenchSessions(options: UseWorkbenchSessionsOptions) {
 
   async function submitMessage(text: string) {
     const trimmed = text.trim();
-    const sessionId = activeSessionId.value;
     if (!trimmed) {
       cancelStagedEdit();
       return;
@@ -277,7 +276,12 @@ export function useWorkbenchSessions(options: UseWorkbenchSessionsOptions) {
       await refreshSessions();
       return;
     }
-    if (!sessionId) await createQuickConversation();
+    let sessionId = activeSessionId.value;
+    if (!sessionId) {
+      await createQuickConversation();
+      sessionId = activeSessionId.value;
+    }
+    if (!sessionId) return;
     await chatStore.send(trimmed, sessionId, {
       workspaceId: activeSessionWorkspaceId.value ?? undefined,
       quickAsk: !activeSessionWorkspaceId.value,

@@ -12,12 +12,12 @@ to locate code paths and reason about change impact.
 |             |                                                    |
 | ----------- | -------------------------------------------------- |
 | **Product** | Anya — Hand your work & questions to Anya anytime. |
-| **Version** | v0.2.2                                             |
+| **Version** | v0.2.3                                             |
 | **Runtime** | Tauri 2 (WebView2 + Rust)                          |
 | **UI**      | Vue 3 · Vite · Pinia · TypeScript                  |
 | **Domain**  | Rust (`src-tauri/src`)                             |
 
-**Related:** [Maintenance](./maintenance.md) · [Release](./release.md) · [Docs index](./README.md)
+**Related:** [Release](./release.md) · [Docs index](./README.md)
 
 ---
 
@@ -28,7 +28,7 @@ to locate code paths and reason about change impact.
 - Process / window topology
 - Layered module boundaries and allowed dependencies
 - Primary chat request path (UI → domain → provider → tools → UI events)
-- Agent turn orchestration and policy hooks
+- Agent turn orchestration and policy hooks (Ask / Agent / Plan gate)
 - Persistence (SQLite, journal, work timeline)
 - Frontend stream projection and session model
 - Extension points (providers, tools, skills, MCP)
@@ -92,7 +92,7 @@ flowchart TB
     Chat["core/chat<br/>ChatService · StreamManager · AgentRunner"]
     AgentShell["core/agent<br/>AgentRuntime · run lifecycle"]
     Ai["core/ai<br/>Provider trait + implementations"]
-    Tools["core/tools<br/>registry · approval · sandbox"]
+    Tools["core/tools<br/>registry · approval · plan gate · sandbox"]
     Ctx["core/context · workspace · rules · token"]
     Persist["conversation_manager · db · journal"]
   end
@@ -197,7 +197,8 @@ and Workbench may attach to the **same** session concurrently.
 | Prompts             | `core/chat/prompts/`, `prompts/*.md`      | System / tools / policies / skills markdown                           |
 | Agent runtime       | `core/agent/runtime/`                     | Run state machine, cancel, soft-inject queue, debug                   |
 | AI providers        | `core/ai/`                                | DeepSeek, Gemini/Antigravity, multimodal helpers                      |
-| Tools               | `core/tools/`                             | Registry, approval, files, shell, skills, agent tools                 |
+| Tools               | `core/tools/`                             | Registry, approval, plan gate, files, shell, skills, agent tools      |
+| Plan mode           | `core/tools/plan_mode.rs`                 | Session write gate; Agent auto-enter heuristic for complex tasks      |
 | Context             | `core/context/`                           | IDE, selection, clipboard, environment, Office hints                  |
 | Checkpoint          | `core/checkpoint/`                        | Undo / review of applied file changes                                 |
 | Token               | `core/token/`                             | Accounting, usage persistence                                         |
@@ -215,14 +216,14 @@ and Workbench may attach to the **same** session concurrently.
 
 ### 5.3 Frontend (`src/`)
 
-| Area                        | Path                                           | Role                                         |
-| --------------------------- | ---------------------------------------------- | -------------------------------------------- |
-| Overlay / Workbench layouts | `layouts/Overlay.vue`, `layouts/Main.vue`      | Window shells                                |
-| Chat UI                     | `components/chat/*`                            | Message list, timeline, tool cards, composer |
-| Stores                      | `stores/chat.ts`, `setting.ts`, `chatModel.ts` | Session messages, settings, model selection  |
-| IPC                         | `services/ipc/`                                | Typed invoke + event subscription            |
-| Stream batching             | `services/chat/rafBatch.ts`, `main.ts`         | RAF coalesce for deltas                      |
-| Settings pages              | `pages/Settings/`                              | Provider / agent / MCP / skills UI           |
+| Area                        | Path                                           | Role                                                        |
+| --------------------------- | ---------------------------------------------- | ----------------------------------------------------------- |
+| Overlay / Workbench layouts | `layouts/Overlay.vue`, `layouts/Main.vue`      | Window shells                                               |
+| Chat UI                     | `components/chat/*`                            | Message list, timeline, tool cards, plan approval, composer |
+| Stores                      | `stores/chat.ts`, `setting.ts`, `chatModel.ts` | Session messages, plan gate, tasks, settings, models        |
+| IPC                         | `services/ipc/`                                | Typed invoke + event subscription                           |
+| Stream batching             | `services/chat/rafBatch.ts`, `main.ts`         | RAF coalesce for deltas                                     |
+| Settings pages              | `pages/Settings/`                              | Provider / agent / MCP / skills UI                          |
 
 ---
 
@@ -337,11 +338,50 @@ stateDiagram-v2
 | `soft_inject`      | Merge queued user follow-ups at a safe boundary                                   |
 | `failure`          | Consecutive / identical tool-error circuit breaker                                |
 
-### Ask vs Agent
+### Ask / Agent / Plan
 
-Enforced at **tool schema exposure** and **approval policy** (settings), not by a
-separate runner. Ask mode withholds write / shell / git capabilities; Agent mode
-enables them subject to approval mode (e.g. always allow, ask each time).
+Enforced at **tool schema exposure**, **approval policy**, and the **plan gate** —
+not by a separate runner.
+
+| Mode      | Behavior                                                                         |
+| --------- | -------------------------------------------------------------------------------- |
+| **Ask**   | Withholds write / shell / git                                                    |
+| **Agent** | Enables writes under approval; complex requests may **auto-enter** the plan gate |
+| **Plan**  | User-selected or Agent auto-entered; write tools blocked until the user approves |
+
+### Plan gate
+
+Plan state lives in-process in `core/tools/plan_mode.rs` (`PlanModeStore` keyed by
+`session_id`). It is orthogonal to compose `ChatMode`: while the gate is on,
+writes are denied even if the composer still shows Agent.
+
+```mermaid
+flowchart TB
+  Send[ChatService::send] --> Mode{chat_mode?}
+  Mode -->|Ask| Clear[Clear gate]
+  Mode -->|Plan| On[Open gate]
+  Mode -->|Agent| Auto{Complex task<br/>should_auto_plan?}
+  Auto -->|yes and not skip_auto_plan| On
+  Auto -->|no| Off[Leave / do not force open]
+  On --> Prompt[Inject plan-mode.md<br/>read-only tools + update_tasks]
+  Prompt --> Draft[Assistant drafts plan and stops]
+  Draft --> UI[MessageList footer<br/>PlanApprovalCard]
+  UI -->|Exit plan| Clear
+  UI -->|Approve and run| Exec[Clear gate + skip_auto_plan<br/>send execute prompt]
+  Exec --> Writers[Write tools available]
+```
+
+| Piece                | Location                                                                                                          |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Auto-enter heuristic | `plan_mode::should_auto_plan` (Agent + complexity)                                                                |
+| Gate authorize       | `PlanModeStore::authorize` (deny non-read-only writes)                                                            |
+| Prompt               | `prompts/plan-mode.md`                                                                                            |
+| Plan steps           | tools `update_tasks` / `todo_write` → `task-list-updated` / message `toolActivities`                              |
+| Approval UI          | `PlanApprovalCard.vue` at the **end of the last completed assistant message** (same tier as `CodeChangesSummary`) |
+| Approve action       | clear gate → compose back to Agent → `send(..., skipAutoPlan: true)`                                              |
+
+The approval card is **not** an input-bar banner (avoids pushing the composer);
+steps sit alongside the code-changes summary.
 
 ### AgentRunner vs AgentRuntime
 
@@ -433,13 +473,18 @@ Resolution precedence lives in `prompts/context.md` and `core/context` providers
 ```mermaid
 flowchart TB
   Model[Model tool_calls] --> Reg[ToolRegistry]
-  Reg --> Mode{Ask / Agent / plan / read_only?}
+  Reg --> Mode{Ask / Agent / plan gate / read_only?}
   Mode -->|blocked| Deny[Schema omitted or denied]
   Mode -->|allowed| Appr[Approval policy]
   Appr -->|ask user| UI[ask_user / permission UI]
   Appr -->|allow| Exec[Builtin / Skill / MCP / Office / Subagent]
   Exec --> Act[ToolActivity + work_timeline]
+  Exec -->|update_tasks| Tasks[sessionTasks + PlanApprovalCard]
 ```
+
+While the plan gate is on, non-read-only write tools are denied at registry /
+authorize; `update_tasks` (and read-only exploration) stay available so the
+assistant can emit an approvable step list.
 
 Skills are markdown playbooks under `src-tauri/prompts/skills/` (plus vendor
 assets). Invoking a skill typically injects the playbook and may run a subagent
@@ -452,15 +497,17 @@ with optional `read_only`.
 Events are defined in `core/event::BusEvent` and projected by
 `adapters/tauri_events.rs`.
 
-| BusEvent        | Tauri event                      | Consumer effect                       |
-| --------------- | -------------------------------- | ------------------------------------- |
-| `ChatStarted`   | `chat-started`                   | Insert user + pending assistant       |
-| `ChatDelta`     | `chat-delta`                     | Append content (RAF-batched)          |
-| `ChatReasoning` | `chat-reasoning`                 | Append reasoning                      |
-| `ChatStatus`    | `chat-status`                    | Activity label / `stream_retry` reset |
-| `ChatFinished`  | `chat-finished`                  | Replace content, mark done            |
-| `ChatError`     | `chat-error`                     | Mark error, surface message           |
-| Tool activity   | `tool-started` / `tool-finished` | Upsert tool cards                     |
+| BusEvent          | Tauri event                      | Consumer effect                                    |
+| ----------------- | -------------------------------- | -------------------------------------------------- |
+| `ChatStarted`     | `chat-started`                   | Insert user + pending assistant                    |
+| `ChatDelta`       | `chat-delta`                     | Append content (RAF-batched)                       |
+| `ChatReasoning`   | `chat-reasoning`                 | Append reasoning                                   |
+| `ChatStatus`      | `chat-status`                    | Activity label / `stream_retry` reset              |
+| `ChatFinished`    | `chat-finished`                  | Replace content, mark done                         |
+| `ChatError`       | `chat-error`                     | Mark error, surface message                        |
+| Tool activity     | `tool-started` / `tool-finished` | Upsert tool cards                                  |
+| `PlanModeChanged` | `plan-mode-changed`              | Sync gate; may switch compose to Plan              |
+| `TaskListUpdated` | `task-list-updated`              | Update `sessionTasks` (steps for PlanApprovalCard) |
 
 Command results (`ChatSendResponse`) return ids only; streaming content is
 event-driven.
@@ -498,7 +545,7 @@ Details: [release.md](./release.md).
 
 ## 15. Extension points
 
-| Goal                    | Preferred hook                                          |
+| Intent                  | Preferred hook                                          |
 | ----------------------- | ------------------------------------------------------- |
 | New model vendor        | `core/ai` `AIProvider` impl + settings wiring           |
 | New built-in tool       | `core/tools` registry + optional `runtime/` adapter     |
@@ -513,14 +560,15 @@ Avoid introducing a parallel agent loop beside `AgentRunner`.
 
 ## 16. Related source entry points
 
-| Concern                          | Start here                                               |
-| -------------------------------- | -------------------------------------------------------- |
-| App bootstrap / tray / hotkey    | `src-tauri/src/lib.rs`                                   |
-| Chat IPC                         | `commands/chat.rs`                                       |
-| Send + context assembly          | `core/chat/service.rs`                                   |
-| Stream lifecycle + timeline text | `core/chat/stream.rs`                                    |
-| Work timeline persistence        | `core/chat/conversation_manager.rs`, `core/chat/db.rs`   |
-| Agent loop                       | `core/chat/agent.rs`, `core/chat/agent_loop/`            |
-| Run shell                        | `core/agent/runtime/`                                    |
-| Frontend IPC + stream batch      | `src/services/ipc/`, `src/main.ts`, `src/stores/chat.ts` |
-| Timeline UI                      | `src/components/chat/AgentWorkDetails.vue`               |
+| Concern                          | Start here                                                    |
+| -------------------------------- | ------------------------------------------------------------- |
+| App bootstrap / tray / hotkey    | `src-tauri/src/lib.rs`                                        |
+| Chat IPC                         | `commands/chat.rs`                                            |
+| Send + context / plan gate       | `core/chat/service.rs`, `core/tools/plan_mode.rs`             |
+| Stream lifecycle + timeline text | `core/chat/stream.rs`                                         |
+| Work timeline persistence        | `core/chat/conversation_manager.rs`, `core/chat/db.rs`        |
+| Agent loop                       | `core/chat/agent.rs`, `core/chat/agent_loop/`                 |
+| Run shell                        | `core/agent/runtime/`                                         |
+| Frontend IPC + stream batch      | `src/services/ipc/`, `src/main.ts`, `src/stores/chat.ts`      |
+| Timeline UI                      | `src/components/chat/AgentWorkDetails.vue`                    |
+| Plan approval card               | `src/components/chat/PlanApprovalCard.vue`, `MessageList.vue` |

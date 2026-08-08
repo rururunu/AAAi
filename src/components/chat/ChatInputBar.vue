@@ -10,6 +10,7 @@
       'picker-open': interactivePickerOpen && !chipPickerOpen,
       'file-suggestion-open': showFileSuggestions,
       'hash-suggestion-open': showHashSuggestions,
+      'command-suggestion-open': showCommandSuggestions,
       'attach-panel-open': attachPanelOpen,
       'chip-picker-open': chipPickerOpen,
       'interaction-request-open': interactionRequestOpen,
@@ -78,6 +79,8 @@
         :multi-select="activeAskQuestion?.multiSelect"
         :confirm-row-index="askConfirmRowIndex"
         :confirm-label="tr(language, 'confirmSelection')"
+        :selected-count="askSelectedCount"
+        :selected-count-label="tr(language, 'askSelectedCount', { count: askSelectedCount })"
         :selected-index="selectedIndex"
         :ariaLabel="tr(language, 'select')"
         :is-option-selected="isAskOptionSelected"
@@ -143,8 +146,9 @@
       <OptionPicker
         v-else-if="showChatModePicker"
         key="chat-mode-list"
+        compact
         :options="chatModePickerOptions"
-        :selected-id="sessionChatMode"
+        :selected-id="effectiveChatMode"
         :selected-index="selectedIndex"
         :ariaLabel="tr(language, 'chooseChatMode')"
         @hover="selectedIndex = $event"
@@ -206,6 +210,7 @@
         key="command-list"
         :commands="filteredCommands"
         :selected-index="selectedIndex"
+        :appearance="props.appearance"
         :ariaLabel="tr(language, 'commandSuggestions')"
         @hover="selectedIndex = $event"
         @select="executeCommand"
@@ -457,6 +462,7 @@
       <div class="input-footer">
         <div class="input-footer-primary">
           <button
+            v-if="props.appearance !== 'overlay'"
             ref="attachButtonRef"
             type="button"
             class="attach-trigger-btn"
@@ -585,8 +591,8 @@
 
           <div
             class="model-picker approval-slot"
-            :class="{ dormant: sessionChatMode === 'ask' }"
-            :aria-hidden="sessionChatMode === 'ask'"
+            :class="{ dormant: effectiveChatMode === 'ask' }"
+            :aria-hidden="effectiveChatMode === 'ask'"
           >
             <button
               ref="approvalButtonRef"
@@ -599,8 +605,8 @@
               :aria-label="approvalBadgeTitle"
               aria-haspopup="listbox"
               :aria-expanded="approvalPickerOpen"
-              :tabindex="sessionChatMode === 'ask' ? -1 : 0"
-              :disabled="sessionChatMode === 'ask'"
+              :tabindex="effectiveChatMode === 'ask' ? -1 : 0"
+              :disabled="effectiveChatMode === 'ask'"
               @mousedown.stop
               @click.stop="toggleApprovalMenu"
             >
@@ -700,8 +706,12 @@ import {
   Brain,
   ShieldQuestion,
   Shield,
+  ShieldCheck,
   Unlock,
   Plus,
+  ListChecks,
+  Check,
+  Ban,
 } from "@lucide/vue";
 import HistoryPicker from "./input/HistoryPicker.vue";
 import ModelPicker from "./input/ModelPicker.vue";
@@ -721,7 +731,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { executeSlashCommand, fetchEnvironmentContext, slashCommands } from "@/commands/slash";
 import { listSkills } from "@/commands/skills";
 import { peekInstallIcon, warmInstallIcons } from "@/services/iconCache";
-import { getContextUsage, setOverlayPopupOpen } from "@/services/ipc";
+import { getContextUsage, getPlanMode, setOverlayPopupOpen, setPlanMode } from "@/services/ipc";
 import { createLogger } from "@/services/logger";
 import { tr } from "@/services/i18n";
 import {
@@ -784,6 +794,7 @@ import {
 import { useChatStore, type SessionCompose } from "@/stores/chat";
 import {
   localizedOptionLabel,
+  normalizeChatMode,
   toolApprovalModeOptions,
   type ChatMode,
   type ToolApprovalMode,
@@ -1046,7 +1057,7 @@ watch(selectedIndex, async () => {
   const activeEl = document.querySelector<HTMLElement>(".command-item.active");
   const list = activeEl?.closest<HTMLElement>(".command-list");
   if (!activeEl || !list) return;
-  // Keep scrolling inside the picker only — never scrollIntoView on the
+  // Keep scrolling inside the picker only —never scrollIntoView on the
   // document / message list (that hides the picker header / question).
   const sticky = list.querySelector<HTMLElement>(".picker-sticky-head");
   const stickyHeight = sticky?.offsetHeight ?? 0;
@@ -1410,28 +1421,85 @@ const modelBadgeTitle = computed(() => {
     model: getModelDisplayLabel(match ?? { id: current, provider: "", displayName: undefined }),
   });
 });
-const chatModeLabel = computed(() =>
-  sessionChatMode.value === "ask"
-    ? tr(language.value, "chatModeAsk")
-    : tr(language.value, "chatModeAgent"),
-);
-const chatModeBadgeTitle = computed(() =>
-  sessionChatMode.value === "ask"
-    ? tr(language.value, "currentChatModeAsk")
-    : tr(language.value, "currentChatModeAgent"),
-);
-const chatModeIcon = computed(() => (sessionChatMode.value === "ask" ? MessageCircle : Bot));
 
 /** Per-conversation mode/approval choices; sessionless overlay falls back to
  * global settings so its pickers keep working without a conversation. */
-const sessionChatMode = computed(() =>
-  props.sessionId ? chatStore.ensureCompose(props.sessionId).chatMode : settingStore.chatMode,
-);
-const sessionToolApprovalMode = computed(() =>
-  props.sessionId
-    ? chatStore.ensureCompose(props.sessionId).toolApprovalMode
-    : settingStore.toolApprovalMode,
-);
+const sessionChatMode = computed(() => {
+  if (!props.sessionId) {
+    return normalizeChatMode(settingStore.chatMode);
+  }
+  // Read-only: never call ensureCompose inside a computed (it mutates the store
+  // and can trip "Maximum recursive updates exceeded").
+  const compose = chatStore.sessionCompose[props.sessionId];
+  return normalizeChatMode(compose?.chatMode ?? settingStore.chatMode);
+});
+/** Prefer live plan gate so auto-plan flips the chip without waiting on compose. */
+const effectiveChatMode = computed<ChatMode>(() => {
+  if (props.sessionId && chatStore.sessionPlanMode[props.sessionId]) {
+    return "plan";
+  }
+  return sessionChatMode.value;
+});
+const sessionToolApprovalMode = computed(() => {
+  if (!props.sessionId) {
+    return settingStore.toolApprovalMode;
+  }
+  return (
+    chatStore.sessionCompose[props.sessionId]?.toolApprovalMode ?? settingStore.toolApprovalMode
+  );
+});
+
+const chatModeLabel = computed(() => {
+  switch (effectiveChatMode.value) {
+    case "ask":
+      return tr(language.value, "chatModeAsk");
+    case "plan":
+      return tr(language.value, "chatModePlan");
+    default:
+      return tr(language.value, "chatModeAgent");
+  }
+});
+const chatModeBadgeTitle = computed(() => {
+  switch (effectiveChatMode.value) {
+    case "ask":
+      return tr(language.value, "currentChatModeAsk");
+    case "plan":
+      return tr(language.value, "currentChatModePlan");
+    default:
+      return tr(language.value, "currentChatModeAgent");
+  }
+});
+const chatModeIcon = computed(() => {
+  switch (effectiveChatMode.value) {
+    case "ask":
+      return MessageCircle;
+    case "plan":
+      return ListChecks;
+    default:
+      return Bot;
+  }
+});
+
+async function syncPlanModeFromBackend(sessionId: string) {
+  if (!sessionId) return;
+  chatStore.ensureCompose(sessionId);
+  try {
+    const active = await getPlanMode(sessionId);
+    chatStore.setSessionPlanMode(sessionId, Boolean(active));
+    syncComposeWithPlanGate(sessionId, Boolean(active));
+  } catch (error) {
+    log.warn("get_plan_mode failed", error);
+  }
+}
+
+function syncComposeWithPlanGate(sessionId: string, active: boolean) {
+  const compose = chatStore.ensureCompose(sessionId);
+  if (active && compose.chatMode === "agent") {
+    chatStore.setCompose(sessionId, { chatMode: "plan" });
+  } else if (!active && compose.chatMode === "plan") {
+    chatStore.setCompose(sessionId, { chatMode: "agent" });
+  }
+}
 
 function updateCompose(
   patch: Partial<
@@ -1439,22 +1507,25 @@ function updateCompose(
   >,
 ) {
   if (props.sessionId) {
+    chatStore.ensureCompose(props.sessionId);
     chatStore.setCompose(props.sessionId, patch);
-  } else {
-    void settingStore.update(patch as never);
+    return;
   }
+  // Plan is session-scoped; never persist it as the app-wide default.
+  const safe = patch.chatMode === "plan" ? { ...patch, chatMode: "agent" as const } : patch;
+  void settingStore.update(safe as never);
 }
 
 function getApprovalIcon(mode: ToolApprovalMode) {
   switch (mode) {
     case "ask":
-      // Ask before each tool — shield with question.
+      // Ask before each tool —shield with question.
       return ShieldQuestion;
     case "auto":
-      // Auto-run under policy — guarded shield.
+      // Auto-run under policy —guarded shield.
       return Shield;
     case "alwaysAllow":
-      // No prompts (dangerous shell still blocked) — unlocked.
+      // No prompts (dangerous shell still blocked) —unlocked.
       return Unlock;
   }
 }
@@ -1463,14 +1534,17 @@ const chatModePickerOptions = computed(() => [
   {
     id: "ask",
     label: tr(language.value, "chatModeAsk"),
-    description: tr(language.value, "chatModeAskDesc"),
     icon: MessageCircle,
   },
   {
     id: "agent",
     label: tr(language.value, "chatModeAgent"),
-    description: tr(language.value, "chatModeAgentDesc"),
     icon: Bot,
+  },
+  {
+    id: "plan",
+    label: tr(language.value, "chatModePlan"),
+    icon: ListChecks,
   },
 ]);
 const approvalPickerOptions = computed(() =>
@@ -1559,18 +1633,21 @@ const pathPermissionOptions = computed(() => [
     label: tr(language.value, "allowOnce"),
     description: tr(language.value, "allowOnceDesc"),
     decision: "allow_once" as const,
+    icon: Check,
   },
   {
     slug: "always",
     label: tr(language.value, "allowAlways"),
     description: tr(language.value, "allowAlwaysDesc"),
     decision: "allow_always" as const,
+    icon: ShieldCheck,
   },
   {
     slug: "no",
     label: tr(language.value, "deny"),
     description: tr(language.value, "denyDesc"),
     decision: "deny" as const,
+    icon: Ban,
   },
 ]);
 
@@ -1584,18 +1661,21 @@ const toolApprovalOptions = computed(() => [
     label: tr(language.value, "allowOnce"),
     description: tr(language.value, "allowOnceDesc"),
     decision: "allow_once" as const,
+    icon: Check,
   },
   {
     slug: "session",
     label: tr(language.value, "allowSession"),
     description: tr(language.value, "allowSessionDesc"),
     decision: "allow_session" as const,
+    icon: Shield,
   },
   {
     slug: "deny",
     label: tr(language.value, "deny"),
     description: tr(language.value, "denyDesc"),
     decision: "deny" as const,
+    icon: Ban,
   },
 ]);
 
@@ -1636,6 +1716,11 @@ const askConfirmRowIndex = computed(() =>
   activeAskQuestion.value?.multiSelect ? activeAskOptions.value.length : -1,
 );
 
+const askSelectedCount = computed(() => {
+  if (!activeAskQuestion.value?.multiSelect) return 0;
+  return (askAnswers.value[askQuestionIndex.value] ?? []).length;
+});
+
 const pathPermissionPickerRowCount = computed(() =>
   showPathPermissionPicker.value ? 3 + pathPermissionOptions.value.length : 0,
 );
@@ -1658,7 +1743,7 @@ const interactivePickerOpen = computed(
     attachPanelOpen.value,
 );
 
-/** Ask / path / tool-approval requests — these need reserved vertical room. */
+/** Ask / path / tool-approval requests —these need reserved vertical room. */
 const interactionRequestOpen = computed(
   () => showAskUserPicker.value || showPathPermissionPicker.value || showToolApprovalPicker.value,
 );
@@ -1691,7 +1776,7 @@ const hasInlineAttachmentTags = computed(
 );
 
 const inputPlaceholder = computed(() => {
-  // Images sit above the text field — keep the hint when only images are attached.
+  // Images sit above the text field —keep the hint when only images are attached.
   if (composerSegments.value.length > 0 || hasInlineAttachmentTags.value) {
     return "";
   }
@@ -1713,7 +1798,10 @@ const inputPlaceholder = computed(() => {
     return tr(language.value, "permissionHint");
   }
   if (showAskUserPicker.value) {
-    return tr(language.value, activeAskQuestion.value?.multiSelect ? "askHint" : "askCustomHint");
+    return tr(
+      language.value,
+      activeAskQuestion.value?.multiSelect ? "askMultiHint" : "askCustomHint",
+    );
   }
   return props.placeholder || tr(language.value, "askAnything");
 });
@@ -1776,7 +1864,7 @@ function emitLayoutChange() {
   });
 }
 
-/** Last measured picker list height — refined after paint so tall/desc rows fit. */
+/** Last measured picker list height —refined after paint so tall/desc rows fit. */
 let measuredPickerHeight = 0;
 let pickerMeasureScheduled = false;
 
@@ -1785,8 +1873,12 @@ function estimateActivePickerHeight(pickerRows: number): number {
     return 0;
   }
   // Match component row metrics (padding + row). Prefer overestimate to avoid clipping.
+  if (attachPanelOpen.value) {
+    // Tabs + preview chips (+ optional expand). Prefer overestimate so overlay grows.
+    return 170;
+  }
   if (showChatModePicker.value) {
-    return 10 + chatModePickerOptions.value.length * 48;
+    return 10 + chatModePickerOptions.value.length * 36;
   }
   if (showApprovalPicker.value) {
     return 10 + approvalPickerOptions.value.length * 36;
@@ -1826,6 +1918,9 @@ function estimateActivePickerHeight(pickerRows: number): number {
 
 function activePickerRowCount(): number {
   if (workspacePickerOpen.value) return workspacePickerRowCount.value;
+  // Attach is not a fixed row list, but it must reserve height so Overlay /
+  // layout measure runs (otherwise the panel opens clipped / looks "stuck").
+  if (attachPanelOpen.value) return 5;
   if (showAskUserPicker.value) return askPickerRowCount.value;
   if (showPathPermissionPicker.value) return pathPermissionPickerRowCount.value;
   if (showToolApprovalPicker.value) return toolApprovalPickerRowCount.value;
@@ -1929,7 +2024,12 @@ function flushLayoutChange() {
 async function syncPopupState(open: boolean) {
   const windowLabel = getCurrentWebviewWindow().label;
   try {
-    await setOverlayPopupOpen(windowLabel, open);
+    await Promise.race([
+      setOverlayPopupOpen(windowLabel, open),
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 800);
+      }),
+    ]);
   } catch (error) {
     console.error("set_overlay_popup_open failed:", error);
   }
@@ -1945,13 +2045,22 @@ function closeChipPickers() {
   thinkingTierPickerOpen.value = false;
 }
 
+function anyChipStillOpen() {
+  return (
+    modelPickerOpen.value ||
+    approvalPickerOpen.value ||
+    chatModePickerOpen.value ||
+    thinkingTierPickerOpen.value
+  );
+}
+
 function closeModelPicker() {
   if (!modelPickerOpen.value) {
     return;
   }
   endModelFilterSession();
   modelPickerOpen.value = false;
-  if (!approvalPickerOpen.value && !chatModePickerOpen.value && !thinkingTierPickerOpen.value) {
+  if (!anyChipStillOpen()) {
     void syncPopupState(false);
   }
   emitLayoutChange();
@@ -1962,7 +2071,7 @@ function closeApprovalPicker() {
     return;
   }
   approvalPickerOpen.value = false;
-  if (!modelPickerOpen.value && !chatModePickerOpen.value && !thinkingTierPickerOpen.value) {
+  if (!anyChipStillOpen()) {
     void syncPopupState(false);
   }
   emitLayoutChange();
@@ -1973,7 +2082,7 @@ function closeChatModePicker() {
     return;
   }
   chatModePickerOpen.value = false;
-  if (!modelPickerOpen.value && !approvalPickerOpen.value && !thinkingTierPickerOpen.value) {
+  if (!anyChipStillOpen()) {
     void syncPopupState(false);
   }
   emitLayoutChange();
@@ -1984,7 +2093,7 @@ function closeThinkingTierPicker() {
     return;
   }
   thinkingTierPickerOpen.value = false;
-  if (!modelPickerOpen.value && !approvalPickerOpen.value && !chatModePickerOpen.value) {
+  if (!anyChipStillOpen()) {
     void syncPopupState(false);
   }
   emitLayoutChange();
@@ -2047,7 +2156,7 @@ async function positionChipPicker(button: HTMLButtonElement | null, preferredWid
   const shellRect = shell.getBoundingClientRect();
   const buttonRect = button.getBoundingClientRect();
   const edge = 8;
-  const width = Math.max(180, Math.min(preferredWidth, shellRect.width - edge * 2));
+  const width = Math.max(120, Math.min(preferredWidth, shellRect.width - edge * 2));
   const naturalLeft = buttonRect.left - shellRect.left;
   chipPickerPosition.value = {
     left: Math.min(shellRect.width - width - edge, Math.max(edge, naturalLeft)),
@@ -2085,7 +2194,7 @@ async function openModelPicker() {
 }
 
 async function openApprovalPicker() {
-  if (sessionChatMode.value === "ask") {
+  if (effectiveChatMode.value === "ask") {
     return;
   }
   await prepareChipPicker();
@@ -2103,11 +2212,11 @@ async function openApprovalPicker() {
 async function openChatModePicker() {
   await prepareChipPicker();
   const idx = chatModePickerOptions.value.findIndex(
-    (option) => option.id === sessionChatMode.value,
+    (option) => option.id === effectiveChatMode.value,
   );
   selectedIndex.value = idx >= 0 ? idx : 0;
   chatModePickerOpen.value = true;
-  await positionChipPicker(chatModeButtonRef.value, 240);
+  await positionChipPicker(chatModeButtonRef.value, 132);
   await syncPopupState(true);
   emitLayoutChange();
   void focusInput();
@@ -2136,7 +2245,7 @@ function toggleModelMenu() {
 }
 
 function toggleApprovalMenu() {
-  if (sessionChatMode.value === "ask") {
+  if (effectiveChatMode.value === "ask") {
     return;
   }
   if (approvalPickerOpen.value) {
@@ -2234,13 +2343,22 @@ function selectApprovalMode(mode: string) {
 function selectChatMode(mode: string) {
   closeChatModePicker();
   const next = mode as ChatMode;
-  if (next === sessionChatMode.value) {
+  if (next === effectiveChatMode.value) {
     return;
   }
   if (next === "ask") {
     closeApprovalPicker();
   }
   updateCompose({ chatMode: next });
+  if (!props.sessionId) {
+    return;
+  }
+  const enablePlan = next === "plan";
+  void setPlanMode(props.sessionId, enablePlan)
+    .then(() => {
+      chatStore.setSessionPlanMode(props.sessionId!, enablePlan);
+    })
+    .catch((error) => log.warn("sync plan mode on mode switch failed", error));
 }
 
 function selectThinkingTier(variantId: string) {
@@ -2261,6 +2379,9 @@ onMounted(async () => {
     commands: slashCommands.map((item) => item.command),
     available: props.enableCommands && props.contextReady,
   });
+  if (props.sessionId) {
+    void syncPlanModeFromBackend(props.sessionId);
+  }
   await chatModelStore.fetch();
   if (chatModelStore.models.length === 0 && chatModel.value.trim() === "deepseek-chat") {
     chatModel.value = "";
@@ -2299,6 +2420,17 @@ onMounted(async () => {
     console.error("onFocusChanged failed:", error);
   }
 });
+
+watch(
+  () => props.sessionId,
+  (sessionId) => {
+    if (sessionId) {
+      chatStore.ensureCompose(sessionId);
+      void syncPlanModeFromBackend(sessionId);
+    }
+  },
+  { immediate: true },
+);
 
 watch(
   () => chatModelStore.models.map((model) => `${model.provider}:${model.id}`).join("|"),
@@ -2390,7 +2522,7 @@ const showCommandSuggestions = computed(
 const workspaceFiles = ref<string[]>([]);
 const workspaceFilesLoading = ref(false);
 const workspaceFilesRoot = ref("");
-/** Caret in the live input — `#` / `@` mentions resolve against this, not only EOF. */
+/** Caret in the live input —`#` / `@` mentions resolve against this, not only EOF. */
 const composerCaret = ref(0);
 
 function syncComposerCaret() {
@@ -2834,6 +2966,7 @@ async function toggleWorkspacePicker() {
 }
 
 async function toggleAttachPanel() {
+  if (props.appearance === "overlay") return;
   if (attachPanelOpen.value) {
     attachPanelOpen.value = false;
     await syncPopupState(false);
@@ -2851,8 +2984,9 @@ async function toggleAttachPanel() {
   attachPanelOpen.value = true;
   await syncPopupState(true);
   emitLayoutChange();
-  void ensureHashCatalog(true);
-  void ensureWorkspaceFiles();
+  // Warm catalog in background; do not force-reload every open (sync list_skills
+  // can stall the UI). Workspace files load only when the Files tab is opened.
+  void ensureHashCatalog(false);
   void focusInput();
 }
 
@@ -3017,7 +3151,7 @@ function closeHistoryPicker() {
 
 function resolveSendWorkspaceOptions(): { workspaceId?: string; quickAsk?: boolean } {
   // Overlay must only bind to an explicitly selected (or IDE-matched) workspace
-  // shown in the composer. Never inherit inferred capture context — that often
+  // shown in the composer. Never inherit inferred capture context —that often
   // falls back to the workbench's current workspace and mis-files Quick Ask.
   const active = overlayWorkspaceOverride.value ?? currentWorkspace.value;
   if (active) {
@@ -4033,6 +4167,22 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   max-height: min(420px, 52vh);
 }
 
+/* Keep the attach panel in document flow so it cannot clip above the window /
+   conversation viewport (same idea as ask/permission pickers). Absolute float
+   made "+" look stuck when height was not reserved. */
+.chat-input-shell.overlay-pickers.attach-panel-open :deep(.attach-resource-panel) {
+  position: relative;
+  z-index: 1;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: 100%;
+  max-height: min(360px, 46vh);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  box-shadow: none;
+}
+
 /* Ask / permission / approval: in-flow so the question header cannot be clipped
    by the conversation pane, and the panel stays attached to the input bar. */
 .chat-input-shell.overlay-pickers.interaction-request-open :deep(.ask-user-list),
@@ -4048,9 +4198,107 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  border: 0;
   border-bottom: 0;
-  border-radius: 10px 10px 0 0;
+  border-radius: 0;
+  background: var(--peek-list-bg);
   box-shadow: none;
+}
+
+.chat-input-shell.overlay-pickers.interaction-request-open :deep(.command-item) {
+  border-radius: 0;
+}
+
+.chat-input-shell.interaction-request-open.picker-open .input-bar {
+  border-top-color: color-mix(in srgb, var(--peek-border) 70%, transparent);
+}
+
+.plan-mode-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--peek-accent, #5b8def) 35%, var(--peek-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--peek-accent, #5b8def) 12%, var(--peek-panel, transparent));
+}
+
+.plan-mode-copy {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.plan-mode-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--peek-accent, #5b8def);
+}
+
+.plan-mode-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plan-mode-text strong {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--peek-fg, inherit);
+}
+
+.plan-mode-text span {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--peek-muted, color-mix(in srgb, currentColor 65%, transparent));
+}
+
+.plan-mode-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.plan-mode-btn {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--peek-border, color-mix(in srgb, currentColor 18%, transparent));
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.plan-mode-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.plan-mode-btn.ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.plan-mode-btn.primary {
+  border-color: color-mix(
+    in srgb,
+    var(--peek-accent, #5b8def) 50%,
+    var(--peek-border, transparent)
+  );
+  background: color-mix(in srgb, var(--peek-accent, #5b8def) 22%, transparent);
+}
+
+.plan-mode-btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--peek-accent, #5b8def) 32%, transparent);
 }
 
 .input-bar {
@@ -4251,15 +4499,20 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
 }
 
 .workbench-composer.overlay-pickers :deep(.command-list) {
-  bottom: calc(100% - 1px);
-  max-height: min(420px, 52vh);
-  overflow-y: auto;
+  right: 12px;
+  bottom: calc(100% + 8px);
+  left: 12px;
+  width: auto;
+  max-height: none;
   padding: 6px;
-  border: 1px solid color-mix(in srgb, var(--peek-text) 16%, transparent);
-  border-bottom: 0;
-  border-radius: 16px 16px 0 0;
-  background: color-mix(in srgb, var(--peek-text) 7%, var(--peek-surface));
-  box-shadow: 0 -14px 32px color-mix(in srgb, #000 14%, transparent);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--peek-text) 12%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--peek-surface) 94%, transparent);
+  box-shadow:
+    0 10px 28px color-mix(in srgb, #000 16%, transparent),
+    0 1px 0 color-mix(in srgb, #fff 4%, transparent) inset;
+  backdrop-filter: blur(12px);
 }
 
 .workbench-composer.overlay-pickers :deep(.file-suggestion-list),
@@ -4271,7 +4524,25 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   box-shadow: 0 10px 28px color-mix(in srgb, #000 14%, transparent);
 }
 
-/* Interaction requests: full-width panel stacked above the composer (in-flow). */
+.workbench-composer.overlay-pickers.attach-panel-open :deep(.attach-resource-panel) {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: auto;
+  max-height: min(340px, 44vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, var(--peek-text) 12%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--peek-surface) 94%, transparent);
+  box-shadow:
+    0 10px 28px color-mix(in srgb, #000 16%, transparent),
+    0 1px 0 color-mix(in srgb, #fff 4%, transparent) inset;
+  backdrop-filter: blur(12px);
+}
+
+/* Interaction requests: full-width panel attached above the composer (in-flow). */
 .workbench-composer.overlay-pickers.interaction-request-open :deep(.ask-user-list),
 .workbench-composer.overlay-pickers.interaction-request-open :deep(.path-permission-list),
 .workbench-composer.overlay-pickers.interaction-request-open :deep(.tool-approval-list) {
@@ -4279,39 +4550,32 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   left: 0;
   width: 100%;
   max-height: var(--interaction-picker-max-height, min(420px, 48vh));
-  padding: 6px 8px 0;
-  border-color: color-mix(in srgb, var(--peek-accent) 20%, transparent);
-  background: color-mix(in srgb, var(--peek-surface) 97%, transparent);
-  box-shadow: 0 -10px 24px color-mix(in srgb, #000 16%, transparent);
+  padding: 4px 0 0;
+  border-bottom: 0;
+  border-radius: 16px 16px 0 0;
+  background: var(--peek-list-bg);
+  box-shadow: none;
 }
 
 .workbench-composer.overlay-pickers :deep(.ask-user-list .picker-sticky-head),
 .workbench-composer.overlay-pickers :deep(.ask-user-list .picker-meta) {
-  background: color-mix(in srgb, var(--peek-surface) 97%, transparent);
+  background: var(--peek-list-bg);
 }
 
-.workbench-composer.overlay-pickers :deep(.ask-user-list .command-item) {
-  height: auto;
-  min-height: 36px;
-  padding: 6px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--peek-border) 42%, transparent);
-  border-radius: 0;
-  background: transparent;
-}
-
-.workbench-composer.overlay-pickers :deep(.ask-user-list .command-item:last-child) {
-  border-bottom: 0;
-}
-
-.workbench-composer.overlay-pickers :deep(.ask-user-list .command-item.active) {
-  background: color-mix(in srgb, var(--peek-accent) 10%, transparent);
-}
-
-.workbench-composer.picker-open:not(.file-suggestion-open):not(.hash-suggestion-open) .input-bar {
+.workbench-composer.picker-open:not(.file-suggestion-open):not(.hash-suggestion-open):not(
+    .command-suggestion-open
+  ):not(.attach-panel-open)
+  .input-bar {
   border-color: color-mix(in srgb, var(--peek-text) 16%, transparent);
   border-top-color: transparent;
   border-radius: 0 0 16px 16px;
-  box-shadow: 0 14px 36px color-mix(in srgb, #000 18%, transparent);
+  box-shadow: none;
+}
+
+.workbench-composer.attach-panel-open.picker-open .input-bar {
+  /* Attach panel floats above — keep the composer frame intact. */
+  border-top-color: color-mix(in srgb, var(--peek-text) 16%, transparent);
+  border-radius: 16px;
 }
 
 .workbench-composer.interaction-request-open.picker-open .input-bar {
@@ -4320,6 +4584,10 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
 
 .workbench-composer.overlay-pickers :deep(.command-item) {
   border-radius: 6px;
+}
+
+.workbench-composer.interaction-request-open.overlay-pickers :deep(.command-item) {
+  border-radius: 0;
 }
 
 .workbench-composer.overlay-pickers :deep(.command-item.active) {
@@ -4375,6 +4643,29 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
   border-radius: 8px 8px 0 0;
   background: var(--peek-list-bg);
   box-shadow: 0 -10px 28px color-mix(in srgb, #000 24%, transparent);
+}
+
+.overlay-composer.overlay-pickers.interaction-request-open :deep(.ask-user-list),
+.overlay-composer.overlay-pickers.interaction-request-open :deep(.path-permission-list),
+.overlay-composer.overlay-pickers.interaction-request-open :deep(.tool-approval-list) {
+  padding: 4px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--peek-list-bg);
+  box-shadow: none;
+}
+
+.overlay-composer.overlay-pickers :deep(.ask-user-list .picker-sticky-head),
+.overlay-composer.overlay-pickers :deep(.ask-user-list .picker-meta) {
+  background: var(--peek-list-bg);
+}
+
+.overlay-composer.interaction-request-open.picker-open .input-bar {
+  border-top-color: color-mix(in srgb, var(--peek-border) 70%, transparent);
+}
+
+.overlay-composer.interaction-request-open.overlay-pickers :deep(.command-item) {
+  border-radius: 0;
 }
 
 @media (max-width: 760px) {
@@ -4483,6 +4774,17 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
 .footer-chip.open .footer-chip-icon,
 .footer-chip.active .footer-chip-icon {
   opacity: 1;
+}
+
+.footer-chip.active {
+  border-color: color-mix(in srgb, var(--peek-accent, currentColor) 32%, transparent);
+}
+
+.footer-chip-icon-only {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+  max-width: none;
 }
 
 .workspace-control {
@@ -5095,7 +5397,7 @@ defineExpose({ focusInput, reset, setMessage, insertFileMention, resolveSendWork
 </style>
 
 <style>
-/* Teleported chip tooltips — keep long paths inside the bubble. */
+/* Teleported chip tooltips —keep long paths inside the bubble. */
 .composer-chip-tooltip[data-slot="tooltip-content"],
 .composer-chip-tooltip {
   display: block !important;

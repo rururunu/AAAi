@@ -24,6 +24,9 @@ pub const MULTI_MODEL_COLLABORATION_PROMPT: &str =
 /// Optional YAGNI / minimal-diff guidance; injected only when the setting is on.
 pub const MINIMAL_CODING_PROMPT: &str = include_str!("../../../../prompts/minimal-coding.md");
 
+/// Injected while session plan mode is active (auto or manual).
+pub const PLAN_MODE_PROMPT: &str = include_str!("../../../../prompts/plan-mode.md");
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,5 +133,12 @@ mod tests {
         assert!(!MINIMAL_CODING_PROMPT
             .to_ascii_lowercase()
             .contains("ponytail"));
+    }
+
+    #[test]
+    fn plan_mode_prompt_requires_stop_before_writes() {
+        assert!(PLAN_MODE_PROMPT.contains("Plan mode is active"));
+        assert!(PLAN_MODE_PROMPT.contains("update_tasks"));
+        assert!(PLAN_MODE_PROMPT.contains("Stop"));
     }
 }

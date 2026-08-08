@@ -414,6 +414,7 @@
               :close-on-escape="false"
               appearance="workbench"
               overlay-pickers
+              :context-ready="true"
               :session-id="activeSessionId"
               :ask-user="askUserSession"
               :path-permission="pathPermissionSession"
@@ -1755,14 +1756,6 @@ button {
   max-height: calc(100% - 16px);
 }
 
-/* Resource attach panel (+ Skills/MCP/Files): shift the composer down and grow
-   so the tall panel can sit fully on screen without clipping the hero. */
-.conversation-pane.empty-conversation .composer-wrap:has(:deep(.attach-panel-open)) {
-  top: 54%;
-  transform: translate(-50%, -40%);
-  max-height: calc(100% - 28px);
-}
-
 .conversation-pane.empty-conversation .composer-wrap :deep(.input-bar) {
   min-height: 128px;
   padding: 16px 16px 12px;
@@ -1772,25 +1765,47 @@ button {
   box-shadow: 0 18px 48px color-mix(in srgb, #000 18%, transparent);
 }
 
+/* Ask / permission panels should merge into the composer, not stack as a second card. */
 .conversation-pane.empty-conversation
-  .composer-wrap:has(:deep(.attach-panel-open))
-  :deep(.chat-input-shell.attach-panel-open.overlay-pickers .attach-resource-panel) {
-  position: relative;
-  right: 0;
-  bottom: auto;
-  left: 0;
-  max-height: min(360px, 46vh);
-  border-bottom: 0;
-  border-radius: 14px 14px 0 0;
+  .composer-wrap:has(:deep(.interaction-request-open))
+  :deep(.input-bar) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
   box-shadow: none;
 }
 
 .conversation-pane.empty-conversation
-  .composer-wrap:has(:deep(.attach-panel-open))
-  :deep(.input-bar) {
-  border-top-color: color-mix(in srgb, var(--peek-border) 70%, transparent);
-  border-radius: 0 0 18px 18px;
+  .composer-wrap:has(:deep(.interaction-request-open))
+  :deep(.ask-user-list),
+.conversation-pane.empty-conversation
+  .composer-wrap:has(:deep(.interaction-request-open))
+  :deep(.path-permission-list),
+.conversation-pane.empty-conversation
+  .composer-wrap:has(:deep(.interaction-request-open))
+  :deep(.tool-approval-list) {
+  border: 1px solid color-mix(in srgb, var(--peek-text) 16%, transparent);
+  border-bottom: 0;
+  border-radius: 18px 18px 0 0;
+  background: color-mix(in srgb, var(--peek-text) 7%, var(--peek-surface));
+  box-shadow: 0 18px 48px color-mix(in srgb, #000 18%, transparent);
 }
+
+.conversation-pane.empty-conversation
+  .composer-wrap:has(:deep(.attach-panel-open))
+  :deep(.chat-input-shell.attach-panel-open.overlay-pickers .attach-resource-panel) {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  left: 0;
+  max-height: min(320px, 42vh);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--peek-text) 12%, transparent);
+  border-radius: 14px;
+  box-shadow:
+    0 12px 32px color-mix(in srgb, #000 18%, transparent),
+    0 1px 0 color-mix(in srgb, #fff 4%, transparent) inset;
+}
+
 .workbench[data-theme="dark"]
   .conversation-pane.empty-conversation
   .composer-wrap
@@ -1831,7 +1846,7 @@ button {
 .conversation-pane.empty-conversation
   .composer-wrap:has(:deep(.attach-panel-open))
   :deep(.attach-tree-scroll) {
-  max-height: min(220px, 36vh);
+  max-height: min(200px, 32vh);
 }
 
 @media (prefers-reduced-motion: reduce) {

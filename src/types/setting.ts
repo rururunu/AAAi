@@ -57,7 +57,14 @@ export type WebSearchProvider = "serper" | "tavily";
 export type ToolApprovalMode = "ask" | "auto" | "alwaysAllow";
 
 /** Chat interaction mode: Agent can mutate; Ask exposes read-only tools only. */
-export type ChatMode = "agent" | "ask";
+export type ChatMode = "agent" | "ask" | "plan";
+
+export function normalizeChatMode(value: unknown): ChatMode {
+  if (value === "ask" || value === "plan" || value === "agent") {
+    return value;
+  }
+  return "agent";
+}
 
 /** Settings sidebar / search category ids. */
 export type CategoryId =

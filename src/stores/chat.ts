@@ -18,6 +18,7 @@ import {
 } from "@/services/chat/ensureDefaultModel";
 import { isKnownModelSelection } from "@/lib/modelThinking";
 import { tr } from "@/services/i18n";
+import { normalizeChatMode } from "@/types/setting";
 import type {
   AskUserAnswerItem,
   ChatMessage,
@@ -36,12 +37,33 @@ const log = createLogger("chat-store");
 export interface SessionCompose {
   chatModel: string;
   chatModelProvider: string;
-  chatMode: "ask" | "agent";
+  chatMode: "ask" | "agent" | "plan";
   toolApprovalMode: "ask" | "auto" | "alwaysAllow";
   draft: string;
   /** Workspace binding for draft-only (not-yet-sent) sessions shown in the sidebar. */
   draftWorkspaceId?: string | null;
   draftUpdatedAt?: number;
+}
+
+function sanitizeCompose(raw: Partial<SessionCompose> | null | undefined): SessionCompose {
+  const base = defaultCompose();
+  if (!raw || typeof raw !== "object") {
+    return base;
+  }
+  const approval = raw.toolApprovalMode;
+  return {
+    chatModel: typeof raw.chatModel === "string" ? raw.chatModel : base.chatModel,
+    chatModelProvider:
+      typeof raw.chatModelProvider === "string" ? raw.chatModelProvider : base.chatModelProvider,
+    chatMode: normalizeChatMode(raw.chatMode),
+    toolApprovalMode:
+      approval === "ask" || approval === "auto" || approval === "alwaysAllow"
+        ? approval
+        : base.toolApprovalMode,
+    draft: typeof raw.draft === "string" ? raw.draft : "",
+    draftWorkspaceId: raw.draftWorkspaceId ?? null,
+    draftUpdatedAt: typeof raw.draftUpdatedAt === "number" ? raw.draftUpdatedAt : undefined,
+  };
 }
 
 export function defaultCompose(): SessionCompose {
@@ -76,7 +98,11 @@ function loadComposeCache(): void {
     }
     const parsed = JSON.parse(raw) as Partial<ComposeCache>;
     if (parsed && typeof parsed === "object") {
-      composeCache.entries = (parsed.entries ?? {}) as Record<string, SessionCompose>;
+      const entries: Record<string, SessionCompose> = {};
+      for (const [id, value] of Object.entries(parsed.entries ?? {})) {
+        entries[id] = sanitizeCompose(value as Partial<SessionCompose>);
+      }
+      composeCache.entries = entries;
       composeCache.last = typeof parsed.last === "string" ? parsed.last : "";
     }
   } catch {
@@ -209,6 +235,8 @@ export const useChatStore = defineStore("chat", {
     contextUsage: {} as Record<string, ContextUsageSnapshot | undefined>,
     /** Live in-session task list from update_tasks. */
     sessionTasks: {} as Record<string, TaskItem[]>,
+    /** Session plan-mode gate (writer tools blocked until approve). */
+    sessionPlanMode: {} as Record<string, boolean>,
   }),
   getters: {
     overlayMessages(state): ChatMessage[] {
@@ -266,19 +294,20 @@ export const useChatStore = defineStore("chat", {
         return existing;
       }
       if (cached) {
-        this.sessionCompose = { ...this.sessionCompose, [sessionId]: cached };
-        return cached;
+        const sanitized = sanitizeCompose(cached);
+        this.sessionCompose = { ...this.sessionCompose, [sessionId]: sanitized };
+        return sanitized;
       }
 
       const isStarted = Boolean(this.startedSessionIds[sessionId]);
       if (isStarted) {
-        const next: SessionCompose = {
+        const next = sanitizeCompose({
           chatModel: settingStore.chatModel ?? "",
           chatModelProvider: settingStore.chatModelProvider ?? "",
           chatMode: settingStore.chatMode ?? "agent",
           toolApprovalMode: settingStore.toolApprovalMode ?? "ask",
           draft: "",
-        };
+        });
         this.sessionCompose = { ...this.sessionCompose, [sessionId]: next };
         composeCache.entries[sessionId] = next;
         persistComposeCache();
@@ -289,13 +318,14 @@ export const useChatStore = defineStore("chat", {
         composeCache.last && composeCache.entries[composeCache.last]
           ? composeCache.entries[composeCache.last]
           : undefined;
-      const next: SessionCompose = {
+      const next = sanitizeCompose({
         chatModel: source?.chatModel ?? settingStore.chatModel ?? "",
         chatModelProvider: source?.chatModelProvider ?? settingStore.chatModelProvider ?? "",
-        chatMode: source?.chatMode ?? settingStore.chatMode ?? "agent",
+        // Plan is session-gated live state — never inherit a stale plan chip.
+        chatMode: source?.chatMode === "ask" ? "ask" : "agent",
         toolApprovalMode: source?.toolApprovalMode ?? settingStore.toolApprovalMode ?? "ask",
         draft: "",
-      };
+      });
 
       this.sessionCompose = { ...this.sessionCompose, [sessionId]: next };
       composeCache.entries[sessionId] = next;
@@ -314,7 +344,15 @@ export const useChatStore = defineStore("chat", {
         return;
       }
       const current = this.ensureCompose(sessionId);
-      const next = { ...current, ...patch };
+      const next = sanitizeCompose({ ...current, ...patch });
+      if (
+        current.chatModel === next.chatModel &&
+        current.chatModelProvider === next.chatModelProvider &&
+        current.chatMode === next.chatMode &&
+        current.toolApprovalMode === next.toolApprovalMode
+      ) {
+        return;
+      }
       this.sessionCompose = { ...this.sessionCompose, [sessionId]: next };
       composeCache.entries[sessionId] = next;
       composeCache.last = sessionId;
@@ -422,6 +460,21 @@ export const useChatStore = defineStore("chat", {
       const next = { ...this.sessionTasks };
       delete next[sessionId];
       this.sessionTasks = next;
+    },
+    setSessionPlanMode(sessionId: string, active: boolean) {
+      if (!sessionId) {
+        return;
+      }
+      if (Boolean(this.sessionPlanMode[sessionId]) === active) {
+        return;
+      }
+      this.sessionPlanMode = {
+        ...this.sessionPlanMode,
+        [sessionId]: active,
+      };
+    },
+    isPlanModeActive(sessionId: string): boolean {
+      return Boolean(sessionId && this.sessionPlanMode[sessionId]);
     },
     setContextUsage(sessionId: string, usage: ContextUsageSnapshot | undefined) {
       if (!sessionId) {
@@ -1375,6 +1428,8 @@ export const useChatStore = defineStore("chat", {
         /** Internal: this send comes from the staged queue (guide / auto-send
          * after the turn finishes) and must never be re-staged. */
         fromQueue?: boolean;
+        /** Skip complexity auto-plan (approve & execute follow-up). */
+        skipAutoPlan?: boolean;
       },
     ) {
       const trimmed = message.trim();
@@ -1464,6 +1519,7 @@ export const useChatStore = defineStore("chat", {
           modelProvider: compose.chatModelProvider.trim() || undefined,
           chatMode: compose.chatMode,
           toolApprovalMode: compose.toolApprovalMode,
+          skipAutoPlan: options?.skipAutoPlan,
         });
         this.reconcileOptimisticIds(sessionId, response.userMessageId, response.assistantMessageId);
         if (softInject) {

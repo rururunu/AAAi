@@ -88,13 +88,15 @@ pub enum AgentWorkDisplay {
     Compact,
 }
 
-/// Chat interaction mode: Agent can mutate; Ask is read-only tools only.
+/// Chat interaction mode: Agent can mutate; Ask is read-only; Plan drafts
+/// first and blocks writers until the user approves.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum ChatMode {
     #[default]
     Agent,
     Ask,
+    Plan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

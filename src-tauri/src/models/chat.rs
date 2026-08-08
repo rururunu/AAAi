@@ -23,6 +23,9 @@ pub struct ChatSendRequest {
     pub chat_mode: Option<ChatMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_approval_mode: Option<ToolApprovalMode>,
+    /// When true, do not auto-enter plan mode for this send (e.g. approve & execute).
+    #[serde(default)]
+    pub skip_auto_plan: bool,
 }
 
 /// Optional per-send settings that override global settings for one conversation.
@@ -32,6 +35,7 @@ pub struct ChatSendOverrides {
     pub model_provider: Option<String>,
     pub chat_mode: Option<ChatMode>,
     pub tool_approval_mode: Option<ToolApprovalMode>,
+    pub skip_auto_plan: bool,
 }
 
 impl ChatSendOverrides {
@@ -41,6 +45,7 @@ impl ChatSendOverrides {
             model_provider: request.model_provider.clone(),
             chat_mode: request.chat_mode,
             tool_approval_mode: request.tool_approval_mode,
+            skip_auto_plan: request.skip_auto_plan,
         }
     }
 }

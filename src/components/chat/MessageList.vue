@@ -230,6 +230,13 @@
             @undo="confirmAssistantRewind(item.message)"
             @review="$emit('reviewChanges')"
           />
+          <PlanApprovalCard
+            v-if="showPlanApprovalFor(item.message)"
+            :tasks="planTasksForMessage(item.message)"
+            :busy="planBusy || isSessionSending"
+            @approve="approvePlanMode"
+            @cancel="cancelPlanMode"
+          />
           <div
             v-if="
               item.message.content.trim() ||
@@ -297,22 +304,26 @@ import {
 import { lookupInstallIcon, peekInstallIcon, warmInstallIcons } from "@/services/iconCache";
 import AgentWorkDetails from "@/components/chat/AgentWorkDetails.vue";
 import CodeChangesSummary from "@/components/chat/CodeChangesSummary.vue";
+import PlanApprovalCard from "@/components/chat/PlanApprovalCard.vue";
 import AssistantActivityIndicator from "@/components/chat/AssistantActivityIndicator.vue";
 import AskUserAnswerCard from "@/components/chat/AskUserAnswerCard.vue";
 import ImageAnalysisDetails from "@/components/chat/ImageAnalysisDetails.vue";
 import EnvironmentContextCard from "@/components/chat/EnvironmentContextCard.vue";
 import { AppConfirmDialog } from "@/components/ui/confirm-dialog";
-import { openSettings as ipcOpenSettings, rewindSession } from "@/services/ipc";
+import { openSettings as ipcOpenSettings, rewindSession, setPlanMode } from "@/services/ipc";
 import { useSettingStore } from "@/stores/setting";
-import type { ChatMessage, CheckpointInfo } from "@/types/chat";
+import { useChatStore } from "@/stores/chat";
+import type { ChatMessage, CheckpointInfo, TaskItem } from "@/types/chat";
 import { parseSelectionAttachment } from "@/services/chat/selectionAttachment";
 import { isSoftInjectContent, stripSoftInjectMarker } from "@/services/chat/softInject";
 import { tr } from "@/services/i18n";
+import { createLogger } from "@/services/logger";
 import { gsapScrollContainerTo } from "@/services/motion/gsapPresets";
 import { copyText } from "@/services/clipboard";
 import { estimateMessageTokens, formatTokenCount } from "@/services/chat/tokenEstimate";
 import { isConfigureProviderError } from "@/services/chat/ensureDefaultModel";
 import { useAppStore } from "@/stores/app";
+import { storeToRefs } from "pinia";
 
 type DisplayItem =
   | { kind: "user"; key: string; message: ChatMessage }
@@ -342,6 +353,11 @@ const emit = defineEmits<{
 }>();
 const settingStore = useSettingStore();
 const appStore = useAppStore();
+const chatStore = useChatStore();
+const log = createLogger("message-list");
+const { sending } = storeToRefs(chatStore);
+const planBusy = ref(false);
+const isSessionSending = computed(() => Boolean(props.sessionId && sending.value[props.sessionId]));
 const confirmDialogRef = ref<InstanceType<typeof AppConfirmDialog> | null>(null);
 const brokenHashIcons = reactive<Record<string, boolean>>({});
 const resolvedHashIcons = reactive<Record<string, string>>({});
@@ -420,6 +436,98 @@ function openProviderSettings() {
     // Workbench may already be focused; app-store signal still opens settings.
   });
 }
+
+const planModeActive = computed(() =>
+  Boolean(props.sessionId && chatStore.sessionPlanMode[props.sessionId]),
+);
+
+const lastDoneAssistantId = computed(() => {
+  for (let i = props.messages.length - 1; i >= 0; i -= 1) {
+    const message = props.messages[i];
+    if (!message) continue;
+    if (String(message.role).toLowerCase() === "assistant" && message.status === "done") {
+      return message.id;
+    }
+  }
+  return null;
+});
+
+function tasksFromMessage(message: ChatMessage): TaskItem[] {
+  const activities = message.toolActivities ?? [];
+  for (let i = activities.length - 1; i >= 0; i -= 1) {
+    const activity = activities[i];
+    if (!activity) continue;
+    if (activity.toolName !== "update_tasks" && activity.toolName !== "todo_write") continue;
+    const raw = activity.arguments?.tasks;
+    if (!Array.isArray(raw)) continue;
+    const tasks = raw.flatMap((value) => {
+      if (!value || typeof value !== "object") return [];
+      const item = value as Record<string, unknown>;
+      const content = String(item.content ?? "").trim();
+      if (!content) return [];
+      return [
+        {
+          content,
+          status: String(item.status ?? "pending"),
+          activeForm:
+            typeof item.activeForm === "string"
+              ? item.activeForm
+              : typeof item.active_form === "string"
+                ? item.active_form
+                : undefined,
+          level: typeof item.level === "number" ? item.level : undefined,
+        } satisfies TaskItem,
+      ];
+    });
+    if (tasks.length) return tasks;
+  }
+  return [];
+}
+
+function planTasksForMessage(message: ChatMessage): TaskItem[] {
+  const fromMessage = tasksFromMessage(message);
+  if (fromMessage.length) return fromMessage;
+  if (!props.sessionId) return [];
+  return chatStore.sessionTasks[props.sessionId] ?? [];
+}
+
+function showPlanApprovalFor(message: ChatMessage): boolean {
+  if (!planModeActive.value) return false;
+  if (message.status !== "done") return false;
+  return message.id === lastDoneAssistantId.value;
+}
+
+async function cancelPlanMode() {
+  if (!props.sessionId || planBusy.value) return;
+  planBusy.value = true;
+  try {
+    await setPlanMode(props.sessionId, false);
+    chatStore.setSessionPlanMode(props.sessionId, false);
+    chatStore.setCompose(props.sessionId, { chatMode: "agent" });
+  } catch (error) {
+    log.error("exit plan mode failed", error);
+  } finally {
+    planBusy.value = false;
+  }
+}
+
+async function approvePlanMode() {
+  if (!props.sessionId || planBusy.value || sending.value?.[props.sessionId]) return;
+  planBusy.value = true;
+  try {
+    await setPlanMode(props.sessionId, false);
+    chatStore.setSessionPlanMode(props.sessionId, false);
+    chatStore.setCompose(props.sessionId, { chatMode: "agent" });
+    await chatStore.send(tr(settingStore.language, "planModeExecuteMessage"), props.sessionId, {
+      skipAutoPlan: true,
+    });
+  } catch (error) {
+    log.error("approve plan mode failed", error);
+  } finally {
+    planBusy.value = false;
+  }
+}
+
 const visibleMessages = computed(() =>
   props.messages.filter((message) => {
     const role = String(message.role).toLowerCase();

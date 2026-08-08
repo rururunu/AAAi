@@ -169,7 +169,7 @@ impl StreamManager {
                 max_subagent_depth: 1,
                 subagent_id: None,
                 parent_activity_id: None,
-                app_handle,
+                app_handle: app_handle.clone(),
                 cancelled: Arc::clone(&cancelled),
             };
 
@@ -642,7 +642,7 @@ fn finish_success(
         message_id: message_id.to_string(),
         content: content.clone(),
         reasoning,
-        finish_reason: finish_reason.or(Some("stop".to_string())),
+        finish_reason: finish_reason.clone().or(Some("stop".to_string())),
     });
     if let Some(user) = current_user {
         tauri::async_runtime::spawn_blocking(move || {

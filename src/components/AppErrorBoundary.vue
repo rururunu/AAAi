@@ -16,13 +16,41 @@ const props = withDefaults(
 const errorMessage = ref<string | null>(null);
 const errorStack = ref<string | null>(null);
 
+function describeError(err: unknown): { message: string; stack: string | null } {
+  if (err instanceof Error) {
+    return { message: err.message || err.name, stack: err.stack ?? null };
+  }
+  if (typeof err === "string") {
+    return { message: err, stack: null };
+  }
+  if (err && typeof err === "object") {
+    const record = err as { message?: unknown; stack?: unknown; name?: unknown };
+    if (typeof record.message === "string" && record.message.trim()) {
+      return {
+        message: record.message,
+        stack: typeof record.stack === "string" ? record.stack : null,
+      };
+    }
+    if (typeof record.name === "string" && record.name.trim()) {
+      return { message: record.name, stack: null };
+    }
+    // Never JSON.stringify arbitrary objects (Vue proxies can hang the UI).
+    return { message: Object.prototype.toString.call(err), stack: null };
+  }
+  return { message: String(err), stack: null };
+}
+
 onErrorCaptured((err, _instance, info) => {
-  const message = err instanceof Error ? err.message : String(err);
-  const stack = err instanceof Error ? (err.stack ?? null) : null;
-  errorMessage.value = message;
-  errorStack.value = stack;
-  log.error("captured", { message, info, stack });
-  return false;
+  const described = describeError(err);
+  errorMessage.value = described.message;
+  errorStack.value = described.stack;
+  log.error("captured", {
+    message: described.message,
+    info,
+    stack: described.stack,
+  });
+  // Stop propagation — the fallback UI already handled this error.
+  return true;
 });
 
 function retry() {

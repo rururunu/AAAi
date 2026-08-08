@@ -22,19 +22,29 @@
       @mouseenter="$emit('hover', index)"
       @mousedown.prevent="$emit('select', option.decision)"
     >
+      <span v-if="option.icon" class="permission-option-icon" aria-hidden="true">
+        <component :is="option.icon" :size="14" :stroke-width="2.25" />
+      </span>
       <span class="permission-option-label">{{ option.label }}</span>
     </li>
   </ul>
 </template>
 
 <script setup lang="ts">
+import type { Component } from "vue";
 import type { PathPermissionDecision } from "@/types/chat";
 
 defineProps<{
   header: string;
   question: string;
   path?: string;
-  options: Array<{ slug: string; label: string; description: string; decision: PathPermissionDecision }>;
+  options: Array<{
+    slug: string;
+    label: string;
+    description: string;
+    decision: PathPermissionDecision;
+    icon?: Component;
+  }>;
   selectedIndex: number;
   ariaLabel: string;
 }>();
@@ -58,7 +68,9 @@ defineEmits<{
   background: var(--peek-list-bg);
   flex: none;
   max-height: min(
-    calc(var(--command-row-height) * var(--command-list-visible-rows) + var(--command-list-padding)),
+    calc(
+      var(--command-row-height) * var(--command-list-visible-rows) + var(--command-list-padding)
+    ),
     72vh
   );
   overflow-x: hidden;
@@ -71,10 +83,8 @@ defineEmits<{
   max-height: min(
     var(--interaction-picker-max-height, 48vh),
     calc(
-      var(--picker-meta-row-height) * 3 +
-        var(--command-row-height) * var(--command-list-visible-rows) +
-        var(--command-list-padding) +
-        48px
+      var(--picker-meta-row-height) * 3 + var(--command-row-height) *
+        var(--command-list-visible-rows) + var(--command-list-padding) + 48px
     )
   );
 }
@@ -140,6 +150,20 @@ defineEmits<{
   height: auto;
   min-height: 36px;
   padding: 8px 12px;
+}
+
+.permission-option-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--peek-muted);
+}
+
+.command-item.active .permission-option-icon {
+  color: var(--peek-accent);
 }
 
 .permission-option-label {

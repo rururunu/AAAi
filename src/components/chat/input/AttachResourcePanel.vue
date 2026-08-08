@@ -279,6 +279,7 @@ function chipTitle(item: HashMentionItem): string {
 }
 
 .attach-tabs {
+  flex: none;
   display: flex;
   gap: 4px;
   padding: 2px;
@@ -321,12 +322,15 @@ function chipTitle(item: HashMentionItem): string {
 
 .attach-files-pane {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 8px;
   min-height: 0;
 }
 
 .attach-tree-scroll {
+  flex: 1;
+  min-height: 120px;
   max-height: min(260px, 48vh);
   overflow: auto;
   overscroll-behavior: contain;

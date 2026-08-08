@@ -21,7 +21,7 @@
 
 <p align="center">
   <img alt="platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" />
-  <img alt="release" src="https://img.shields.io/badge/version-v0.2.2-4D6BFE?style=flat-square" />
+  <img alt="release" src="https://img.shields.io/badge/version-v0.2.3-4D6BFE?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-Unlicense-3DA639?style=flat-square" />
   <img alt="stack" src="https://img.shields.io/badge/Tauri%202%20%2B%20Vue%203%20%2B%20Rust-black?style=flat-square" />
 </p>
@@ -30,14 +30,14 @@
 
 ## 一览
 
-|              |                                                       |
-| ------------ | ----------------------------------------------------- |
-| **悬浮窗**   | 任意应用中双击 <kbd>Alt</kbd>，随时提问、附带上下文。 |
-| **工作台**   | 完整桌面界面：置顶会话、项目工作区与变更审查。        |
-| **Agent**    | 只读 Ask，或带工具 / Skills / MCP / Office 的 Agent。 |
-| **本地优先** | 密钥、历史与设置默认保存在本机。                      |
+|              |                                                                       |
+| ------------ | --------------------------------------------------------------------- |
+| **悬浮窗**   | 任意应用中双击 <kbd>Alt</kbd>，随时提问、附带上下文。                 |
+| **工作台**   | 完整桌面界面：置顶会话、项目工作区与变更审查。                        |
+| **Agent**    | Ask / Agent / Plan；工具、Skills、MCP、Office；复杂任务可自动进计划。 |
+| **本地优先** | 密钥、历史与设置默认保存在本机。                                      |
 
-**文档：** [架构](./docs/architecture-overview.zh-CN.md) · [维护](./docs/maintenance.zh-CN.md) · [发布](./docs/release.zh-CN.md) · [索引](./docs/README.zh-CN.md)
+**文档：** [架构](./docs/architecture-overview.zh-CN.md) · [发布](./docs/release.zh-CN.md) · [索引](./docs/README.zh-CN.md)
 
 ---
 
@@ -112,14 +112,15 @@ Agent 修改文件后，Anya 会给出按文件汇总，并提供 Diff 视图。
 
 ## 能力
 
-### Ask 与 Agent
+### Ask / Agent / Plan
 
-| 模式      | 意图                       | 典型工具                                     |
-| --------- | -------------------------- | -------------------------------------------- |
-| **Ask**   | 只读调研                   | 读文件、搜索、LSP 等只读工具                 |
-| **Agent** | 默认；在可控前提下改动环境 | 文件、PowerShell、Git、Skills、MCP、子 Agent |
+| 模式      | 意图                       | 典型工具 / 约束                                                    |
+| --------- | -------------------------- | ------------------------------------------------------------------ |
+| **Ask**   | 只读调研                   | 读文件、搜索、LSP 等只读工具                                       |
+| **Agent** | 默认；在可控前提下改动环境 | 文件、PowerShell、Git、Skills、MCP、子 Agent；复杂任务可自动进计划 |
+| **Plan**  | 先定步骤再执行             | 写工具锁定；`update_tasks` + 消息末尾批准卡                        |
 
-Ask 不开放写文件 / Shell / Git；Agent 在审批策略下开放。两种模式共用同一套 `AgentRunner`——约束落在工具暴露与审批门禁，而不是第二套编排器。
+Ask 不开放写文件 / Shell / Git；Agent 在审批策略下开放；Plan（手动或自动）经计划门禁拦截写操作，直到用户在回答末尾批准。三种模式共用同一套 `AgentRunner`——约束落在工具暴露、审批与计划门禁，而不是第二套编排器。
 
 ### 时间线
 
@@ -192,7 +193,7 @@ flowchart TB
   subgraph Host["Anya.exe — Rust 宿主"]
     CMD[commands / EventBus]
     CHAT[ChatService · StreamManager · AgentRunner]
-    TOOLS[ToolRegistry · Skills · MCP · Office]
+    TOOLS[ToolRegistry · plan gate · Skills · MCP · Office]
     STORE[(SQLite + journal)]
   end
 
@@ -223,10 +224,9 @@ invoke("chat")
   → ConversationManager 持久化消息（含 work_timeline）
 ```
 
-`AgentRunner` 负责 model↔tools 主循环；`AgentRuntime` 负责 run 生命周期（取消、soft-inject、debug）。不要在 `AgentRunner` 之外平行再造一套对话循环。
+`AgentRunner` 负责 model↔tools 主循环；`AgentRuntime` 负责 run 生命周期（取消、soft-inject、debug）。Ask / Agent / Plan 共用该循环；Plan 经 `plan_mode` 门禁拦截写操作，直到回答末尾批准。不要在 `AgentRunner` 之外平行再造一套对话循环。
 
-完整视图：[技术架构总览](./docs/architecture-overview.zh-CN.md)  
-维护流程：[维护手册](./docs/maintenance.zh-CN.md)
+完整视图：[技术架构总览](./docs/architecture-overview.zh-CN.md)
 
 ---
 
@@ -245,7 +245,7 @@ cd src-tauri && cargo test --lib
 pnpm tauri:build
 ```
 
-安装包输出为 `src-tauri/target/release/bundle/msi/Anya_0.2.2_x64.msi`。
+安装包输出为 `src-tauri/target/release/bundle/msi/Anya_0.2.3_x64.msi`。
 
 发布与应用内更新见 [发布与远程更新](./docs/release.zh-CN.md)。
 

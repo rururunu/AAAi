@@ -9,8 +9,7 @@ gsap.defaults({
 
 function prefersReducedMotion() {
   return (
-    typeof window !== "undefined"
-    && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
 }
 
@@ -34,9 +33,9 @@ export function gsapScrollContainerTo(
 
   if (prefersReducedMotion()) {
     const next =
-      container.scrollTop
-      + (target.getBoundingClientRect().top - container.getBoundingClientRect().top)
-      - offsetY;
+      container.scrollTop +
+      (target.getBoundingClientRect().top - container.getBoundingClientRect().top) -
+      offsetY;
     container.scrollTop = Math.max(0, next);
     return;
   }
@@ -45,6 +44,16 @@ export function gsapScrollContainerTo(
     duration: opts?.duration ?? 0.22,
     scrollTo: { y: target, offsetY },
   });
+}
+
+/** Vue Transition `done` must always fire — otherwise mode="out-in" freezes forever. */
+function onceDone(done: () => void): () => void {
+  let finished = false;
+  return () => {
+    if (finished) return;
+    finished = true;
+    done();
+  };
 }
 
 /**
@@ -56,23 +65,28 @@ export function gsapScrollContainerTo(
  */
 export function gsapPickerEnter(el: Element, done: () => void) {
   const target = el as HTMLElement;
+  const finish = onceDone(done);
   if (prefersReducedMotion()) {
     gsap.set(target, { clearProps: "all" });
-    done();
+    finish();
     return;
   }
 
   const items = target.querySelectorAll<HTMLElement>(
-    ".command-item, .workspace-option, .workspace-new-row",
+    ".command-item, .workspace-option, .workspace-new-row, .attach-chip, .attach-tab",
   );
   gsap.killTweensOf([target, ...items]);
 
-  const tl = gsap.timeline({ onComplete: done });
-  tl.fromTo(
-    target,
-    { autoAlpha: 0 },
-    { autoAlpha: 1, duration: COMPOSER_ENTER },
-  );
+  // Safety: if a tween is killed/interrupted mid-flight, still unlock Transition.
+  const safety = gsap.delayedCall(Math.max(COMPOSER_ENTER, 0.11) + 0.35, finish);
+
+  const tl = gsap.timeline({
+    onComplete: () => {
+      safety.kill();
+      finish();
+    },
+  });
+  tl.fromTo(target, { autoAlpha: 0 }, { autoAlpha: 1, duration: COMPOSER_ENTER });
 
   if (items.length) {
     tl.fromTo(
@@ -92,23 +106,28 @@ export function gsapPickerEnter(el: Element, done: () => void) {
 
 export function gsapPickerLeave(el: Element, done: () => void) {
   const target = el as HTMLElement;
+  const finish = onceDone(done);
   if (target.matches(".model-picker-list, .option-picker-list")) {
     const items = target.querySelectorAll<HTMLElement>(".command-item");
     gsap.killTweensOf([target, ...items]);
-    done();
+    finish();
     return;
   }
   if (prefersReducedMotion()) {
-    done();
+    finish();
     return;
   }
 
   gsap.killTweensOf(target);
+  const safety = gsap.delayedCall(COMPOSER_LEAVE + 0.35, finish);
   gsap.to(target, {
     autoAlpha: 0,
     duration: COMPOSER_LEAVE,
     ease: "power2.in",
-    onComplete: done,
+    onComplete: () => {
+      safety.kill();
+      finish();
+    },
   });
 }
 

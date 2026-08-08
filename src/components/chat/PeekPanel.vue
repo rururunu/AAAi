@@ -237,11 +237,12 @@
         </p>
         <ChatInputBar
           ref="inputRef"
+          appearance="overlay"
           :sending="sending"
           :session-id="activeSessionId"
           :captured-context="capturedContext"
           :context-ready="contextReady"
-          :overlay-pickers="mode === 'chat'"
+          overlay-pickers
           :placeholder="
             tr(settingStore.language, mode === 'chat' ? 'continueQuestion' : 'askAnything')
           "
@@ -1651,6 +1652,14 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.composer-dock :deep(.chat-input-shell.interaction-request-open .ask-user-list),
+.composer-dock :deep(.chat-input-shell.interaction-request-open .path-permission-list),
+.composer-dock :deep(.chat-input-shell.interaction-request-open .tool-approval-list) {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .composer-dock.expanded {

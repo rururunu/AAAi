@@ -277,11 +277,50 @@ impl ChatService {
             .as_ref()
             .map(|settings| settings.minimal_coding)
             .unwrap_or(false);
+        let chat_mode = overrides
+            .chat_mode
+            .or_else(|| settings.as_ref().map(|settings| settings.chat_mode))
+            .unwrap_or_default();
+
+        // Plan can be chosen in the mode picker, or auto-entered for complex
+        // Agent turns. Approve & execute sends skip_auto_plan so writers unlock.
+        // Approval UI lives at the end of the assistant reply (not a composer banner).
+        let plan_store = crate::core::tools::plan_mode::shared_plan_mode_store();
+        let plan_was_active = plan_store.is_active(&session_id);
+        match chat_mode {
+            ChatMode::Ask => {
+                if plan_was_active {
+                    plan_store.set_active(&session_id, false);
+                    self.emit_plan_mode_changed(&session_id, false);
+                }
+            }
+            ChatMode::Plan => {
+                if !plan_was_active {
+                    plan_store.set_active(&session_id, true);
+                    self.emit_plan_mode_changed(&session_id, true);
+                }
+            }
+            ChatMode::Agent => {
+                if !overrides.skip_auto_plan
+                    && !plan_was_active
+                    && crate::core::tools::plan_mode::should_auto_plan(
+                        &user_message.content,
+                        chat_mode,
+                    )
+                {
+                    plan_store.set_active(&session_id, true);
+                    self.emit_plan_mode_changed(&session_id, true);
+                }
+            }
+        }
+        let plan_mode = plan_store.is_active(&session_id);
+
         let prompt_preferences = PromptPreferences {
             app_language: preferences.app_language,
             reasoning_language: preferences.reasoning_language,
             collaboration_models,
             minimal_coding,
+            plan_mode,
         };
         let request = PromptBuilder::build(PromptBuildInput {
             request_id: &assistant_message.id,
@@ -310,18 +349,10 @@ impl ChatService {
                 .map(|workspace| std::path::Path::new(&workspace.root)),
         );
 
-        let chat_mode = overrides
-            .chat_mode
-            .or_else(|| {
-                self.app_handle
-                    .as_ref()
-                    .and_then(|app| crate::services::settings_store::get_settings(app).ok())
-                    .map(|settings| settings.chat_mode)
-            })
-            .unwrap_or_default();
         let tools = if chat_mode == ChatMode::Ask {
             Arc::new(self.tools.ask_mode())
         } else {
+            // Agent and Plan share the full registry; PlanModeStore gates writers.
             Arc::clone(&self.tools)
         };
 

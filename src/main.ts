@@ -17,6 +17,7 @@ import {
   listenToolFinished,
   listenToolStarted,
   listenTaskListUpdated,
+  listenPlanModeChanged,
 } from "@/services/ipc";
 import { normalizeToolActivityEvent, resolveSessionId } from "@/services/chat/normalize";
 import { createRafBatch } from "@/services/chat/rafBatch";
@@ -45,10 +46,33 @@ const app = createApp(App);
 const pinia = createPinia();
 const bootLog = createLogger("bootstrap");
 
+function formatErrorDetail(err: unknown): Record<string, unknown> {
+  if (err instanceof Error) {
+    return {
+      name: err.name,
+      message: err.message,
+      stack: err.stack,
+    };
+  }
+  if (typeof err === "string") {
+    return { message: err };
+  }
+  if (err && typeof err === "object") {
+    const record = err as { message?: unknown; name?: unknown; stack?: unknown };
+    return {
+      name: typeof record.name === "string" ? record.name : undefined,
+      message:
+        typeof record.message === "string" ? record.message : Object.prototype.toString.call(err),
+      stack: typeof record.stack === "string" ? record.stack : undefined,
+    };
+  }
+  return { message: String(err) };
+}
+
 app.config.errorHandler = (err, _instance, info) => {
   rootLogger.error("vue errorHandler", {
     info,
-    err: err instanceof Error ? { message: err.message, stack: err.stack } : err,
+    err: formatErrorDetail(err),
   });
 };
 
@@ -307,6 +331,19 @@ async function bootstrap() {
     const sessionId = resolveSessionId(payload.sessionId, chatStore.overlayDraftSessionId);
     if (!sessionId) return;
     chatStore.setSessionTasks(sessionId, payload.tasks ?? []);
+  });
+
+  await listenPlanModeChanged((payload) => {
+    const sessionId = resolveSessionId(payload.sessionId, chatStore.overlayDraftSessionId);
+    if (!sessionId) return;
+    const active = Boolean(payload.active);
+    chatStore.setSessionPlanMode(sessionId, active);
+    const compose = chatStore.ensureCompose(sessionId);
+    if (active && compose.chatMode === "agent") {
+      chatStore.setCompose(sessionId, { chatMode: "plan" });
+    } else if (!active && compose.chatMode === "plan") {
+      chatStore.setCompose(sessionId, { chatMode: "agent" });
+    }
   });
 
   if (windowLabel.startsWith("overlay-preview-")) {

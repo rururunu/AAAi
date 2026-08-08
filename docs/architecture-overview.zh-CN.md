@@ -10,12 +10,12 @@
 |            |                                    |
 | ---------- | ---------------------------------- |
 | **产品**   | Anya — 将你的工作&疑问随手交给Anya |
-| **版本**   | v0.2.2                             |
+| **版本**   | v0.2.3                             |
 | **运行时** | Tauri 2（WebView2 + Rust）         |
 | **界面**   | Vue 3 · Vite · Pinia · TypeScript  |
 | **领域**   | Rust（`src-tauri/src`）            |
 
-**相关文档：** [维护手册](./maintenance.zh-CN.md) · [发布](./release.zh-CN.md) · [文档索引](./README.zh-CN.md)
+**相关文档：** [发布](./release.zh-CN.md) · [文档索引](./README.zh-CN.md)
 
 ---
 
@@ -26,7 +26,7 @@
 - 进程 / 窗口拓扑
 - 分层边界与允许的依赖方向
 - 主聊天请求路径（UI → 领域 → Provider → 工具 → UI 事件）
-- Agent 回合编排与策略钩子
+- Agent 回合编排与策略钩子（Ask / Agent / 计划门禁）
 - 持久化（SQLite、journal、work timeline）
 - 前端流式投影与会话模型
 - 扩展点（Provider、工具、Skills、MCP）
@@ -88,7 +88,7 @@ flowchart TB
     Chat["core/chat<br/>ChatService · StreamManager · AgentRunner"]
     AgentShell["core/agent<br/>AgentRuntime · run lifecycle"]
     Ai["core/ai<br/>Provider trait + implementations"]
-    Tools["core/tools<br/>registry · approval · sandbox"]
+    Tools["core/tools<br/>registry · approval · plan gate · sandbox"]
     Ctx["core/context · workspace · rules · token"]
     Persist["conversation_manager · db · journal"]
   end
@@ -191,7 +191,8 @@ flowchart TB
 | 提示词             | `core/chat/prompts/`、`prompts/*.md`      | system / tools / policies / skills                           |
 | Agent runtime      | `core/agent/runtime/`                     | Run 状态机、取消、soft-inject、debug                         |
 | AI providers       | `core/ai/`                                | DeepSeek、Gemini/Antigravity、多模态                         |
-| Tools              | `core/tools/`                             | 注册表、审批、文件、shell、skills、子 Agent                  |
+| Tools              | `core/tools/`                             | 注册表、审批、计划门禁、文件、shell、skills、子 Agent        |
+| Plan mode          | `core/tools/plan_mode.rs`                 | 会话级写操作门禁；Agent 复杂任务自动进入启发式               |
 | Context            | `core/context/`                           | IDE、选区、剪贴板、环境、Office 提示                         |
 | Checkpoint         | `core/checkpoint/`                        | 已应用文件变更的撤销 / 审查                                  |
 | Token              | `core/token/`                             | 用量记账与持久化                                             |
@@ -209,14 +210,14 @@ flowchart TB
 
 ### 5.3 前端（`src/`）
 
-| 区域                | 路径                                      | 职责                               |
-| ------------------- | ----------------------------------------- | ---------------------------------- |
-| Overlay / Workbench | `layouts/Overlay.vue`、`layouts/Main.vue` | 窗口壳                             |
-| 聊天 UI             | `components/chat/*`                       | 消息列表、时间线、工具卡片、输入栏 |
-| Stores              | `stores/chat.ts` 等                       | 会话消息、设置、模型选择           |
-| IPC                 | `services/ipc/`                           | 类型化 invoke 与事件订阅           |
-| 流式批处理          | `services/chat/rafBatch.ts`、`main.ts`    | delta RAF 合并                     |
-| 设置页              | `pages/Settings/`                         | 服务商 / Agent / MCP / skills      |
+| 区域                | 路径                                      | 职责                                           |
+| ------------------- | ----------------------------------------- | ---------------------------------------------- |
+| Overlay / Workbench | `layouts/Overlay.vue`、`layouts/Main.vue` | 窗口壳                                         |
+| 聊天 UI             | `components/chat/*`                       | 消息列表、时间线、工具卡片、计划批准卡、输入栏 |
+| Stores              | `stores/chat.ts` 等                       | 会话消息、计划门禁、任务列表、设置、模型选择   |
+| IPC                 | `services/ipc/`                           | 类型化 invoke 与事件订阅                       |
+| 流式批处理          | `services/chat/rafBatch.ts`、`main.ts`    | delta RAF 合并                                 |
+| 设置页              | `pages/Settings/`                         | 服务商 / Agent / MCP / skills                  |
 
 ---
 
@@ -329,9 +330,46 @@ stateDiagram-v2
 | `soft_inject`      | 在安全边界合并排队中的用户追问                            |
 | `failure`          | 连续失败 / 同错重复的熔断                                 |
 
-### Ask 与 Agent
+### Ask / Agent / Plan
 
-通过**工具 Schema 暴露**与**审批策略**约束，而不是单独的 Runner。Ask 不开放写文件 / Shell / Git；Agent 在审批模式下开放。
+通过**工具 Schema 暴露**、**审批策略**与**计划门禁**约束，而不是单独的 Runner。
+
+| 模式      | 行为                                                        |
+| --------- | ----------------------------------------------------------- |
+| **Ask**   | 不开放写文件 / Shell / Git 等写操作                         |
+| **Agent** | 按审批模式开放写操作；复杂请求可**自动进入**计划门禁        |
+| **Plan**  | 用户显式选择，或 Agent 自动进入；写工具被拦截，直到用户批准 |
+
+### 计划门禁（Plan gate）
+
+计划状态由 `core/tools/plan_mode.rs` 的进程内 `PlanModeStore` 按 `session_id` 持有（与 ChatMode 正交：门禁开着时即使 compose 仍显示 Agent，写工具也会被拒）。
+
+```mermaid
+flowchart TB
+  Send[ChatService::send] --> Mode{chat_mode?}
+  Mode -->|Ask| Clear[关闭门禁]
+  Mode -->|Plan| On[打开门禁]
+  Mode -->|Agent| Auto{复杂任务<br/>should_auto_plan?}
+  Auto -->|是且未 skip_auto_plan| On
+  Auto -->|否| Off[保持 / 不强制打开]
+  On --> Prompt[注入 plan-mode.md<br/>仅只读工具 + update_tasks]
+  Prompt --> Draft[助手起草计划并停止]
+  Draft --> UI[MessageList 末尾<br/>PlanApprovalCard]
+  UI -->|退出计划| Clear
+  UI -->|批准并执行| Exec[关门禁 + skip_auto_plan<br/>发送执行提示]
+  Exec --> Writers[写工具可用]
+```
+
+| 环节         | 位置                                                                                   |
+| ------------ | -------------------------------------------------------------------------------------- |
+| 自动进入判定 | `plan_mode::should_auto_plan`（Agent + 复杂度启发式）                                  |
+| 门禁授权     | `PlanModeStore::authorize`（拒绝非只读写工具）                                         |
+| 提示词       | `prompts/plan-mode.md`                                                                 |
+| 计划列表     | 工具 `update_tasks` / `todo_write` → `task-list-updated` / 消息 `toolActivities`       |
+| 批准 UI      | `PlanApprovalCard.vue` 挂在**最后一条已完成助手消息末尾**（类似 `CodeChangesSummary`） |
+| 批准动作     | 关门禁 → compose 回到 Agent → `send(..., skipAutoPlan: true)`                          |
+
+批准卡片**不**再使用输入栏上方横幅，避免挤占输入区；步骤列表与 Diff 摘要同级展示。
 
 ### AgentRunner 与 AgentRuntime
 
@@ -418,13 +456,16 @@ flowchart LR
 ```mermaid
 flowchart TB
   Model[Model tool_calls] --> Reg[ToolRegistry]
-  Reg --> Mode{Ask / Agent / plan / read_only?}
+  Reg --> Mode{Ask / Agent / plan gate / read_only?}
   Mode -->|拦截| Deny[省略 Schema 或拒绝]
   Mode -->|允许| Appr[审批策略]
   Appr -->|询问用户| UI[ask_user / 权限 UI]
   Appr -->|允许| Exec[Builtin / Skill / MCP / Office / Subagent]
   Exec --> Act[ToolActivity + work_timeline]
+  Exec -->|update_tasks| Tasks[sessionTasks + PlanApprovalCard]
 ```
+
+计划门禁开启时，非只读写工具在注册表 / authorize 层被拒绝；`update_tasks`（与只读探索）仍可用，供助手输出可批准的步骤列表。
 
 Skills 位于 `src-tauri/prompts/skills/`（含厂商资源）。调用时常注入 playbook，并可按子 Agent 执行（可选 `read_only`）。
 
@@ -432,15 +473,17 @@ Skills 位于 `src-tauri/prompts/skills/`（含厂商资源）。调用时常注
 
 ## 12. 事件契约（领域 → UI）
 
-| BusEvent        | Tauri 事件                       | 消费效果                       |
-| --------------- | -------------------------------- | ------------------------------ |
-| `ChatStarted`   | `chat-started`                   | 插入 user + pending assistant  |
-| `ChatDelta`     | `chat-delta`                     | 追加正文（RAF 批处理）         |
-| `ChatReasoning` | `chat-reasoning`                 | 追加思考                       |
-| `ChatStatus`    | `chat-status`                    | 活动标签 / `stream_retry` 重置 |
-| `ChatFinished`  | `chat-finished`                  | 用最终内容替换，标记完成       |
-| `ChatError`     | `chat-error`                     | 标记错误并展示文案             |
-| 工具活动        | `tool-started` / `tool-finished` | Upsert 工具卡片                |
+| BusEvent          | Tauri 事件                       | 消费效果                              |
+| ----------------- | -------------------------------- | ------------------------------------- |
+| `ChatStarted`     | `chat-started`                   | 插入 user + pending assistant         |
+| `ChatDelta`       | `chat-delta`                     | 追加正文（RAF 批处理）                |
+| `ChatReasoning`   | `chat-reasoning`                 | 追加思考                              |
+| `ChatStatus`      | `chat-status`                    | 活动标签 / `stream_retry` 重置        |
+| `ChatFinished`    | `chat-finished`                  | 用最终内容替换，标记完成              |
+| `ChatError`       | `chat-error`                     | 标记错误并展示文案                    |
+| 工具活动          | `tool-started` / `tool-finished` | Upsert 工具卡片                       |
+| `PlanModeChanged` | `plan-mode-changed`              | 同步门禁；必要时把 compose 切到 Plan  |
+| `TaskListUpdated` | `task-list-updated`              | 更新 `sessionTasks`（批准卡步骤来源） |
 
 `ChatSendResponse` 仅返回 id；流式正文走事件通道。
 
@@ -491,14 +534,15 @@ flowchart LR
 
 ## 16. 相关源码入口
 
-| 关注点                    | 从此处开始                                               |
-| ------------------------- | -------------------------------------------------------- |
-| 应用启动 / 托盘 / 热键    | `src-tauri/src/lib.rs`                                   |
-| 聊天 IPC                  | `commands/chat.rs`                                       |
-| 发送与上下文组装          | `core/chat/service.rs`                                   |
-| 流式生命周期 + 时间线文本 | `core/chat/stream.rs`                                    |
-| 时间线持久化              | `core/chat/conversation_manager.rs`、`core/chat/db.rs`   |
-| Agent 循环                | `core/chat/agent.rs`、`core/chat/agent_loop/`            |
-| Run 壳                    | `core/agent/runtime/`                                    |
-| 前端 IPC 与流式批处理     | `src/services/ipc/`、`src/main.ts`、`src/stores/chat.ts` |
-| 时间线 UI                 | `src/components/chat/AgentWorkDetails.vue`               |
+| 关注点                      | 从此处开始                                                    |
+| --------------------------- | ------------------------------------------------------------- |
+| 应用启动 / 托盘 / 热键      | `src-tauri/src/lib.rs`                                        |
+| 聊天 IPC                    | `commands/chat.rs`                                            |
+| 发送与上下文组装 / 计划门禁 | `core/chat/service.rs`、`core/tools/plan_mode.rs`             |
+| 流式生命周期 + 时间线文本   | `core/chat/stream.rs`                                         |
+| 时间线持久化                | `core/chat/conversation_manager.rs`、`core/chat/db.rs`        |
+| Agent 循环                  | `core/chat/agent.rs`、`core/chat/agent_loop/`                 |
+| Run 壳                      | `core/agent/runtime/`                                         |
+| 前端 IPC 与流式批处理       | `src/services/ipc/`、`src/main.ts`、`src/stores/chat.ts`      |
+| 时间线 UI                   | `src/components/chat/AgentWorkDetails.vue`                    |
+| 计划批准卡                  | `src/components/chat/PlanApprovalCard.vue`、`MessageList.vue` |

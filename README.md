@@ -21,7 +21,7 @@
 
 <p align="center">
   <img alt="platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square" />
-  <img alt="release" src="https://img.shields.io/badge/version-v0.2.2-4D6BFE?style=flat-square" />
+  <img alt="release" src="https://img.shields.io/badge/version-v0.2.3-4D6BFE?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-Unlicense-3DA639?style=flat-square" />
   <img alt="stack" src="https://img.shields.io/badge/Tauri%202%20%2B%20Vue%203%20%2B%20Rust-black?style=flat-square" />
 </p>
@@ -30,14 +30,14 @@
 
 ## At a glance
 
-|                 |                                                                          |
-| --------------- | ------------------------------------------------------------------------ |
-| **Overlay**     | Double-tap <kbd>Alt</kbd> from any app. Ask, attach context, keep going. |
-| **Workbench**   | Full desktop UI for pinned chats, project workspaces, and review.        |
-| **Agent**       | Read-only Ask, or Agent mode with tools, Skills, MCP, and Office.        |
-| **Local-first** | Keys, history, and settings stay on your machine by default.             |
+|                 |                                                                              |
+| --------------- | ---------------------------------------------------------------------------- |
+| **Overlay**     | Double-tap <kbd>Alt</kbd> from any app. Ask, attach context, keep going.     |
+| **Workbench**   | Full desktop UI for pinned chats, project workspaces, and review.            |
+| **Agent**       | Ask / Agent / Plan; tools, Skills, MCP, Office; complex tasks may auto-plan. |
+| **Local-first** | Keys, history, and settings stay on your machine by default.                 |
 
-**Docs:** [Architecture](./docs/architecture-overview.md) · [Maintenance](./docs/maintenance.md) · [Releases](./docs/release.md) · [Index](./docs/README.md)
+**Docs:** [Architecture](./docs/architecture-overview.md) · [Releases](./docs/release.md) · [Index](./docs/README.md)
 
 ---
 
@@ -112,14 +112,15 @@ Common controls include default chat model, vision / multimodal fallback, reason
 
 ## Capabilities
 
-### Ask and Agent
+### Ask / Agent / Plan
 
-| Mode      | Intent                              | Typical tools                                   |
-| --------- | ----------------------------------- | ----------------------------------------------- |
-| **Ask**   | Read-only investigation             | Files, search, LSP, other read-only tools       |
-| **Agent** | Default; change the world carefully | Files, PowerShell, Git, Skills, MCP, sub-agents |
+| Mode      | Intent                              | Typical tools / constraints                                                        |
+| --------- | ----------------------------------- | ---------------------------------------------------------------------------------- |
+| **Ask**   | Read-only investigation             | Files, search, LSP, other read-only tools                                          |
+| **Agent** | Default; change the world carefully | Files, PowerShell, Git, Skills, MCP, sub-agents; complex tasks may auto-enter Plan |
+| **Plan**  | Agree on steps before writes        | Write tools locked; `update_tasks` + end-of-message approval card                  |
 
-Ask withholds write / shell / git. Agent enables them under your approval policy. Both modes share the same `AgentRunner` loop — policy lives in tool exposure and approval gates, not a second orchestrator.
+Ask withholds write / shell / git. Agent enables them under your approval policy. Plan (manual or auto) blocks writes via the plan gate until you approve at the end of the assistant reply. All three share the same `AgentRunner` loop — policy lives in tool exposure, approval, and the plan gate, not a second orchestrator.
 
 ### Timeline
 
@@ -192,7 +193,7 @@ flowchart TB
   subgraph Host["Anya.exe — Rust host"]
     CMD[commands / EventBus]
     CHAT[ChatService · StreamManager · AgentRunner]
-    TOOLS[ToolRegistry · Skills · MCP · Office]
+    TOOLS[ToolRegistry · plan gate · Skills · MCP · Office]
     STORE[(SQLite + journal)]
   end
 
@@ -223,10 +224,9 @@ invoke("chat")
   → ConversationManager persists messages (+ work_timeline)
 ```
 
-`AgentRunner` owns the model↔tools loop. `AgentRuntime` owns run lifecycle (cancel, soft-inject, debug). Do not add a second chat loop beside `AgentRunner`.
+`AgentRunner` owns the model↔tools loop. `AgentRuntime` owns run lifecycle (cancel, soft-inject, debug). Ask / Agent / Plan share that loop; Plan gates writes via `plan_mode` until end-of-message approval. Do not add a second chat loop beside `AgentRunner`.
 
-Full diagrams: [Architecture overview](./docs/architecture-overview.md) · [简体中文](./docs/architecture-overview.zh-CN.md)  
-Maintainer workflows: [Maintenance guide](./docs/maintenance.md)
+Full diagrams: [Architecture overview](./docs/architecture-overview.md) · [简体中文](./docs/architecture-overview.zh-CN.md)
 
 ---
 
@@ -245,7 +245,7 @@ cd src-tauri && cargo test --lib
 pnpm tauri:build
 ```
 
-The installer lands at `src-tauri/target/release/bundle/msi/Anya_0.2.2_x64.msi`.
+The installer lands at `src-tauri/target/release/bundle/msi/Anya_0.2.3_x64.msi`.
 
 For signing, `latest.json`, and GitHub Releases, see [Releases and remote updates](./docs/release.md).
 

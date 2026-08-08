@@ -62,7 +62,7 @@ pnpm tauri:build
 ### 3. 生成本地 `latest.json`
 
 ```powershell
-pnpm release:json -- --tag v0.2.2 --notes "更新说明（可选）"
+pnpm release:json -- --tag v0.2.3 --notes "更新说明（可选）"
 ```
 
 生成文件：**`release/latest.json`**。
@@ -71,13 +71,13 @@ pnpm release:json -- --tag v0.2.2 --notes "更新说明（可选）"
 
 ```json
 {
-  "version": "0.2.2",
+  "version": "0.2.3",
   "notes": "更新说明",
   "pub_date": "2026-08-06T08:00:00Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/rururunu/Anya/releases/download/v0.2.2/Anya_0.2.2_x64.msi",
-      "signature": "<Anya_0.2.2_x64.msi.sig 文件的全部内容>"
+      "url": "https://github.com/rururunu/Anya/releases/download/v0.2.3/Anya_0.2.3_x64.msi",
+      "signature": "<Anya_0.2.3_x64.msi.sig 文件的全部内容>"
     }
   }
 }
@@ -86,11 +86,11 @@ pnpm release:json -- --tag v0.2.2 --notes "更新说明（可选）"
 ### 4. 在 GitHub 创建 Release
 
 1. 打开 [Releases](https://github.com/rururunu/Anya/releases) → **Draft a new release**
-2. Tag：`v0.2.2`（与 `--tag` 一致）
+2. Tag：`v0.2.3`（与 `--tag` 一致）
 3. 填写 Release 说明（与 `notes` 可相同，给用户看）
 4. 上传 **3 个文件**：
-   - `Anya_0.2.2_x64.msi`
-   - `Anya_0.2.2_x64.msi.sig`
+   - `Anya_0.2.3_x64.msi`
+   - `Anya_0.2.3_x64.msi.sig`
    - `latest.json`（来自 `release/latest.json`，**文件名保持 `latest.json`**）
 5. 发布（不要勾 Pre-release，否则 `latest` 不会指向它）
 
@@ -106,8 +106,8 @@ pnpm release:json -- --tag v0.2.2 --notes "更新说明（可选）"
 仓库已包含 `.github/workflows/release.yml`：推送 `v*` 标签时自动构建、签名并上传 Release。
 
 ```powershell
-git tag v0.2.2
-git push origin v0.2.2
+git tag v0.2.3
+git push origin v0.2.3
 ```
 
 配置好上述 Secrets 后，无需再手动写 Release 正文或上传 MSI；`latest.json` 由 `tauri-action` 生成并上传。
@@ -127,4 +127,4 @@ git push origin v0.2.2
 **Q：`signature` 填什么？**  
 填 `.msi.sig` 文件的**全文**（一行 base64 文本），不是文件路径也不是下载链接。
 
-**相关文档：** [技术架构](./architecture-overview.zh-CN.md) · [维护手册](./maintenance.zh-CN.md) · [文档索引](./README.zh-CN.md)
+**相关文档：** [技术架构](./architecture-overview.zh-CN.md) · [文档索引](./README.zh-CN.md)

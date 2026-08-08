@@ -6,6 +6,7 @@ import { getAppSettings, setAppSettings } from "@/services/ipc";
 import { applyOpacity } from "@/services/overlay/appearance";
 import {
   normalizeColorScheme,
+  normalizeChatMode,
   type AppLanguage,
   type AppSettings,
   type AppSettingsPatch,
@@ -158,7 +159,7 @@ function applyCommonSettings(target: AppSettings, settings: AppSettings) {
   target.webSearchEnabled = settings.webSearchEnabled ?? false;
   target.webSearchProvider = settings.webSearchProvider ?? "serper";
   target.toolApprovalMode = settings.toolApprovalMode ?? "ask";
-  target.chatMode = settings.chatMode ?? "agent";
+  target.chatMode = normalizeChatMode(settings.chatMode);
   target.lspEnabled = settings.lspEnabled ?? false;
   target.lspServers = settings.lspServers ?? [];
   target.mcpServers = settings.mcpServers ?? [];

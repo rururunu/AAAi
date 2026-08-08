@@ -191,8 +191,10 @@ export interface ChatSendRequest {
   /** Per-conversation overrides; absent values fall back to global settings. */
   modelId?: string;
   modelProvider?: string;
-  chatMode?: "ask" | "agent";
+  chatMode?: "ask" | "agent" | "plan";
   toolApprovalMode?: "ask" | "auto" | "alwaysAllow";
+  /** Skip complexity auto-plan (used after Approve & execute). */
+  skipAutoPlan?: boolean;
 }
 
 export interface OfficeContext {
