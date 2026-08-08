@@ -273,10 +273,11 @@ export function useWorkbenchLifecycle(options: UseWorkbenchLifecycleOptions) {
     globalThis.addEventListener("pointerup", finishWorkspacePointerDrag);
     globalThis.addEventListener("pointercancel", cancelWorkspacePointerDrag);
     updateReviewWidth();
-    void useUpdaterStore().check({ silent: true });
+    useUpdaterStore().startPolling();
   });
 
   onUnmounted(() => {
+    useUpdaterStore().stopPolling();
     if (workspacePointerDrag.value) clearWorkspaceLongPress(workspacePointerDrag.value);
     for (const unlisten of unlisteners) unlisten();
     globalThis.removeEventListener("resize", updateReviewWidth);
